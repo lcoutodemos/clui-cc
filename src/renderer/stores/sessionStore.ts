@@ -67,6 +67,8 @@ interface State {
   addDirectory: (dir: string) => void
   removeDirectory: (dir: string) => void
   setBaseDirectory: (dir: string) => void
+  togglePin: (tabId: string) => void
+  renameTab: (tabId: string, title: string) => void
   addAttachments: (attachments: Attachment[]) => void
   removeAttachment: (attachmentId: string) => void
   clearAttachments: () => void
@@ -116,6 +118,42 @@ function makeLocalTab(): TabState {
     workingDirectory: '~',
     hasChosenDirectory: false,
     additionalDirs: [],
+    pinned: false,
+  }
+}
+
+// ─── Pinned tabs persistence ───
+
+interface PinnedTabData {
+  claudeSessionId: string
+  title: string
+  workingDirectory: string
+  additionalDirs: string[]
+}
+
+const PINNED_STORAGE_KEY = 'clui-pinned-tabs'
+
+function savePinnedTabs(tabs: TabState[]): void {
+  const pinned: PinnedTabData[] = tabs
+    .filter((t) => t.pinned && t.claudeSessionId)
+    .map((t) => ({
+      claudeSessionId: t.claudeSessionId!,
+      title: t.title,
+      workingDirectory: t.workingDirectory,
+      additionalDirs: t.additionalDirs,
+    }))
+  try {
+    localStorage.setItem(PINNED_STORAGE_KEY, JSON.stringify(pinned))
+  } catch {}
+}
+
+function loadPinnedTabs(): PinnedTabData[] {
+  try {
+    const raw = localStorage.getItem(PINNED_STORAGE_KEY)
+    if (!raw) return []
+    return JSON.parse(raw) as PinnedTabData[]
+  } catch {
+    return []
   }
 }
 
@@ -151,6 +189,39 @@ export const useSessionStore = create<State>((set, get) => ({
           homePath: result.homePath || '~',
         },
       })
+
+      // Restore pinned tabs from previous session
+      const pinnedData = loadPinnedTabs()
+      for (const p of pinnedData) {
+        try {
+          const { tabId } = await window.clui.createTab()
+          const history = await window.clui.loadSession(p.claudeSessionId, p.workingDirectory).catch(() => [])
+          let msgCounter2 = 0
+          const messages: import('../../shared/types').Message[] = history.map((m) => ({
+            id: `pinned-${++msgCounter2}`,
+            role: m.role as import('../../shared/types').Message['role'],
+            content: m.content,
+            toolName: m.toolName,
+            toolStatus: m.toolName ? 'completed' as const : undefined,
+            timestamp: m.timestamp,
+          }))
+
+          const tab: TabState = {
+            ...makeLocalTab(),
+            id: tabId,
+            claudeSessionId: p.claudeSessionId,
+            title: p.title,
+            workingDirectory: p.workingDirectory,
+            hasChosenDirectory: true,
+            additionalDirs: p.additionalDirs,
+            messages,
+            pinned: true,
+          }
+          set((s) => ({
+            tabs: [tab, ...s.tabs],
+          }))
+        } catch {}
+      }
     } catch {}
   },
 
@@ -319,7 +390,37 @@ export const useSessionStore = create<State>((set, get) => ({
     }, 100)
   },
 
+  togglePin: (tabId) => {
+    set((s) => {
+      const tabs = s.tabs.map((t) =>
+        t.id === tabId ? { ...t, pinned: !t.pinned } : t
+      )
+      // Sort: pinned tabs first, preserve relative order within each group
+      const pinned = tabs.filter((t) => t.pinned)
+      const unpinned = tabs.filter((t) => !t.pinned)
+      const sorted = [...pinned, ...unpinned]
+      savePinnedTabs(sorted)
+      return { tabs: sorted }
+    })
+  },
+
+  renameTab: (tabId, title) => {
+    const trimmed = title.trim()
+    if (!trimmed) return
+    set((s) => {
+      const tabs = s.tabs.map((t) =>
+        t.id === tabId ? { ...t, title: trimmed } : t
+      )
+      savePinnedTabs(tabs)
+      return { tabs }
+    })
+  },
+
   closeTab: (tabId) => {
+    // Prevent closing pinned tabs
+    const tab = get().tabs.find((t) => t.id === tabId)
+    if (tab?.pinned) return
+
     window.clui.closeTab(tabId).catch(() => {})
 
     const s = get()
@@ -617,6 +718,10 @@ export const useSessionStore = create<State>((set, get) => ({
             updated.sessionMcpServers = event.mcpServers
             updated.sessionSkills = event.skills
             updated.sessionVersion = event.version
+            // Persist pinned tabs when session ID is assigned
+            if (updated.pinned) {
+              setTimeout(() => savePinnedTabs(get().tabs), 0)
+            }
             // Don't change status/activity for warmup inits — they're invisible
             if (!event.isWarmup) {
               updated.status = 'running'

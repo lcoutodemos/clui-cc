@@ -168,6 +168,26 @@ npm run build
 npx electron .
 ```
 
+### Build as macOS App
+
+Generate a standalone `Clui CC.app` that runs without a terminal:
+
+```bash
+npm run dist
+```
+
+The app is created at `release/mac-arm64/Clui CC.app` (Apple Silicon) or `release/mac/Clui CC.app` (Intel).
+
+To install, drag it to `/Applications`:
+
+```bash
+cp -R "release/mac-arm64/Clui CC.app" /Applications/
+```
+
+Then open it from Spotlight, Launchpad, or the Applications folder like any native app.
+
+> **Note:** The app is not code-signed. On first launch macOS may block it — go to **System Settings → Privacy & Security** and click **Open Anyway**.
+
 </details>
 
 <details>

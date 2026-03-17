@@ -170,6 +170,8 @@ export interface TabState {
   hasChosenDirectory: boolean
   /** Extra directories accessible via --add-dir (session-preserving) */
   additionalDirs: string[]
+  /** Whether this tab is pinned (stays left, protected from close, persists across restarts) */
+  pinned: boolean
 }
 
 export interface Message {

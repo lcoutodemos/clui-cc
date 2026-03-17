@@ -16,6 +16,7 @@
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
+    "dist": "electron-vite build --mode production && electron-builder --mac --dir",
     "doctor": "bash scripts/doctor.sh",
     "postinstall": "electron-builder install-app-deps && bash scripts/patch-dev-icon.sh"
   },
@@ -30,6 +31,15 @@
   "build": {
     "appId": "com.clui.app",
     "productName": "Clui CC",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/main/**/*",
+      "dist/preload/**/*",
+      "dist/renderer/**/*",
+      "package.json"
+    ],
     "mac": {
       "icon": "resources/icon.icns"
     }
