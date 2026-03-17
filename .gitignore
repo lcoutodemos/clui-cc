@@ -3,6 +3,7 @@ node_modules/
 dist/
 out/
 build/
+release/
 *.tsbuildinfo
 
 # OS artifacts
