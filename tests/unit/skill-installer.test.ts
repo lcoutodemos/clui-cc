@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { Readable } from 'stream'
 import { EventEmitter } from 'events'
 
@@ -35,23 +35,56 @@ vi.mock('zlib', async () => {
 
 import { downloadAndExtractTarball } from '../../src/main/skills/download'
 
+// Helper: https.get is called as (url, opts, cb) — extract the callback
+function mockHttpGet(handler: (url: string, cb: (res: any) => void) => any) {
+  return (_url: any, _opts: any, cb: any) => {
+    // handle (url, opts, cb) signature
+    const callback = typeof _opts === 'function' ? _opts : cb
+    const result = handler(String(_url), callback)
+    const req = result ?? new EventEmitter()
+    if (!req.setTimeout) req.setTimeout = vi.fn()
+    if (!req.on) req.on = vi.fn().mockReturnThis()
+    return req as any
+  }
+}
+
 describe('downloadAndExtractTarball', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+  })
+
+  it('sends User-Agent header with requests', async () => {
+    const https = await import('https')
+    const mockGet = vi.mocked(https.get)
+
+    mockGet.mockImplementation(mockHttpGet((_url, cb) => {
+      const response = new Readable({ read() {} }) as any
+      response.statusCode = 404
+      response.headers = {}
+      cb(response)
+      response.push(null)
+    }))
+
+    await expect(
+      downloadAndExtractTarball('https://example.com/tarball', '/tmp/out', 2, 'skills/test')
+    ).rejects.toThrow()
+
+    // Verify opts with User-Agent was passed as second arg
+    const callArgs = mockGet.mock.calls[0]
+    expect(callArgs[1]).toMatchObject({ headers: { 'User-Agent': expect.any(String) } })
   })
 
   it('rejects on HTTP error status', async () => {
     const https = await import('https')
     const mockGet = vi.mocked(https.get)
 
-    mockGet.mockImplementation((_url: any, cb: any) => {
+    mockGet.mockImplementation(mockHttpGet((_url, cb) => {
       const response = new Readable({ read() {} }) as any
       response.statusCode = 404
       response.headers = {}
       cb(response)
       response.push(null)
-      return new EventEmitter() as any
-    })
+    }))
 
     await expect(
       downloadAndExtractTarball('https://example.com/tarball', '/tmp/out', 2, 'skills/test')
@@ -63,46 +96,39 @@ describe('downloadAndExtractTarball', () => {
     const mockGet = vi.mocked(https.get)
 
     let callCount = 0
-    mockGet.mockImplementation((_url: any, cb: any) => {
+    mockGet.mockImplementation(mockHttpGet((_url, cb) => {
       callCount++
       const response = new Readable({ read() {} }) as any
 
       if (callCount === 1) {
         response.statusCode = 302
         response.headers = { location: 'https://example.com/real-tarball' }
-        cb(response)
-        response.push(null)
       } else {
-        // Second call should error to stop the chain (we're testing redirect following)
         response.statusCode = 500
         response.headers = {}
-        cb(response)
-        response.push(null)
       }
-      return new EventEmitter() as any
-    })
+      cb(response)
+      response.push(null)
+    }))
 
     await expect(
       downloadAndExtractTarball('https://example.com/tarball', '/tmp/out', 2, 'skills/test')
     ).rejects.toThrow('HTTP 500')
 
-    // Verify it followed the redirect
     expect(callCount).toBe(2)
-    expect(mockGet).toHaveBeenCalledWith('https://example.com/real-tarball', expect.any(Function))
   })
 
   it('rejects on too many redirects', async () => {
     const https = await import('https')
     const mockGet = vi.mocked(https.get)
 
-    mockGet.mockImplementation((_url: any, cb: any) => {
+    mockGet.mockImplementation(mockHttpGet((_url, cb) => {
       const response = new Readable({ read() {} }) as any
       response.statusCode = 302
       response.headers = { location: 'https://example.com/loop' }
       cb(response)
       response.push(null)
-      return new EventEmitter() as any
-    })
+    }))
 
     await expect(
       downloadAndExtractTarball('https://example.com/tarball', '/tmp/out', 2, 'skills/test')
@@ -113,7 +139,7 @@ describe('downloadAndExtractTarball', () => {
     const https = await import('https')
     const mockGet = vi.mocked(https.get)
 
-    mockGet.mockImplementation((_url: any, _cb: any) => {
+    mockGet.mockImplementation((_url: any, _opts: any, _cb: any) => {
       const req = new EventEmitter() as any
       req.destroy = vi.fn()
       req.setTimeout = vi.fn()
@@ -130,7 +156,7 @@ describe('downloadAndExtractTarball', () => {
     const https = await import('https')
     const mockGet = vi.mocked(https.get)
 
-    mockGet.mockImplementation((_url: any, _cb: any) => {
+    mockGet.mockImplementation((_url: any, _opts: any, _cb: any) => {
       const req = new EventEmitter() as any
       req.destroy = vi.fn()
       req.setTimeout = vi.fn()

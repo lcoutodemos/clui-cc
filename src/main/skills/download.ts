@@ -8,10 +8,11 @@
 import * as https from 'https'
 import { createGunzip } from 'zlib'
 import { mkdirSync, writeFileSync } from 'fs'
-import { join, dirname, posix } from 'path'
+import { join, dirname } from 'path'
 
 const MAX_REDIRECTS = 5
 const TIMEOUT_MS = 60_000
+const USER_AGENT = 'clui-cc/0.1.0'
 
 /**
  * Download a GitHub tarball and extract a specific subdirectory into `outDir`.
@@ -31,7 +32,7 @@ export function downloadAndExtractTarball(
     let redirectCount = 0
 
     function doRequest(reqUrl: string) {
-      const req = https.get(reqUrl, (res) => {
+      const req = https.get(reqUrl, { headers: { 'User-Agent': USER_AGENT } }, (res) => {
         // Handle redirects
         if (res.statusCode && (res.statusCode === 301 || res.statusCode === 302) && res.headers.location) {
           redirectCount++
@@ -86,8 +87,9 @@ export function downloadAndExtractTarball(
 /**
  * Parse and extract a tar archive from a Buffer.
  *
- * Tar format: each file is a 512-byte header followed by the file content
- * (padded to 512-byte blocks).
+ * Supports both classic V7 tar and USTAR format:
+ * - Reads the 155-byte `prefix` field at offset 345 for paths > 100 chars
+ * - Handles type flag '0' (regular file) and '\0' (V7 regular file)
  */
 function extractTar(
   data: Buffer,
@@ -103,7 +105,11 @@ function extractTar(
     // Check for end-of-archive (two consecutive zero blocks)
     if (header.every((b) => b === 0)) break
 
-    const fileName = parseString(header, 0, 100)
+    // Read file name: USTAR uses prefix (offset 345, 155 bytes) + name (offset 0, 100 bytes)
+    const name = parseString(header, 0, 100)
+    const prefix = parseString(header, 345, 155)
+    const fileName = prefix ? `${prefix}/${name}` : name
+
     const size = parseOctal(header, 124, 12)
     const typeFlag = header[156]
 
