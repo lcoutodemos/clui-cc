@@ -7,6 +7,7 @@ import { ControlPlane } from './claude/control-plane'
 import { ensureSkills, type SkillStatus } from './skills/installer'
 import { fetchCatalog, listInstalled, installPlugin, uninstallPlugin } from './marketplace/catalog'
 import { log as _log, LOG_FILE, flushLogs } from './logger'
+import { getProjectSessionKey } from './session-path'
 import { IPC } from '../shared/types'
 import type { RunOptions, NormalizedEvent, EnrichedError } from '../shared/types'
 
@@ -33,13 +34,7 @@ const BAR_WIDTH = 1040
 const PILL_HEIGHT = 720  // Fixed native window height — extra room for expanded UI + shadow buffers
 const PILL_BOTTOM_MARGIN = 24
 
-function getProjectSessionKey(projectPath: string): string {
-  // Claude stores sessions under ~/.claude/projects/<encoded-path>.
-  // Normalize cross-platform paths so Windows (\ and drive letters) resolve consistently.
-  return projectPath
-    .replace(/[\\/]/g, '-')
-    .replace(/:/g, '')
-}
+// getProjectSessionKey imported from ./session-path
 
 // ─── Broadcast to renderer ───
 
