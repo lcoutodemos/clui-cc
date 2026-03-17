@@ -8,6 +8,7 @@ import { ensureSkills, type SkillStatus } from './skills/installer'
 import { fetchCatalog, listInstalled, installPlugin, uninstallPlugin } from './marketplace/catalog'
 import { log as _log, LOG_FILE, flushLogs } from './logger'
 import { getProjectSessionKey } from './session-path'
+import { getWindowConfig } from './window-config'
 import { IPC } from '../shared/types'
 import type { RunOptions, NormalizedEvent, EnrichedError } from '../shared/types'
 
@@ -103,23 +104,25 @@ function createWindow(): void {
   const x = dx + Math.round((screenWidth - BAR_WIDTH) / 2)
   const y = dy + screenHeight - PILL_HEIGHT - PILL_BOTTOM_MARGIN
 
+  const winConfig = getWindowConfig()
+
   mainWindow = new BrowserWindow({
     width: BAR_WIDTH,
     height: PILL_HEIGHT,
     x,
     y,
-    ...(process.platform === 'darwin' ? { type: 'panel' as const } : {}),  // NSPanel — non-activating, joins all spaces
+    ...(winConfig.type ? { type: winConfig.type } : {}),
     frame: false,
-    transparent: true,
+    transparent: winConfig.transparent,
     resizable: false,
     movable: true,
-    alwaysOnTop: true,
-    skipTaskbar: true,
-    hasShadow: false,
+    alwaysOnTop: winConfig.alwaysOnTop,
+    skipTaskbar: winConfig.skipTaskbar,
+    hasShadow: winConfig.hasShadow,
     roundedCorners: true,
-    backgroundColor: '#00000000',
+    backgroundColor: winConfig.backgroundColor,
     show: false,
-    icon: join(__dirname, process.platform === 'win32' ? '../../resources/icon.png' : '../../resources/icon.icns'),
+    icon: join(__dirname, '../../resources', winConfig.iconFile),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
