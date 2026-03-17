@@ -668,34 +668,28 @@ ipcMain.handle(IPC.TRANSCRIBE_AUDIO, async (_event, audioBase64: string) => {
     const buf = Buffer.from(audioBase64, 'base64')
     writeFileSync(tmpWav, buf)
 
-    // Find whisper-cli (whisper-cpp homebrew) or whisper (python)
-    const candidates = [
-      '/opt/homebrew/bin/whisper-cli',
-      '/usr/local/bin/whisper-cli',
-      '/opt/homebrew/bin/whisper',
-      '/usr/local/bin/whisper',
-      join(homedir(), '.local/bin/whisper'),
-    ]
+    // Find whisper binary using platform-appropriate paths
+    const { getWhisperBinaryCandidates, getWhisperNotFoundMessage } = require('./whisper-paths')
+    const { findBinary } = require('./platform')
+    const whisperCandidates = getWhisperBinaryCandidates()
 
     let whisperBin = ''
-    for (const c of candidates) {
+    for (const c of whisperCandidates) {
       if (existsSync(c)) { whisperBin = c; break }
     }
 
     if (!whisperBin) {
-      try {
-        whisperBin = execSync('/bin/zsh -lc "whence -p whisper-cli"', { encoding: 'utf-8' }).trim()
-      } catch {}
+      const found = findBinary('whisper-cli')
+      if (found !== 'whisper-cli') whisperBin = found
     }
     if (!whisperBin) {
-      try {
-        whisperBin = execSync('/bin/zsh -lc "whence -p whisper"', { encoding: 'utf-8' }).trim()
-      } catch {}
+      const found = findBinary('whisper')
+      if (found !== 'whisper') whisperBin = found
     }
 
     if (!whisperBin) {
       return {
-        error: 'Whisper not found. Install with: brew install whisper-cpp',
+        error: getWhisperNotFoundMessage(),
         transcript: null,
       }
     }
@@ -703,17 +697,8 @@ ipcMain.handle(IPC.TRANSCRIBE_AUDIO, async (_event, audioBase64: string) => {
     const isWhisperCpp = whisperBin.includes('whisper-cli')
 
     // Find model file — prefer multilingual (auto-detect language) over .en (English-only)
-    const modelCandidates = [
-      join(homedir(), '.local/share/whisper/ggml-tiny.bin'),
-      join(homedir(), '.local/share/whisper/ggml-base.bin'),
-      '/opt/homebrew/share/whisper-cpp/models/ggml-tiny.bin',
-      '/opt/homebrew/share/whisper-cpp/models/ggml-base.bin',
-      // Fall back to English-only models if multilingual not available
-      join(homedir(), '.local/share/whisper/ggml-tiny.en.bin'),
-      join(homedir(), '.local/share/whisper/ggml-base.en.bin'),
-      '/opt/homebrew/share/whisper-cpp/models/ggml-tiny.en.bin',
-      '/opt/homebrew/share/whisper-cpp/models/ggml-base.en.bin',
-    ]
+    const { getWhisperModelCandidates, getModelDownloadMessage } = require('./whisper-paths')
+    const modelCandidates = getWhisperModelCandidates()
 
     let modelPath = ''
     for (const m of modelCandidates) {
@@ -729,7 +714,7 @@ ipcMain.handle(IPC.TRANSCRIBE_AUDIO, async (_event, audioBase64: string) => {
       // whisper-cpp: whisper-cli -m model -f file --no-timestamps
       if (!modelPath) {
         return {
-          error: 'Whisper model not found. Download with:\nmkdir -p ~/.local/share/whisper && curl -L -o ~/.local/share/whisper/ggml-tiny.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin',
+          error: getModelDownloadMessage(),
           transcript: null,
         }
       }
