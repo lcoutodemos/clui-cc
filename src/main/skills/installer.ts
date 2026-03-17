@@ -11,9 +11,9 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync, rmSync, cpSync } from 'fs'
 import { join, dirname } from 'path'
 import { homedir } from 'os'
-import { execSync } from 'child_process'
 import { randomUUID } from 'crypto'
 import { SKILLS, type SkillEntry } from './manifest'
+import { downloadAndExtractTarball } from './download'
 
 /** Directory containing bundled skill sources (relative to main process __dirname) */
 const BUNDLED_SKILLS_DIR = join(__dirname, '../../skills')
@@ -94,14 +94,8 @@ async function installGithubSkill(
     const pathDepth = path.split('/').length + 1 // +1 for the github top-level dir
     const tarballUrl = `https://api.github.com/repos/${repo}/tarball/${commitSha}`
 
-    // Use curl + tar — both always available on macOS
-    const cmd = [
-      `curl -sL "${tarballUrl}"`,
-      '|',
-      `tar -xz --strip-components=${pathDepth} -C "${tmpDir}" "*/${path}"`,
-    ].join(' ')
-
-    execSync(cmd, { timeout: 60000, stdio: 'pipe' })
+    // Native Node.js download + tar extraction (cross-platform, no curl/tar dependency)
+    await downloadAndExtractTarball(tarballUrl, tmpDir, pathDepth, path)
 
     // Validate extracted files
     onStatus({ name: entry.name, state: 'validating' })
