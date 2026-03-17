@@ -91,6 +91,37 @@ export default function App() {
     }
   }, [])
 
+  // ─── Cmd+1..9 tab switching ───
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!e.metaKey && !e.ctrlKey) return
+      if (e.key === 't' || e.key === 'T') {
+        e.preventDefault()
+        useSessionStore.getState().createTab()
+        return
+      }
+
+      if (e.key === 'w' || e.key === 'W') {
+        e.preventDefault()
+        const { activeTabId, closeTab } = useSessionStore.getState()
+        closeTab(activeTabId)
+        return
+      }
+
+      const digit = parseInt(e.key, 10)
+      if (digit < 1 || digit > 9 || isNaN(digit)) return
+
+      e.preventDefault()
+      const { tabs, selectTab } = useSessionStore.getState()
+      const index = digit - 1
+      if (index < tabs.length) {
+        selectTab(tabs[index].id)
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [])
+
   const isExpanded = useSessionStore((s) => s.isExpanded)
   const marketplaceOpen = useSessionStore((s) => s.marketplaceOpen)
   const isRunning = activeTabStatus === 'running' || activeTabStatus === 'connecting'

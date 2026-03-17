@@ -1,6 +1,6 @@
-import React from 'react'
+import React, { useState, useRef, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Plus, X } from '@phosphor-icons/react'
+import { Plus, X, PushPin, PushPinSlash } from '@phosphor-icons/react'
 import { useSessionStore } from '../stores/sessionStore'
 import { HistoryPicker } from './HistoryPicker'
 import { SettingsPopover } from './SettingsPopover'
@@ -42,7 +42,20 @@ export function TabStrip() {
   const selectTab = useSessionStore((s) => s.selectTab)
   const createTab = useSessionStore((s) => s.createTab)
   const closeTab = useSessionStore((s) => s.closeTab)
+  const togglePin = useSessionStore((s) => s.togglePin)
+  const renameTab = useSessionStore((s) => s.renameTab)
   const colors = useColors()
+  const [editingTabId, setEditingTabId] = useState<string | null>(null)
+  const [editValue, setEditValue] = useState('')
+  const editRef = useRef<HTMLInputElement>(null)
+  const clickTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    if (editingTabId && editRef.current) {
+      editRef.current.focus()
+      editRef.current.select()
+    }
+  }, [editingTabId])
 
   return (
     <div
@@ -76,7 +89,11 @@ export function TabStrip() {
                   animate={{ opacity: 1, scale: 1 }}
                   exit={{ opacity: 0, scale: 0.9 }}
                   transition={{ duration: 0.15 }}
-                  onClick={() => selectTab(tab.id)}
+                  onClick={() => {
+                    if (clickTimer.current) { clearTimeout(clickTimer.current); clickTimer.current = null; return }
+                    clickTimer.current = setTimeout(() => { clickTimer.current = null; selectTab(tab.id) }, 200)
+                  }}
+                  onContextMenu={(e) => { e.preventDefault(); togglePin(tab.id) }}
                   className="group flex items-center gap-1.5 cursor-pointer select-none flex-shrink-0 max-w-[160px] transition-all duration-150"
                   style={{
                     background: isActive ? colors.tabActive : 'transparent',
@@ -88,9 +105,48 @@ export function TabStrip() {
                     fontWeight: isActive ? 500 : 400,
                   }}
                 >
+                  {tab.pinned && (
+                    <PushPin size={10} weight="fill" className="flex-shrink-0" style={{ color: colors.textTertiary }} />
+                  )}
                   <StatusDot status={tab.status} hasUnread={tab.hasUnread} hasPermission={tab.permissionQueue.length > 0} />
-                  <span className="truncate flex-1">{tab.title}</span>
-                  {tabs.length > 1 && (
+                  {editingTabId === tab.id ? (
+                    <input
+                      ref={editRef}
+                      value={editValue}
+                      onChange={(e) => setEditValue(e.target.value)}
+                      onBlur={() => { renameTab(tab.id, editValue); setEditingTabId(null) }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') { renameTab(tab.id, editValue); setEditingTabId(null) }
+                        if (e.key === 'Escape') setEditingTabId(null)
+                      }}
+                      onClick={(e) => e.stopPropagation()}
+                      className="truncate flex-1 bg-transparent outline-none border-none"
+                      style={{ fontSize: 12, color: 'inherit', fontWeight: 'inherit', padding: 0, margin: 0, width: '100%' }}
+                    />
+                  ) : (
+                    <span
+                      className="truncate flex-1"
+                      onDoubleClick={(e) => {
+                        e.stopPropagation()
+                        if (clickTimer.current) { clearTimeout(clickTimer.current); clickTimer.current = null }
+                        setEditingTabId(tab.id); setEditValue(tab.title)
+                      }}
+                    >
+                      {tab.title}
+                    </span>
+                  )}
+                  {tab.pinned ? (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); togglePin(tab.id) }}
+                      className="flex-shrink-0 rounded-full w-4 h-4 flex items-center justify-center transition-opacity"
+                      style={{ opacity: 0, color: colors.textSecondary }}
+                      onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.opacity = '1' }}
+                      onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.opacity = '0' }}
+                      title="Unpin tab"
+                    >
+                      <PushPinSlash size={10} />
+                    </button>
+                  ) : tabs.length > 1 ? (
                     <button
                       onClick={(e) => { e.stopPropagation(); closeTab(tab.id) }}
                       className="flex-shrink-0 rounded-full w-4 h-4 flex items-center justify-center transition-opacity"
@@ -103,7 +159,7 @@ export function TabStrip() {
                     >
                       <X size={10} />
                     </button>
-                  )}
+                  ) : null}
                 </motion.div>
               )
             })}

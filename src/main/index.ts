@@ -10,6 +10,8 @@ import { log as _log, LOG_FILE, flushLogs } from './logger'
 import { IPC } from '../shared/types'
 import type { RunOptions, NormalizedEvent, EnrichedError } from '../shared/types'
 
+app.disableHardwareAcceleration()
+
 const DEBUG_MODE = process.env.CLUI_DEBUG === '1'
 const SPACES_DEBUG = DEBUG_MODE || process.env.CLUI_SPACES_DEBUG === '1'
 
@@ -864,6 +866,34 @@ app.whenReady().then(() => {
   createWindow()
   snapshotWindowState('after createWindow')
 
+  // Override default app menu to remove Cmd+W (Close Window) — renderer handles it as close-tab
+  Menu.setApplicationMenu(Menu.buildFromTemplate([
+    {
+      label: app.name,
+      submenu: [
+        { role: 'about' },
+        { type: 'separator' },
+        { role: 'hide' },
+        { role: 'hideOthers' },
+        { role: 'unhide' },
+        { type: 'separator' },
+        { role: 'quit' },
+      ],
+    },
+    {
+      label: 'Edit',
+      submenu: [
+        { role: 'undo' },
+        { role: 'redo' },
+        { type: 'separator' },
+        { role: 'cut' },
+        { role: 'copy' },
+        { role: 'paste' },
+        { role: 'selectAll' },
+      ],
+    },
+  ]))
+
   if (SPACES_DEBUG) {
     mainWindow?.on('show', () => snapshotWindowState('event window show'))
     mainWindow?.on('hide', () => snapshotWindowState('event window hide'))
@@ -890,11 +920,11 @@ app.whenReady().then(() => {
   }
 
 
-  // Primary: Option+Space (2 keys, doesn't conflict with shell)
+  // Primary: Cmd+Space (replaces Spotlight)
   // Fallback: Cmd+Shift+K kept as secondary shortcut
-  const registered = globalShortcut.register('Alt+Space', () => toggleWindow('shortcut Alt+Space'))
+  const registered = globalShortcut.register('CommandOrControl+Space', () => toggleWindow('shortcut Cmd+Space'))
   if (!registered) {
-    log('Alt+Space shortcut registration failed — macOS input sources may claim it')
+    log('Cmd+Space shortcut registration failed — check that Spotlight shortcut is disabled')
   }
   globalShortcut.register('CommandOrControl+Shift+K', () => toggleWindow('shortcut Cmd/Ctrl+Shift+K'))
 
