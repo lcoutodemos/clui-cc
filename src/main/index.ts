@@ -11,6 +11,7 @@ import { getProjectSessionKey } from './session-path'
 import { getWindowConfig } from './window-config'
 import { loadShortcutConfig, saveShortcutConfig, getSafeAlternatives } from './shortcut-config'
 import { buildTerminalCommand } from './terminal-launch'
+import { buildScreenshotCommand, getScreenshotTempPath } from './screenshot'
 import { IPC } from '../shared/types'
 import type { RunOptions, NormalizedEvent, EnrichedError } from '../shared/types'
 
@@ -568,37 +569,17 @@ ipcMain.handle(IPC.TAKE_SCREENSHOT, async () => {
 
   try {
     const { execSync } = require('child_process')
-    const { join } = require('path')
-    const { tmpdir } = require('os')
-    const { readFileSync, existsSync } = require('fs')
+    const { readFileSync, existsSync, unlinkSync } = require('fs')
 
-    const timestamp = Date.now()
-    const screenshotPath = join(tmpdir(), `clui-screenshot-${timestamp}.png`)
+    const screenshotPath = getScreenshotTempPath()
+    const cmd = buildScreenshotCommand(screenshotPath)
+    if (!cmd) return null
 
-    if (process.platform === 'darwin') {
-      execSync(`/usr/sbin/screencapture -i "${screenshotPath}"`, {
-        timeout: 30000,
-        stdio: 'ignore',
-      })
-    } else if (process.platform === 'win32') {
-      const psScript = [
-        'Add-Type -AssemblyName System.Windows.Forms;',
-        'Add-Type -AssemblyName System.Drawing;',
-        '$bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds;',
-        '$bmp = New-Object System.Drawing.Bitmap($bounds.Width, $bounds.Height);',
-        '$gfx = [System.Drawing.Graphics]::FromImage($bmp);',
-        '$gfx.CopyFromScreen($bounds.Location, [System.Drawing.Point]::Empty, $bounds.Size);',
-        `$bmp.Save('${screenshotPath.replace(/\\/g, '\\\\')}', [System.Drawing.Imaging.ImageFormat]::Png);`,
-        '$gfx.Dispose();',
-        '$bmp.Dispose();',
-      ].join(' ')
-      execSync(`powershell -NoProfile -ExecutionPolicy Bypass -Command "${psScript}"`, {
-        timeout: 30000,
-        stdio: 'ignore',
-      })
-    } else {
-      return null
-    }
+    execSync(`"${cmd.program}" ${cmd.args.map(a => `"${a}"`).join(' ')}`, {
+      timeout: 30000,
+      stdio: 'ignore',
+      shell: true,
+    })
 
     if (!existsSync(screenshotPath)) {
       return null
