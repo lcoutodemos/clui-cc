@@ -19,6 +19,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "dist": "electron-vite build && electron-builder",
+    "dist:win": "electron-vite build && electron-builder --win",
+    "dist:mac": "electron-vite build && electron-builder --mac",
     "doctor": "bash scripts/doctor.sh",
     "postinstall": "electron-builder install-app-deps && node scripts/postinstall.js"
   },
@@ -33,11 +36,29 @@
   "build": {
     "appId": "com.clui.app",
     "productName": "Clui CC",
+    "directories": {
+      "output": "release"
+    },
     "mac": {
-      "icon": "resources/icon.icns"
+      "icon": "resources/icon.icns",
+      "target": ["dmg", "zip"]
     },
     "win": {
-      "icon": "resources/icon.png"
+      "icon": "resources/icon.png",
+      "target": [
+        { "target": "nsis", "arch": ["x64", "arm64"] },
+        { "target": "portable", "arch": ["x64"] }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "deleteAppDataOnUninstall": false,
+      "installerIcon": "resources/icon.png",
+      "uninstallerIcon": "resources/icon.png"
+    },
+    "portable": {
+      "artifactName": "${productName}-${version}-portable.exe"
     }
   },
   "devDependencies": {
