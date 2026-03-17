@@ -1,0 +1,42 @@
+name: CI — Windows
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/main/**'
+      - 'src/shared/**'
+      - 'src/preload/**'
+      - 'tests/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'tsconfig.json'
+      - 'electron.vite.config.ts'
+      - 'vitest.config.ts'
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        node-version: [20, 22]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm run test
+
+      - name: Type-check and build
+        run: npm run build
