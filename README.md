@@ -1,6 +1,6 @@
 # Clui CC — Command Line User Interface for Claude Code
 
-A lightweight, transparent desktop overlay for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) on macOS. Clui CC wraps the Claude Code CLI in a floating pill interface with multi-tab sessions, a permission approval UI, voice input, and a skills marketplace.
+A lightweight, transparent desktop overlay for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) on macOS and Windows. Clui CC wraps the Claude Code CLI in a floating pill interface with multi-tab sessions, a permission approval UI, voice input, and a skills marketplace.
 
 ## Demo
 
@@ -10,7 +10,7 @@ A lightweight, transparent desktop overlay for [Claude Code](https://docs.anthro
 
 ## Features
 
-- **Floating overlay** — transparent, click-through window that stays on top. Toggle with `Alt+Space`.
+- **Floating overlay** — transparent, click-through window that stays on top. Toggle with `Alt+Space` (macOS) or `Ctrl+Space` (Windows).
 - **Multi-tab sessions** — each tab spawns its own `claude -p` process with independent session state.
 - **Permission approval UI** — intercepts tool calls via PreToolUse HTTP hooks so you can review and approve/deny from the UI.
 - **Conversation history** — browse and resume past Claude Code sessions.
@@ -18,6 +18,20 @@ A lightweight, transparent desktop overlay for [Claude Code](https://docs.anthro
 - **Voice input** — local speech-to-text via Whisper (no cloud transcription).
 - **File & screenshot attachments** — paste images or attach files directly.
 - **Dual theme** — dark/light mode with system-follow option.
+
+## What was actually changed for Windows in this branch
+
+This was a **compatibility pass**, not a full rewrite. The codebase remains Electron + React, and these Windows-focused changes were added:
+
+- Platform-specific app/tray icon handling in the main process.
+- Default global shortcut on Windows changed to `Ctrl+Space` (`Alt+Space` stays on macOS).
+- macOS-only workspace behavior is now guarded behind Darwin checks.
+- "Open in terminal" now launches `cmd.exe` on Windows and preserves project path/session resume.
+- Claude session key generation now normalizes Windows-style paths (`\\` and drive letters).
+- Screenshot capture includes a Windows PowerShell implementation.
+- `postinstall` no longer assumes bash is available on Windows (mac icon patch only runs on macOS).
+
+Important: Windows support is still **beta** and can vary by GPU/desktop compositor policy.
 
 ## Why Clui CC Is Different
 
@@ -82,12 +96,12 @@ To close the app:
 
 You can also double-click `start.command` and `stop.command` from Finder.
 
-Toggle the overlay: **Alt+Space** (or **Cmd+Shift+K** as fallback).
+Toggle the overlay: **Alt+Space** on macOS, **Ctrl+Space** on Windows (or **Cmd/Ctrl+Shift+K** as fallback).
 
 <details>
 <summary><strong>Setup Prerequisites (Detailed)</strong></summary>
 
-You need **macOS 13+**. Then install these one at a time — copy each command and paste it into Terminal.
+You need **macOS 13+ or Windows 10+**. Then install these one at a time.
 
 **Step 1.** Install Xcode Command Line Tools (needed to compile native modules):
 
@@ -248,6 +262,7 @@ npm run doctor
 | Component | Version |
 |-----------|---------|
 | macOS | 15.x (Sequoia) |
+| Windows | 11 |
 | Node.js | 20.x LTS, 22.x |
 | Python | 3.12 (with setuptools installed) |
 | Electron | 33.x |
@@ -255,7 +270,7 @@ npm run doctor
 
 ## Known Limitations
 
-- **macOS only** — transparent overlay, tray icon, and node-pty are macOS-specific. Windows/Linux support is not currently implemented.
+- **Windows support is new** — screenshot capture and overlay behavior may differ from macOS depending on GPU/driver and desktop compositor settings.
 - **Requires Claude Code CLI** — Clui CC is a UI layer, not a standalone AI client. You need an authenticated `claude` CLI.
 - **Permission mode** — uses `--permission-mode default`. The PTY interactive transport is legacy and disabled by default.
 

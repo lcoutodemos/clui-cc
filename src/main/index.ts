@@ -33,6 +33,14 @@ const BAR_WIDTH = 1040
 const PILL_HEIGHT = 720  // Fixed native window height — extra room for expanded UI + shadow buffers
 const PILL_BOTTOM_MARGIN = 24
 
+function getProjectSessionKey(projectPath: string): string {
+  // Claude stores sessions under ~/.claude/projects/<encoded-path>.
+  // Normalize cross-platform paths so Windows (\ and drive letters) resolve consistently.
+  return projectPath
+    .replace(/[\\/]/g, '-')
+    .replace(/:/g, '')
+}
+
 // ─── Broadcast to renderer ───
 
 function broadcast(channel: string, ...args: unknown[]): void {
@@ -116,7 +124,7 @@ function createWindow(): void {
     roundedCorners: true,
     backgroundColor: '#00000000',
     show: false,
-    icon: join(__dirname, '../../resources/icon.icns'),
+    icon: join(__dirname, process.platform === 'win32' ? '../../resources/icon.png' : '../../resources/icon.icns'),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
@@ -126,7 +134,9 @@ function createWindow(): void {
 
   // Belt-and-suspenders: panel already joins all spaces and floats,
   // but explicit flags ensure correct behavior on older Electron builds.
-  mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+  if (process.platform === 'darwin') {
+    mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+  }
   mainWindow.setAlwaysOnTop(true, 'screen-saver')
 
   mainWindow.once('ready-to-show', () => {
@@ -339,7 +349,7 @@ ipcMain.handle(IPC.LIST_SESSIONS, async (_e, projectPath?: string) => {
     const cwd = projectPath || process.cwd()
     // Claude stores project sessions at ~/.claude/projects/<encoded-path>/
     // Path encoding: replace all '/' with '-' (leading '/' becomes leading '-')
-    const encodedPath = cwd.replace(/\//g, '-')
+    const encodedPath = getProjectSessionKey(cwd)
     const sessionsDir = join(homedir(), '.claude', 'projects', encodedPath)
     if (!existsSync(sessionsDir)) {
       log(`LIST_SESSIONS: directory not found: ${sessionsDir}`)
@@ -419,7 +429,7 @@ ipcMain.handle(IPC.LOAD_SESSION, async (_e, arg: { sessionId: string; projectPat
   log(`IPC LOAD_SESSION ${sessionId}${projectPath ? ` (path=${projectPath})` : ''}`)
   try {
     const cwd = projectPath || process.cwd()
-    const encodedPath = cwd.replace(/\//g, '-')
+    const encodedPath = getProjectSessionKey(cwd)
     const filePath = join(homedir(), '.claude', 'projects', encodedPath, `${sessionId}.jsonl`)
     if (!existsSync(filePath)) return []
 
@@ -565,10 +575,30 @@ ipcMain.handle(IPC.TAKE_SCREENSHOT, async () => {
     const timestamp = Date.now()
     const screenshotPath = join(tmpdir(), `clui-screenshot-${timestamp}.png`)
 
-    execSync(`/usr/sbin/screencapture -i "${screenshotPath}"`, {
-      timeout: 30000,
-      stdio: 'ignore',
-    })
+    if (process.platform === 'darwin') {
+      execSync(`/usr/sbin/screencapture -i "${screenshotPath}"`, {
+        timeout: 30000,
+        stdio: 'ignore',
+      })
+    } else if (process.platform === 'win32') {
+      const psScript = [
+        'Add-Type -AssemblyName System.Windows.Forms;',
+        'Add-Type -AssemblyName System.Drawing;',
+        '$bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds;',
+        '$bmp = New-Object System.Drawing.Bitmap($bounds.Width, $bounds.Height);',
+        '$gfx = [System.Drawing.Graphics]::FromImage($bmp);',
+        '$gfx.CopyFromScreen($bounds.Location, [System.Drawing.Point]::Empty, $bounds.Size);',
+        `$bmp.Save('${screenshotPath.replace(/\\/g, '\\\\')}', [System.Drawing.Imaging.ImageFormat]::Png);`,
+        '$gfx.Dispose();',
+        '$bmp.Dispose();',
+      ].join(' ')
+      execSync(`powershell -NoProfile -ExecutionPolicy Bypass -Command "${psScript}"`, {
+        timeout: 30000,
+        stdio: 'ignore',
+      })
+    } else {
+      return null
+    }
 
     if (!existsSync(screenshotPath)) {
       return null
@@ -787,25 +817,29 @@ ipcMain.handle(IPC.OPEN_IN_TERMINAL, (_event, arg: string | null | { sessionId?:
     projectPath = arg.projectPath && arg.projectPath !== '~' ? arg.projectPath : process.cwd()
   }
 
-  // Escape for AppleScript: double quotes → backslash-escaped, backslashes doubled
-  const projectDir = projectPath.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
-  let cmd: string
-  if (sessionId) {
-    cmd = `cd \\"${projectDir}\\" && ${claudeBin} --resume ${sessionId}`
-  } else {
-    cmd = `cd \\"${projectDir}\\" && ${claudeBin}`
-  }
-
-  const script = `tell application "Terminal"
-  activate
-  do script "${cmd}"
-end tell`
+  const baseCmd = sessionId ? `${claudeBin} --resume ${sessionId}` : claudeBin
+  const winCmd = `cd /d "${projectPath}" && ${baseCmd}`
+  const posixCmd = `cd "${projectPath.replace(/"/g, '\\"')}" && ${baseCmd}`
 
   try {
-    execFile('/usr/bin/osascript', ['-e', script], (err: Error | null) => {
-      if (err) log(`Failed to open terminal: ${err.message}`)
-      else log(`Opened terminal with: ${cmd}`)
-    })
+    if (process.platform === 'darwin') {
+      const escaped = posixCmd.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+      const script = `tell application "Terminal"\n  activate\n  do script "${escaped}"\nend tell`
+      execFile('/usr/bin/osascript', ['-e', script], (err: Error | null) => {
+        if (err) log(`Failed to open terminal: ${err.message}`)
+        else log(`Opened terminal with: ${posixCmd}`)
+      })
+    } else if (process.platform === 'win32') {
+      execFile('cmd.exe', ['/c', 'start', 'cmd.exe', '/k', winCmd], (err: Error | null) => {
+        if (err) log(`Failed to open terminal: ${err.message}`)
+        else log(`Opened terminal with: ${winCmd}`)
+      })
+    } else {
+      execFile('x-terminal-emulator', ['-e', `bash -lc '${posixCmd.replace(/'/g, `'\\''`)}'`], (err: Error | null) => {
+        if (err) log(`Failed to open terminal: ${err.message}`)
+        else log(`Opened terminal with: ${posixCmd}`)
+      })
+    }
     return true
   } catch (err: unknown) {
     log(`Failed to open terminal: ${err}`)
@@ -892,15 +926,18 @@ app.whenReady().then(() => {
 
   // Primary: Option+Space (2 keys, doesn't conflict with shell)
   // Fallback: Cmd+Shift+K kept as secondary shortcut
-  const registered = globalShortcut.register('Alt+Space', () => toggleWindow('shortcut Alt+Space'))
+  const primaryShortcut = process.platform === 'win32' ? 'CommandOrControl+Space' : 'Alt+Space'
+  const registered = globalShortcut.register(primaryShortcut, () => toggleWindow(`shortcut ${primaryShortcut}`))
   if (!registered) {
-    log('Alt+Space shortcut registration failed — macOS input sources may claim it')
+    log(`${primaryShortcut} shortcut registration failed`)
   }
   globalShortcut.register('CommandOrControl+Shift+K', () => toggleWindow('shortcut Cmd/Ctrl+Shift+K'))
 
-  const trayIconPath = join(__dirname, '../../resources/trayTemplate.png')
+  const trayIconPath = join(__dirname, process.platform === 'darwin' ? '../../resources/trayTemplate.png' : '../../resources/icon.png')
   const trayIcon = nativeImage.createFromPath(trayIconPath)
-  trayIcon.setTemplateImage(true)
+  if (process.platform === 'darwin') {
+    trayIcon.setTemplateImage(true)
+  }
   tray = new Tray(trayIcon)
   tray.setToolTip('Clui CC — Claude Code UI')
   tray.on('click', () => toggleWindow('tray click'))

@@ -25,7 +25,7 @@ check() {
   fi
 }
 
-# macOS
+# Platform
 if [ "$(uname)" = "Darwin" ]; then
   ver=$(sw_vers -productVersion 2>/dev/null || echo "0")
   if version_gte "$ver" "13.0"; then
@@ -33,8 +33,10 @@ if [ "$(uname)" = "Darwin" ]; then
   else
     check "macOS" "0" "$ver — requires 13+"
   fi
+elif [ "$(uname -s | tr '[:upper:]' '[:lower:]')" = "mingw64_nt-10.0" ] || [ "$(uname -s | tr '[:upper:]' '[:lower:]')" = "msys_nt-10.0" ] || [ "$(uname -s | tr '[:upper:]' '[:lower:]')" = "cygwin_nt-10.0" ]; then
+  check "Windows" "1" "detected ($(uname -s))"
 else
-  check "macOS" "0" "not macOS ($(uname)) — Clui CC requires macOS"
+  check "Platform" "0" "unsupported ($(uname)) — use macOS 13+ or Windows 10+"
 fi
 
 # Node
@@ -75,25 +77,26 @@ else
   check "distutils" "0" "skipped (no python3)"
 fi
 
-# Xcode CLT
-if xcode-select -p &>/dev/null; then
-  check "Xcode CLT" "1" "$(xcode-select -p)"
-else
-  check "Xcode CLT" "0" "not installed — xcode-select --install"
-fi
+if [ "$(uname)" = "Darwin" ]; then
+  # Xcode CLT
+  if xcode-select -p &>/dev/null; then
+    check "Xcode CLT" "1" "$(xcode-select -p)"
+  else
+    check "Xcode CLT" "0" "not installed — xcode-select --install"
+  fi
 
-# macOS SDK
-if xcrun --sdk macosx --show-sdk-path &>/dev/null; then
-  SDK_PATH=$(xcrun --sdk macosx --show-sdk-path)
-  check "macOS SDK" "1" "$SDK_PATH"
-else
-  check "macOS SDK" "0" "not found — reinstall Xcode CLT"
-fi
+  # macOS SDK
+  if xcrun --sdk macosx --show-sdk-path &>/dev/null; then
+    SDK_PATH=$(xcrun --sdk macosx --show-sdk-path)
+    check "macOS SDK" "1" "$SDK_PATH"
+  else
+    check "macOS SDK" "0" "not found — reinstall Xcode CLT"
+  fi
 
-# clang++
-if command -v clang++ &>/dev/null; then
-  cver=$(clang++ --version 2>&1 | head -1)
-  check "clang++" "1" "$cver"
+  # clang++
+  if command -v clang++ &>/dev/null; then
+    cver=$(clang++ --version 2>&1 | head -1)
+    check "clang++" "1" "$cver"
 
   # C++ headers (only probe if clang++ exists)
   PROBE_DIR=$(mktemp -d)
@@ -106,10 +109,13 @@ if command -v clang++ &>/dev/null; then
   else
     check "C++ headers" "0" "<functional> missing — reinstall Xcode CLT"
   fi
-  rm -rf "$PROBE_DIR"
+    rm -rf "$PROBE_DIR"
+  else
+    check "clang++" "0" "not found — xcode-select --install"
+    check "C++ headers" "0" "skipped (no clang++)"
+  fi
 else
-  check "clang++" "0" "not found — xcode-select --install"
-  check "C++ headers" "0" "skipped (no clang++)"
+  check "Build tools" "1" "Use Visual Studio Build Tools (Desktop C++) if native deps need rebuild"
 fi
 
 # Claude CLI
