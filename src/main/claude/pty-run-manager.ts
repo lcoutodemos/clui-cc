@@ -20,6 +20,7 @@ import { homedir } from 'os'
 import { join } from 'path'
 import { appendFileSync, chmodSync, existsSync, statSync } from 'fs'
 import { findClaudeBinary, getLoginShellPath, ensureBinDirInPath } from '../platform'
+import { isPtyAvailable, getPtyUnavailableReason } from '../pty-availability'
 import type { NormalizedEvent, RunOptions, EnrichedError } from '../../shared/types'
 
 // node-pty is a native module — require at runtime to avoid Vite bundling issues
@@ -330,8 +331,9 @@ export class PtyRunManager extends EventEmitter {
   }
 
   startRun(requestId: string, options: RunOptions): PtyRunHandle {
-    if (!pty) {
-      throw new Error('node-pty is not available — cannot use PTY transport')
+    if (!pty || !isPtyAvailable()) {
+      const reason = getPtyUnavailableReason() || 'node-pty module not loaded'
+      throw new Error(`node-pty is not available — cannot use PTY transport: ${reason}`)
     }
 
     const cwd = options.projectPath === '~' ? homedir() : options.projectPath
