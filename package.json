@@ -16,6 +16,9 @@
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
     "doctor": "bash scripts/doctor.sh",
     "postinstall": "electron-builder install-app-deps && node scripts/postinstall.js"
   },
@@ -42,6 +45,7 @@
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^4.3.0",
+    "@vitest/coverage-v8": "^4.1.0",
     "autoprefixer": "^10.4.0",
     "electron": "^33.0.0",
     "electron-builder": "^25.0.0",
@@ -51,6 +55,7 @@
     "react-dom": "^19.0.0",
     "tailwindcss": "^4.2.1",
     "typescript": "^5.7.0",
-    "vite": "^6.0.0"
+    "vite": "^6.0.0",
+    "vitest": "^4.1.0"
   }
 }

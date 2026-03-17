@@ -29,6 +29,9 @@ Desktop.ini
 *.log
 ~/.clui-debug.log
 
+# Test coverage
+coverage/
+
 # Temporary files
 *.tmp
 *.bak

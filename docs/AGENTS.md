@@ -5,7 +5,7 @@
 
 ## What This Project Is
 
-Clui CC is a **macOS-only Electron overlay** that wraps the Claude Code CLI (`claude -p --output-format stream-json`) in a floating pill UI. It is NOT a web app, NOT a VS Code extension, and does NOT call the Anthropic API directly — it spawns CLI subprocesses.
+Clui CC is an **Electron desktop overlay** (macOS production, Windows beta) that wraps the Claude Code CLI (`claude -p --output-format stream-json`) in a floating pill UI. It is NOT a web app, NOT a VS Code extension, and does NOT call the Anthropic API directly — it spawns CLI subprocesses.
 
 ## Quick Reference
 
@@ -87,6 +87,7 @@ All IPC and event types live in `src/shared/types.ts`. Key types:
 4. **Narrow Zustand selectors** with custom equality functions for performance
 5. **All new IPC channels** must be added to `src/shared/types.ts` AND wired in both `src/preload/index.ts` and `src/main/index.ts`
 6. **Tab state transitions** go through `ControlPlane` only — never mutate tab state directly
+7. **Always persist the Claude session ID** — whenever a session is created or resumed, save the session ID to a durable location (e.g., a file in `~/.claude/` or app config) so it can be recovered if the app or process crashes. Never rely solely on in-memory state for session tracking. If the session crashes, it must be resumable via `claude --resume <session-id>` without manual lookup.
 
 ### Security — Do Not Break
 
@@ -153,11 +154,55 @@ All IPC and event types live in `src/shared/types.ts`. Key types:
 
 No telemetry. No analytics. No auto-update.
 
+## Development Workflow — Mandatory for All Issues
+
+Every issue (bug fix, feature, refactor) MUST follow this workflow strictly:
+
+### 1. Branch from main
+```bash
+git checkout main && git pull
+git checkout -b WIN-XXX/short-description   # e.g. WIN-001/cross-platform-binary-detection
+```
+Branch name MUST start with the issue prefix (e.g. `WIN-001`).
+
+### 2. TDD — Tests First, Then Code
+1. **Write failing tests first** that cover the expected behavior, edge cases, and error paths.
+2. **Run tests** — confirm they fail (red).
+3. **Write the minimum code** to make all tests pass (green).
+4. **Refactor** if needed — tests must stay green.
+
+Never skip TDD. Never write implementation before tests. If you're unsure what to test, define acceptance criteria from the issue before writing any code.
+
+```bash
+npm run test          # run all tests
+npm run test:watch    # watch mode during development
+```
+
+### 3. Commit, Push, and Create PR
+```bash
+git add <specific files>
+git commit -m "WIN-XXX: <descriptive message>"
+git push -u origin WIN-XXX/short-description
+gh pr create --title "WIN-XXX: <title>" --body "Closes #<issue-number>..."
+```
+
+- Commit message MUST start with the issue prefix: `WIN-XXX: ...`
+- PR MUST reference the issue it closes: `Closes #N`
+- One PR per issue. Do not bundle unrelated changes.
+- Do not merge your own PR without review.
+
+### 4. PR Checklist
+- [ ] All new code has tests written BEFORE the implementation
+- [ ] `npm run build` passes with zero errors
+- [ ] `npm run test` passes with zero failures
+- [ ] No hardcoded platform assumptions (test on both macOS and Windows)
+- [ ] PR description explains what changed and why
+
 ## Common Pitfalls
 
 1. **Forgetting to restart dev server** after main-process changes — renderer hot-reloads but main does not
 2. **Adding raw color values** instead of using `useColors()` — breaks theming
 3. **Mutating tab state from renderer** instead of going through ControlPlane events
 4. **Hardcoding IPC strings** instead of using `IPC.*` constants
-5. **Testing on non-macOS** — this is macOS-only (transparent windows, node-pty bindings)
-6. **Not handling the `session_dead` event** — if a Claude process crashes, the tab must transition to `dead` status
+5. **Not handling the `session_dead` event** — if a Claude process crashes, the tab must transition to `dead` status
+6. **Writing implementation before tests** — all development is TDD, tests first
