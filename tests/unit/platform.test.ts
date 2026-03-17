@@ -235,6 +235,18 @@ describe('platform utilities', () => {
 
       expect(env.PATH).toBe('/usr/bin')
     })
+
+    it('preserves Windows "Path" key instead of creating duplicate "PATH"', () => {
+      restorePlatform = mockPlatform('win32')
+
+      // Windows often uses 'Path' not 'PATH'
+      const env: NodeJS.ProcessEnv = { Path: 'C:\\Windows\\System32' }
+      ensureBinDirInPath('C:\\bin\\claude.exe', env)
+
+      // Should modify the existing 'Path' key, not create a new 'PATH'
+      expect(env.Path).toBe('C:\\bin;C:\\Windows\\System32')
+      expect(env.PATH).toBeUndefined()
+    })
   })
 
   describe('findClaudeBinary', () => {

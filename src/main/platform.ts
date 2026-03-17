@@ -90,17 +90,34 @@ export function ensureBinDirInPath(binaryPath: string, env: NodeJS.ProcessEnv): 
   // Don't prepend '.' to PATH.
   if (binDir === '.') return
 
+  // On Windows, process.env may carry the path variable as 'Path' (not 'PATH').
+  // Resolve the actual key to avoid creating a duplicate entry.
+  const pathKey = resolvePathKey(env)
+
   const sep = pathSep()
-  const currentPath = env.PATH || ''
+  const currentPath = env[pathKey] || ''
 
   // Check if binDir is already in PATH
   if (currentPath) {
     const dirs = currentPath.split(sep)
     if (dirs.includes(binDir)) return
-    env.PATH = `${binDir}${sep}${currentPath}`
+    env[pathKey] = `${binDir}${sep}${currentPath}`
   } else {
-    env.PATH = binDir
+    env[pathKey] = binDir
   }
+}
+
+/**
+ * Resolve the actual environment key for PATH.
+ * On Windows, it can be 'Path', 'PATH', or 'path' — case varies.
+ */
+function resolvePathKey(env: NodeJS.ProcessEnv): string {
+  if (isWin()) {
+    for (const key of Object.keys(env)) {
+      if (key.toLowerCase() === 'path') return key
+    }
+  }
+  return 'PATH'
 }
 
 /**
