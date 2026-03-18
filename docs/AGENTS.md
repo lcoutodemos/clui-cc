@@ -163,12 +163,26 @@ This applies to any coding agent, in any client, using any LLM.
 - If an agent picks up an issue to implement, it MUST create and use a new branch based on the current `main` branch.
 - Agents MUST NOT implement issue work directly on `main`.
 
-### 1. Branch from main
+### 1. Create a Worktree (Mandatory for Parallel Work)
+
+Multiple agents may work on the same repo simultaneously. To avoid conflicts, each agent MUST use a **git worktree** — never switch branches in the main working directory.
+
 ```bash
-git checkout main && git pull
-git checkout -b WIN-XXX/short-description   # e.g. WIN-001/cross-platform-binary-detection
+# From the main repo directory:
+git worktree add ../clui-cc-FEAT-XXX FEAT-XXX/short-description 2>/dev/null || \
+  (git branch FEAT-XXX/short-description main && git worktree add ../clui-cc-FEAT-XXX FEAT-XXX/short-description)
+
+# Work inside the worktree:
+cd ../clui-cc-FEAT-XXX
+npm install   # worktrees share .git but not node_modules
 ```
-Branch name MUST start with the issue prefix (e.g. `WIN-001`).
+
+**Rules:**
+- Worktree directory name: `../clui-cc-<ISSUE-PREFIX>` (e.g. `../clui-cc-FEAT-006`)
+- Branch name MUST start with the issue prefix (e.g. `FEAT-006/command-palette`)
+- NEVER run `git checkout` to switch branches in the main repo — it breaks other agents' work
+- After PR is merged, clean up: `git worktree remove ../clui-cc-FEAT-XXX`
+- Each worktree needs its own `npm install` since `node_modules` is not shared
 
 ### 2. TDD — Tests First, Then Code
 1. **Write failing tests first** that cover the expected behavior, edge cases, and error paths.
@@ -183,25 +197,36 @@ npm run test          # run all tests
 npm run test:watch    # watch mode during development
 ```
 
-### 3. Commit, Push, and Create PR
+### 3. Commit, Push, Create PR, and Enable Auto-Merge
 ```bash
 git add <specific files>
-git commit -m "WIN-XXX: <descriptive message>"
-git push -u origin WIN-XXX/short-description
-gh pr create --title "WIN-XXX: <title>" --body "Closes #<issue-number>..."
+git commit -m "FEAT-XXX: <descriptive message>"
+git push -u origin FEAT-XXX/short-description
+gh pr create --title "FEAT-XXX: <title>" --body "Closes #<issue-number>..."
+gh pr merge <N> --auto --merge --delete-branch
 ```
 
-- Commit message MUST start with the issue prefix: `WIN-XXX: ...`
+- Commit message MUST start with the issue prefix: `FEAT-XXX: ...`, `WIN-XXX: ...`, etc.
 - PR MUST reference the issue it closes: `Closes #N`
 - One PR per issue. Do not bundle unrelated changes.
+- **Always enable auto-merge** (`--auto`) — PR merges automatically when CI passes.
 
-### 4. Review, Fix, and Merge
-After pushing and creating the PR:
-1. **Check for reviews** — `gh api repos/<owner>/<repo>/pulls/<N>/comments`
-2. **If no reviews or only informational comments** — merge immediately: `gh pr merge <N> --merge --delete-branch`
-3. **If reviews with actionable feedback** — fix the issues, commit, push, then check again. Repeat until clean, then merge.
+### 4. PR Merge Strategy — Auto-Merge After CI
+After pushing and creating the PR, **always enable auto-merge**:
 
-Do not leave PRs hanging. The cycle is: push → PR → check reviews → fix if needed → merge.
+```bash
+gh pr create --title "FEAT-XXX: <title>" --body "Closes #N ..."
+gh pr merge <N> --auto --merge --delete-branch
+```
+
+This tells GitHub to merge automatically once required CI checks pass (`build-and-test` on Node 20 + 22). Do NOT merge manually unless CI is broken and you need to bypass.
+
+If a PR fails CI:
+1. Check the failure: `gh pr checks <N>`
+2. Fix the issue, commit, push
+3. Auto-merge remains armed — it will trigger once checks go green
+
+Do not leave PRs hanging. The cycle is: push → PR → enable auto-merge → fix CI if needed.
 
 ### 5. PR Checklist
 - [ ] All new code has tests written BEFORE the implementation
