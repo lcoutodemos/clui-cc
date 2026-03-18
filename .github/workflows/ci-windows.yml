@@ -5,12 +5,15 @@ on:
     branches: [main]
     paths:
       - 'src/main/**'
+      - 'src/renderer/**'
       - 'src/shared/**'
       - 'src/preload/**'
       - 'tests/**'
       - 'package.json'
       - 'package-lock.json'
+      - 'playwright.config.ts'
       - 'tsconfig.json'
+      - '.github/workflows/**'
       - 'electron.vite.config.ts'
       - 'vitest.config.ts'
   pull_request:
@@ -40,3 +43,29 @@ jobs:
 
       - name: Type-check and build
         run: npm run build
+
+  e2e-smoke:
+    runs-on: windows-latest
+    needs: build-and-test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run Electron E2E smoke tests
+        run: npm run test:e2e
+
+      - name: Upload Playwright artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-artifacts-windows
+          path: output/playwright
