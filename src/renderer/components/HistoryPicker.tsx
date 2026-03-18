@@ -96,6 +96,16 @@ export function HistoryPicker() {
     return () => document.removeEventListener('mousedown', handler)
   }, [open])
 
+  useEffect(() => {
+    const onOpenHistory = () => {
+      updatePos()
+      void loadSessions()
+      setOpen(true)
+    }
+    window.addEventListener('clui-open-history', onOpenHistory as EventListener)
+    return () => window.removeEventListener('clui-open-history', onOpenHistory as EventListener)
+  }, [loadSessions, updatePos])
+
   const handleToggle = () => {
     if (!open) {
       updatePos()

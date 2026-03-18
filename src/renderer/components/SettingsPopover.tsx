@@ -1,9 +1,10 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { motion } from 'framer-motion'
-import { DotsThree, Bell, ArrowsOutSimple, Moon, ShieldCheck, NotePencil } from '@phosphor-icons/react'
+import { DotsThree, Bell, ArrowsOutSimple, Moon, ShieldCheck, NotePencil, Keyboard } from '@phosphor-icons/react'
 import { useThemeStore } from '../theme'
 import { useSessionStore } from '../stores/sessionStore'
+import { useShortcutStore } from '../stores/shortcutStore'
 import { useSnippetStore } from '../stores/snippetStore'
 import { usePopoverLayer } from './PopoverLayer'
 import { useColors } from '../theme'
@@ -54,6 +55,7 @@ export function SettingsPopover() {
   const setThemeMode = useThemeStore((s) => s.setThemeMode)
   const expandedUI = useThemeStore((s) => s.expandedUI)
   const setExpandedUI = useThemeStore((s) => s.setExpandedUI)
+  const openShortcutSettings = useShortcutStore((s) => s.openSettings)
   const openSnippetManager = useSnippetStore((s) => s.openManager)
   const isExpanded = useSessionStore((s) => s.isExpanded)
   const popoverLayer = usePopoverLayer()
@@ -263,6 +265,24 @@ export function SettingsPopover() {
                 <ShieldCheck size={14} style={{ color: colors.textTertiary }} />
                 <div className="text-[12px] font-medium" style={{ color: colors.textPrimary }}>
                   Permissions
+                </div>
+              </button>
+            </div>
+
+            <div style={{ height: 1, background: colors.popoverBorder }} />
+
+            <div>
+              <button
+                onClick={() => {
+                  openShortcutSettings()
+                  setOpen(false)
+                }}
+                className="flex items-center gap-2 w-full text-left cursor-pointer rounded-md px-0 py-0 transition-colors"
+                style={{ background: 'transparent' }}
+              >
+                <Keyboard size={14} style={{ color: colors.textTertiary }} />
+                <div className="text-[12px] font-medium" style={{ color: colors.textPrimary }}>
+                  Keyboard Shortcuts
                 </div>
               </button>
             </div>
