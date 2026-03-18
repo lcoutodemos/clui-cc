@@ -115,17 +115,20 @@ describe('ErrorBoundary', () => {
 
     await act(async () => {
       copyButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      await clipboardWriteText.mock.results[0]?.value
     })
 
     expect(clipboardWriteText).toHaveBeenCalledTimes(1)
     expect(String(clipboardWriteText.mock.calls[0]?.[0] ?? '')).toContain('Copy me')
-    expect(copyButton?.textContent).toBe('Copied')
+    const copiedButton = Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Copied')
+    expect(copiedButton).toBeDefined()
 
     await act(async () => {
       vi.advanceTimersByTime(2000)
     })
 
-    expect(copyButton?.textContent).toBe('Copy Error')
+    const resetButton = Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Copy Error')
+    expect(resetButton).toBeDefined()
   })
 
   it('reloads the app and opens the bug-report URL from the fallback actions', async () => {
