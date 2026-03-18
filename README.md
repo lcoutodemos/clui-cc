@@ -31,15 +31,66 @@ If you already use Claude Code in the terminal, Clui CC adds the interface and w
 
 ## Screenshots
 
-![Dark mode conversation view with Claude response](docs/screenshots/app-dark-expanded.png)
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="docs/screenshots/app-dark-expanded.png" alt="Dark mode conversation shell" />
+      <br />
+      <strong>Conversation shell</strong><br />
+      Expanded dark-mode session with a live Claude response, attachments, and the floating overlay layout.
+    </td>
+    <td width="50%" valign="top">
+      <img src="docs/screenshots/command-palette.png" alt="Command palette overlay" />
+      <br />
+      <strong>Command palette</strong><br />
+      Search-first launcher for navigation, theme switching, marketplace access, and model actions.
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="docs/screenshots/permission-wizard.png" alt="First-launch permission wizard" />
+      <br />
+      <strong>Permission setup</strong><br />
+      First-launch wizard for choosing a safe Claude permissions preset before starting work.
+    </td>
+    <td width="50%" valign="top">
+      <img src="docs/screenshots/permission-editor.png" alt="Permissions editor" />
+      <br />
+      <strong>Permission editor</strong><br />
+      In-app management for `~/.claude/settings.json` permission patterns and presets.
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="docs/screenshots/usage-dashboard.png" alt="Usage dashboard" />
+      <br />
+      <strong>Usage dashboard</strong><br />
+      Cost, token, model, and project analytics surfaced directly inside the overlay.
+    </td>
+    <td width="50%" valign="top">
+      <img src="docs/screenshots/snippet-manager.png" alt="Snippet manager" />
+      <br />
+      <strong>Snippet manager</strong><br />
+      Slash-command templates for reusable prompts and lightweight workflow shortcuts.
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="docs/screenshots/workflow-editor.png" alt="Workflow editor" />
+      <br />
+      <strong>Workflow editor</strong><br />
+      Build multi-step prompt chains with ordered steps and simple editing controls.
+    </td>
+    <td width="50%" valign="top">
+      <img src="docs/screenshots/workflow-manager.png" alt="Workflow manager" />
+      <br />
+      <strong>Workflow manager</strong><br />
+      Browse, run, and maintain saved prompt chains from a dedicated panel.
+    </td>
+  </tr>
+</table>
 
-Dark mode expanded view with a live conversation, attachments, status bar, and the floating shell layout.
-
-![Command palette overlay](docs/screenshots/command-palette.png)
-
-Command palette opened over the overlay UI for fast actions such as tab management, theme switching, marketplace access, and model selection.
-
-These screenshots were captured from the Electron app in isolated E2E mode with the fake Claude backend so the visuals stay deterministic in the repo.
+These screenshots were captured from the Electron app in isolated E2E mode with the fake Claude backend so the visuals stay deterministic in the repo. The workflow and snippet examples were seeded locally through the real UI rather than mocked in the README itself.
 
 ## Prerequisites
 
