@@ -412,12 +412,19 @@ export interface CatalogPlugin {
   version: string         // from plugin.json or '0.0.0'
   author: string          // from plugin.json or marketplace entry
   marketplace: string     // marketplace name from marketplace.json
-  repo: string            // 'anthropics/skills'
+  repo: string            // 'anthropics/skills' (empty for locally-installed orphans)
   sourcePath: string      // path within repo, e.g. 'skills/xlsx'
   installName: string     // individual skill name for SKILL.md skills, bundle name for CLI plugins
-  category: string        // 'Agent Skills' | 'Knowledge Work' | 'Financial Services'
+  category: string        // 'Agent Skills' | 'Knowledge Work' | 'Financial Services' | 'Official Plugins' | etc.
   tags: string[]          // Semantic use-case tags derived from name/description (e.g. 'Design', 'Finance')
   isSkillMd: boolean      // true = individual SKILL.md (direct install), false = CLI plugin (bundle install)
+}
+
+export interface InstalledPluginEntry {
+  name: string            // plugin name (e.g. 'code-review')
+  key: string             // original key from installed_plugins.json or directory name
+  marketplace: string     // extracted from 'name@marketplace' format, or '' for skills
+  type: 'plugin' | 'skill'
 }
 
 // ─── Git Context ───
@@ -530,6 +537,11 @@ export const IPC = {
   NOTIFY_DESKTOP: 'clui:notify-desktop',
   GET_NOTIFICATION_PREFS: 'clui:get-notification-prefs',
   SET_NOTIFICATION_PREFS: 'clui:set-notification-prefs',
+
+  // Event broadcast (main → renderer)
+  NORMALIZED_EVENT: 'clui:normalized-event',
+  TAB_STATUS_CHANGE: 'clui:tab-status-change',
+  ENRICHED_ERROR: 'clui:enriched-error',
 
   // Error logging
   LOG_RENDERER_ERROR: 'clui:log-renderer-error',

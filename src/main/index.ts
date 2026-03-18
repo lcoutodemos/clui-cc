@@ -116,15 +116,15 @@ function scheduleToggleSnapshots(toggleId: number, phase: 'show' | 'hide'): void
 // ─── Wire ControlPlane events → renderer ───
 
 controlPlane.on('event', (tabId: string, event: NormalizedEvent) => {
-  broadcast('clui:normalized-event', tabId, event)
+  broadcast(IPC.NORMALIZED_EVENT, tabId, event)
 })
 
 controlPlane.on('tab-status-change', (tabId: string, newStatus: string, oldStatus: string) => {
-  broadcast('clui:tab-status-change', tabId, newStatus, oldStatus)
+  broadcast(IPC.TAB_STATUS_CHANGE, tabId, newStatus, oldStatus)
 })
 
 controlPlane.on('error', (tabId: string, error: EnrichedError) => {
-  broadcast('clui:enriched-error', tabId, error)
+  broadcast(IPC.ENRICHED_ERROR, tabId, error)
 })
 
 // ─── Window Creation ───

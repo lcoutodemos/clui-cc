@@ -8,6 +8,7 @@ import type {
   Attachment,
   SessionMeta,
   CatalogPlugin,
+  InstalledPluginEntry,
   SessionLoadMessage,
   AgentMemorySnapshot,
   AgentMemoryClaimResult,
@@ -57,7 +58,7 @@ export interface CluiAPI {
   agentMemoryDone(tabId: string, note?: string): Promise<{ ok: boolean; snapshot: AgentMemorySnapshot | null }>
   agentMemoryRelease(tabId: string): Promise<{ ok: boolean; snapshots: AgentMemorySnapshot[] }>
   fetchMarketplace(forceRefresh?: boolean): Promise<{ plugins: CatalogPlugin[]; error: string | null }>
-  listInstalledPlugins(): Promise<string[]>
+  listInstalledPlugins(): Promise<InstalledPluginEntry[]>
   installPlugin(repo: string, pluginName: string, marketplace: string, sourcePath?: string, isSkillMd?: boolean): Promise<{ ok: boolean; error?: string }>
   uninstallPlugin(pluginName: string): Promise<{ ok: boolean; error?: string }>
   setPermissionMode(mode: string): void
@@ -179,22 +180,22 @@ const api: CluiAPI = {
     ]
     // Single unified handler — all normalized events come through one channel
     const handler = (_e: Electron.IpcRendererEvent, tabId: string, event: NormalizedEvent) => callback(tabId, event)
-    ipcRenderer.on('clui:normalized-event', handler)
-    return () => ipcRenderer.removeListener('clui:normalized-event', handler)
+    ipcRenderer.on(IPC.NORMALIZED_EVENT, handler)
+    return () => ipcRenderer.removeListener(IPC.NORMALIZED_EVENT, handler)
   },
 
   onTabStatusChange: (callback) => {
     const handler = (_e: Electron.IpcRendererEvent, tabId: string, newStatus: string, oldStatus: string) =>
       callback(tabId, newStatus, oldStatus)
-    ipcRenderer.on('clui:tab-status-change', handler)
-    return () => ipcRenderer.removeListener('clui:tab-status-change', handler)
+    ipcRenderer.on(IPC.TAB_STATUS_CHANGE, handler)
+    return () => ipcRenderer.removeListener(IPC.TAB_STATUS_CHANGE, handler)
   },
 
   onError: (callback) => {
     const handler = (_e: Electron.IpcRendererEvent, tabId: string, error: EnrichedError) =>
       callback(tabId, error)
-    ipcRenderer.on('clui:enriched-error', handler)
-    return () => ipcRenderer.removeListener('clui:enriched-error', handler)
+    ipcRenderer.on(IPC.ENRICHED_ERROR, handler)
+    return () => ipcRenderer.removeListener(IPC.ENRICHED_ERROR, handler)
   },
 
   onSkillStatus: (callback) => {
