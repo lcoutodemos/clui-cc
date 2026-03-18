@@ -50,8 +50,17 @@ describe('README', () => {
     expect(readme).toContain('[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)')
   })
 
-  it('embeds at least two screenshots in the README', () => {
-    const screenshots = readme.match(/!\[[^\]]*]\([^)]+\)/g) ?? []
-    expect(screenshots.length).toBeGreaterThanOrEqual(2)
+  it('embeds a compact screenshot gallery with at least six real images', () => {
+    expect(readme).toContain('<table>')
+
+    const screenshots = [...readme.matchAll(/<img\s+src="(docs\/screenshots\/[^"]+)"/g)]
+      .map((match) => match[1])
+
+    expect(screenshots.length).toBeGreaterThanOrEqual(6)
+
+    for (const screenshot of screenshots) {
+      const screenshotPath = path.resolve(__dirname, '..', '..', screenshot)
+      expect(fs.existsSync(screenshotPath), `${screenshot} should exist`).toBe(true)
+    }
   })
 })
