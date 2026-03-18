@@ -63,6 +63,7 @@ export function PermissionWizard({ onComplete }: Props) {
 
   return (
     <motion.div
+      data-testid="permission-wizard"
       initial={{ opacity: 0, scale: 0.96, y: 12 }}
       animate={{ opacity: 1, scale: 1, y: 0 }}
       exit={{ opacity: 0, scale: 0.96, y: -8 }}
@@ -105,6 +106,7 @@ export function PermissionWizard({ onComplete }: Props) {
               return (
                 <button
                   key={preset.key}
+                  data-testid={`permission-preset-${preset.key}`}
                   onClick={() => setSelected(preset.key)}
                   className="text-left px-3 py-2.5 rounded-xl transition-all cursor-pointer"
                   style={{
@@ -149,6 +151,7 @@ export function PermissionWizard({ onComplete }: Props) {
           {/* Actions */}
           <div className="flex gap-2 justify-end">
             <button
+              data-testid="permission-wizard-skip"
               onClick={handleSkip}
               className="text-[11px] font-medium px-3 py-1.5 rounded-full cursor-pointer transition-colors"
               style={{
@@ -162,6 +165,7 @@ export function PermissionWizard({ onComplete }: Props) {
               Skip
             </button>
             <button
+              data-testid="permission-wizard-apply"
               onClick={handleApply}
               disabled={applying}
               className="text-[11px] font-semibold px-4 py-1.5 rounded-full cursor-pointer transition-colors disabled:opacity-40"

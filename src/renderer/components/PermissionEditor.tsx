@@ -56,6 +56,7 @@ export function PermissionEditor({ onClose }: Props) {
 
   return (
     <motion.div
+      data-testid="permission-editor"
       initial={{ opacity: 0, y: -4 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -4 }}
@@ -79,7 +80,11 @@ export function PermissionEditor({ onClose }: Props) {
           <span className="text-[12px] font-semibold" style={{ color: colors.textPrimary }}>
             Permissions
           </span>
-          <span className="text-[10px] px-1.5 py-0.5 rounded-full" style={{ background: colors.surfacePrimary, color: colors.textTertiary }}>
+          <span
+            data-testid="permission-count"
+            className="text-[10px] px-1.5 py-0.5 rounded-full"
+            style={{ background: colors.surfacePrimary, color: colors.textTertiary }}
+          >
             {permissions.length}
           </span>
         </div>
@@ -97,6 +102,7 @@ export function PermissionEditor({ onClose }: Props) {
       {/* Quick presets */}
       <div className="flex gap-1 px-3 py-2" style={{ borderBottom: `1px solid ${colors.popoverBorder}` }}>
         <button
+          data-testid="permission-editor-preset-permissive"
           onClick={() => handlePreset('permissive')}
           className="text-[9px] font-medium px-2 py-1 rounded-full cursor-pointer transition-colors flex items-center gap-1"
           style={{ background: colors.surfacePrimary, color: colors.textSecondary, border: `1px solid ${colors.surfaceSecondary}` }}
@@ -106,6 +112,7 @@ export function PermissionEditor({ onClose }: Props) {
           Permissive
         </button>
         <button
+          data-testid="permission-editor-preset-balanced"
           onClick={() => handlePreset('balanced')}
           className="text-[9px] font-medium px-2 py-1 rounded-full cursor-pointer transition-colors flex items-center gap-1"
           style={{ background: colors.surfacePrimary, color: colors.textSecondary, border: `1px solid ${colors.surfaceSecondary}` }}
@@ -115,6 +122,7 @@ export function PermissionEditor({ onClose }: Props) {
           Balanced
         </button>
         <button
+          data-testid="permission-editor-preset-strict"
           onClick={() => handlePreset('strict')}
           className="text-[9px] font-medium px-2 py-1 rounded-full cursor-pointer transition-colors flex items-center gap-1"
           style={{ background: colors.surfacePrimary, color: colors.textSecondary, border: `1px solid ${colors.surfaceSecondary}` }}
@@ -178,6 +186,7 @@ export function PermissionEditor({ onClose }: Props) {
               className="flex gap-1 overflow-hidden"
             >
               <input
+                data-testid="permission-add-input"
                 value={newPattern}
                 onChange={(e) => setNewPattern(e.target.value)}
                 onKeyDown={(e) => { if (e.key === 'Enter') handleAdd(); if (e.key === 'Escape') setShowAdd(false) }}
@@ -191,6 +200,7 @@ export function PermissionEditor({ onClose }: Props) {
                 }}
               />
               <button
+                data-testid="permission-add-confirm"
                 onClick={handleAdd}
                 className="text-[10px] font-medium px-2 py-1 rounded-md cursor-pointer"
                 style={{ background: colors.permissionAllowBg, color: colors.statusComplete, border: `1px solid ${colors.permissionAllowBorder}` }}
@@ -200,6 +210,7 @@ export function PermissionEditor({ onClose }: Props) {
             </motion.div>
           ) : (
             <button
+              data-testid="permission-add-button"
               onClick={() => setShowAdd(true)}
               className="text-[10px] font-medium px-2 py-1 rounded-full cursor-pointer transition-colors flex items-center gap-1 w-full justify-center"
               style={{ background: colors.surfacePrimary, color: colors.textTertiary, border: `1px solid ${colors.surfaceSecondary}` }}

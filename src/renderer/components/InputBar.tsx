@@ -569,7 +569,7 @@ export function InputBar() {
   const hasAttachments = attachments.length > 0
 
   return (
-    <div ref={wrapperRef} data-clui-ui className="flex flex-col w-full relative">
+    <div ref={wrapperRef} data-clui-ui data-testid="composer" className="flex flex-col w-full relative">
       {/* Slash command menu */}
       <AnimatePresence>
         {showSlashMenu && (
@@ -596,6 +596,7 @@ export function InputBar() {
           <div className="w-full">
             <textarea
               ref={textareaRef}
+              data-testid="composer-input"
               value={input}
               onChange={handleInputChange}
               onKeyDown={handleKeyDown}
@@ -637,6 +638,7 @@ export function InputBar() {
                 {canSend && voiceState !== 'recording' && (
                   <motion.div key="send" initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.8 }} transition={{ duration: 0.1 }}>
                     <button
+                      data-testid="composer-send"
                       onMouseDown={(e) => e.preventDefault()}
                       onClick={handleSend}
                       className="w-9 h-9 rounded-full flex items-center justify-center transition-colors"
@@ -654,6 +656,7 @@ export function InputBar() {
           <div className="flex items-center w-full" style={{ minHeight: 50 }}>
             <textarea
               ref={textareaRef}
+              data-testid="composer-input"
               value={input}
               onChange={handleInputChange}
               onKeyDown={handleKeyDown}
@@ -695,6 +698,7 @@ export function InputBar() {
                 {canSend && voiceState !== 'recording' && (
                   <motion.div key="send" initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.8 }} transition={{ duration: 0.1 }}>
                     <button
+                      data-testid="composer-send"
                       onMouseDown={(e) => e.preventDefault()}
                       onClick={handleSend}
                       className="w-9 h-9 rounded-full flex items-center justify-center transition-colors"

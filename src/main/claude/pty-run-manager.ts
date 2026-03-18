@@ -19,7 +19,7 @@ import { EventEmitter } from 'events'
 import { homedir } from 'os'
 import { join } from 'path'
 import { appendFileSync, chmodSync, existsSync, statSync } from 'fs'
-import { findClaudeBinary, getLoginShellPath, ensureBinDirInPath } from '../platform'
+import { findClaudeBinary, getClaudeLaunchPrefixArgs, getLoginShellPath, ensureBinDirInPath } from '../platform'
 import { isPtyAvailable, getPtyUnavailableReason } from '../pty-availability'
 import type { NormalizedEvent, RunOptions, EnrichedError } from '../../shared/types'
 
@@ -340,6 +340,7 @@ export class PtyRunManager extends EventEmitter {
 
     // Build args for interactive mode (no -p flag)
     const args: string[] = [
+      ...getClaudeLaunchPrefixArgs(),
       '--permission-mode', 'default',
     ]
 

@@ -44,6 +44,20 @@ export default function App() {
   const colors = useColors()
   const setSystemTheme = useThemeStore((s) => s.setSystemTheme)
   const expandedUI = useThemeStore((s) => s.expandedUI)
+  const isExpanded = useSessionStore((s) => s.isExpanded)
+  const marketplaceOpen = useSessionStore((s) => s.marketplaceOpen)
+  const costDashboardOpen = useSessionStore((s) => s.costDashboardOpen)
+  const snippetManagerOpen = useSnippetStore((s) => s.managerOpen)
+  const exportDialogOpen = useExportStore((s) => s.isOpen)
+  const shortcutBindings = useShortcutStore((s) => s.bindings)
+  const shortcutSettingsOpen = useShortcutStore((s) => s.settingsOpen)
+  const captureTargetId = useShortcutStore((s) => s.captureTargetId)
+  const workflowManagerOpen = useWorkflowStore((s) => s.managerOpen)
+  const workflowEditorOpen = useWorkflowStore((s) => s.editorOpen)
+  const workflowExecution = useWorkflowStore((s) => s.activeExecution)
+  const activeComparison = useComparisonStore((s) => s.activeComparison)
+  const comparisonLauncherOpen = useComparisonStore((s) => s.launcherOpen)
+  const isRunning = activeTabStatus === 'running' || activeTabStatus === 'connecting'
   const [showPermissionWizard, setShowPermissionWizard] = useState(false)
   const [gitPanelOpen, setGitPanelOpen] = useState(false)
 
@@ -212,21 +226,6 @@ export default function App() {
     }
   }, [])
 
-  const isExpanded = useSessionStore((s) => s.isExpanded)
-  const marketplaceOpen = useSessionStore((s) => s.marketplaceOpen)
-  const costDashboardOpen = useSessionStore((s) => s.costDashboardOpen)
-  const snippetManagerOpen = useSnippetStore((s) => s.managerOpen)
-  const exportDialogOpen = useExportStore((s) => s.isOpen)
-  const shortcutBindings = useShortcutStore((s) => s.bindings)
-  const shortcutSettingsOpen = useShortcutStore((s) => s.settingsOpen)
-  const captureTargetId = useShortcutStore((s) => s.captureTargetId)
-  const workflowManagerOpen = useWorkflowStore((s) => s.managerOpen)
-  const workflowEditorOpen = useWorkflowStore((s) => s.editorOpen)
-  const workflowExecution = useWorkflowStore((s) => s.activeExecution)
-  const activeComparison = useComparisonStore((s) => s.activeComparison)
-  const comparisonLauncherOpen = useComparisonStore((s) => s.launcherOpen)
-  const isRunning = activeTabStatus === 'running' || activeTabStatus === 'connecting'
-
   // Layout dimensions — expandedUI widens and heightens the panel; comparison mode widens further
   const isComparing = !!activeComparison
   const contentWidth = isComparing ? 900 : expandedUI ? 700 : spacing.contentWidth
@@ -252,7 +251,7 @@ export default function App() {
       <CommandPalette />
       <ToastContainer />
       <GitPanel open={gitPanelOpen} onClose={() => setGitPanelOpen(false)} />
-      <div className="flex flex-col justify-end h-full" style={{ background: 'transparent' }}>
+      <div data-testid="app-root" className="flex flex-col justify-end h-full" style={{ background: 'transparent' }}>
 
         {/* ─── 460px content column, centered. Circles overflow left. ─── */}
         <div style={{ width: contentWidth, position: 'relative', margin: '0 auto', transition: 'width 0.26s cubic-bezier(0.4, 0, 0.1, 1)' }}>

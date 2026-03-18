@@ -122,6 +122,11 @@ function resolvePathKey(env: NodeJS.ProcessEnv): string {
   return 'PATH'
 }
 
+export function getClaudeLaunchPrefixArgs(): string[] {
+  const scriptPath = process.env.CLUI_CLAUDE_NODE_SCRIPT?.trim()
+  return scriptPath ? [scriptPath] : []
+}
+
 /**
  * Find the Claude Code CLI binary using platform-appropriate candidate
  * paths and shell lookups.
@@ -132,6 +137,11 @@ function resolvePathKey(env: NodeJS.ProcessEnv): string {
  * - Both: ~/.npm-global/bin
  */
 export function findClaudeBinary(): string {
+  const override = process.env.CLUI_CLAUDE_BIN?.trim()
+  if (override) {
+    return override
+  }
+
   const home = homedir()
 
   const candidates: string[] = isWin()
