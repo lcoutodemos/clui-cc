@@ -13,11 +13,13 @@ Clui CC is an Electron desktop overlay that wraps the Claude Code CLI (`claude -
 | Install deps | `npm install` |
 | Dev mode (hot-reload renderer) | `npm run dev` |
 | Type-check + build | `npm run build` |
+| Run tests | `npm run test` |
+| Tests in watch mode | `npm run test:watch` |
 | Environment diagnostics | `npm run doctor` |
 | Debug logging | `CLUI_DEBUG=1 npm run dev` (writes `~/.clui-debug.log`) |
 | Toggle overlay | `Alt+Space` (macOS) / `Ctrl+Space` (Windows) |
 
-There is no test suite or linter configured. `npm run build` (TypeScript strict mode) is the only verification gate. Main process changes require full restart; renderer changes hot-reload.
+Tests use [Vitest](https://vitest.dev/). `npm run build` (TypeScript strict mode) and `npm run test` must both pass. Main process changes require full restart; renderer changes hot-reload.
 
 ## Architecture (3-Layer)
 
@@ -51,7 +53,23 @@ InputBar → window.clui.prompt(tabId, requestId, opts)
 | Raw NDJSON → canonical events | `src/main/claude/event-normalizer.ts` |
 | Permission hook HTTP server | `src/main/hooks/permission-server.ts` |
 | All types & IPC channel names | `src/shared/types.ts` |
-| Zustand state store | `src/renderer/stores/sessionStore.ts` |
+| Session state store | `src/renderer/stores/sessionStore.ts` |
+| Notification store (toasts) | `src/renderer/stores/notificationStore.ts` |
+| Command palette store | `src/renderer/stores/commandPaletteStore.ts` |
+| Comparison store (multi-model) | `src/renderer/stores/comparisonStore.ts` |
+| Workflow store | `src/renderer/stores/workflowStore.ts` |
+| Tab group store | `src/renderer/stores/tabGroupStore.ts` |
+| Snippet store | `src/renderer/stores/snippetStore.ts` |
+| Shortcut store | `src/renderer/stores/shortcutStore.ts` |
+| Export store | `src/renderer/stores/exportStore.ts` |
+| Tab ordering | `src/renderer/stores/tabOrder.ts` |
+| Cost tracking | `src/main/cost-tracker.ts` |
+| Git context | `src/main/git-context.ts` |
+| Auto-attach config | `src/main/auto-attach.ts` |
+| Diff algorithm | `src/renderer/utils/diff.ts` |
+| Keyboard shortcuts | `src/shared/keyboard-shortcuts.ts` |
+| Session export logic | `src/shared/session-export.ts` |
+| Command palette definitions | `src/shared/command-palette.ts` |
 | Theme / color system | `src/renderer/theme.ts` |
 | Window creation & IPC handlers | `src/main/index.ts` |
 | Typed IPC bridge | `src/preload/index.ts` |

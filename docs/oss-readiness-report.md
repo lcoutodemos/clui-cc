@@ -1,7 +1,7 @@
 # CLUI Open-Source Readiness Report
 
-**Date:** 2026-03-12
-**Branch:** `oss-prep`
+**Date:** 2026-03-18
+**Branch:** `main`
 **Assessor:** Automated scan + manual review
 
 ---
@@ -44,7 +44,7 @@
 | Check | Result |
 |-------|--------|
 | Email addresses in source | None |
-| package.json author field | Not set (clean) |
+| package.json author field | Set (public) |
 | Git commit author | Will be visible in public repo history — see cutover plan |
 
 **Verdict:** Exclude `docs/protocol-captures/` and `docs/claude-permission-probe.md` from public repo.
@@ -54,8 +54,8 @@
 ## 3. Licensing
 
 ### Project License
-- **Current state:** No LICENSE file, no `license` field in package.json
-- **Action:** **MUST-FIX** — Add MIT license before publishing
+- **Current state:** MIT license in package.json
+- **Action:** Verify LICENSE file is present at repo root
 
 ### Dependencies (all MIT-compatible)
 | Package | License | Copyleft Risk |
@@ -69,6 +69,7 @@
 | remark-gfm | MIT | None |
 | @phosphor-icons/react | MIT | None |
 | tailwindcss | MIT | None |
+| vitest | MIT | None |
 | All devDependencies | MIT | None |
 
 **No GPL, AGPL, SSPL, or BUSL dependencies detected.**
@@ -81,7 +82,7 @@
 | `resources/trayTemplate*.png` | Original | Document in LICENSE |
 | Root marketing screenshots | Not included in current repo root | Optional to add later if needed for release collateral |
 
-**Verdict:** Add LICENSE file. ~~Verify notification.mp3 provenance~~ — resolved (replaced with CC0 generated chime).
+**Verdict:** License file present. Asset provenance verified.
 
 ---
 
@@ -89,23 +90,26 @@
 
 ### Prerequisites for Contributors
 - Node.js 18+ (for Electron 33)
-- macOS (primary platform — Electron transparent window, tray, node-pty)
+- macOS 13+ (production) or Windows 10+ (beta)
 - `claude` CLI installed and authenticated (core dependency)
+- macOS: Xcode Command Line Tools
+- Windows: Visual Studio Build Tools (for native modules)
 - Optional: `whisper-cli` or `whisper` + model for voice transcription
 
 ### Build System
 - `npm install` → `npm run dev` (hot-reload) or `npm run build` (production)
+- `npm run test` — Vitest test suite
 - Zero TypeScript errors confirmed
 - electron-vite handles main/preload/renderer bundling
 
 ### Missing for OSS
 | Item | Status | Priority |
 |------|--------|----------|
-| README.md | Missing | **Must-fix** |
-| CONTRIBUTING.md | Missing | Must-fix |
-| SECURITY.md | Missing | Must-fix |
-| CODE_OF_CONDUCT.md | Missing | Must-fix |
-| Architecture docs | Missing | Must-fix |
+| README.md | Done | -- |
+| CONTRIBUTING.md | Done | -- |
+| SECURITY.md | Done | -- |
+| CODE_OF_CONDUCT.md | Done | -- |
+| Architecture docs | Done | -- |
 | .env.example | Not needed | N/A — document explicitly |
 
 ---
@@ -151,11 +155,11 @@ No telemetry, analytics, auto-updater, or CDN dependencies.
 
 | Risk | Severity | Status |
 |------|----------|--------|
-| No LICENSE file | **Critical** | Fix in this branch |
-| No README | **Critical** | Fix in this branch |
+| No LICENSE file | **Critical** | Resolved — MIT license present |
+| No README | **Critical** | Resolved — README.md present |
 | Protocol captures contain local paths | **High** | Exclude from public repo |
 | notification.mp3 unknown provenance | **Medium** | Resolved — replaced with CC0 generated chime |
-| No CONTRIBUTING/SECURITY/COC docs | **Medium** | Fix in this branch |
+| No CONTRIBUTING/SECURITY/COC docs | **Medium** | Resolved — all present |
 | Internal docs (PRD, Codex reports) | **Low** | Exclude from public repo |
 | Probe utilities in src/main/probe/ | **Low** | Exclude from public repo |
-| macOS-only (no Windows/Linux) | **Low** | Document as known limitation |
+| macOS-only | **Low** | Resolved — macOS (production) + Windows (beta) supported |

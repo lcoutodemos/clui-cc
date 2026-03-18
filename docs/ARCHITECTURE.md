@@ -2,7 +2,7 @@
 
 ## Overview
 
-CLUI is an Electron desktop application that provides a graphical interface for Claude Code CLI. It spawns `claude -p` subprocesses, parses their NDJSON output, and presents conversations in a floating overlay window.
+CLUI is an Electron desktop application (macOS + Windows) that provides a graphical interface for Claude Code CLI. It spawns `claude -p` subprocesses, parses their NDJSON output, and presents conversations in a floating overlay window.
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
@@ -13,12 +13,24 @@ CLUI is an Electron desktop application that provides a graphical interface for 
 │  │ TabStrip  │ │Conversation  │ │ InputBar │ │ Marketplace│  │
 │  │          │ │   View       │ │          │ │   Panel    │  │
 │  └──────────┘ └──────────────┘ └──────────┘ └────────────┘  │
+│  ┌────────────┐ ┌────────────┐ ┌───────────┐ ┌───────────┐  │
+│  │ Command    │ │ Cost       │ │ DiffViewer│ │ Git Panel │  │
+│  │ Palette    │ │ Dashboard  │ │           │ │           │  │
+│  └────────────┘ └────────────┘ └───────────┘ └───────────┘  │
+│  ┌────────────┐ ┌────────────┐ ┌───────────┐ ┌───────────┐  │
+│  │ Comparison │ │ Snippet    │ │ Shortcut  │ │  Toast    │  │
+│  │ View       │ │ Manager    │ │ Settings  │ │ Container │  │
+│  └────────────┘ └────────────┘ └───────────┘ └───────────┘  │
+│  ┌────────────┐ ┌────────────┐ ┌───────────┐               │
+│  │ Workflow   │ │ TabGroup   │ │ TabContext│               │
+│  │ Manager    │ │ Header     │ │ Menu      │               │
+│  └────────────┘ └────────────┘ └───────────┘               │
 │                         │                                    │
-│                    sessionStore (Zustand)                     │
+│          Multi-store architecture (Zustand)                  │
 │                         │                                    │
-│              window.clui (preload bridge)                     │
+│              window.clui (preload bridge)                    │
 ├──────────────────────────────────────────────────────────────┤
-│                     Preload Script                            │
+│                     Preload Script                           │
 │  Typed IPC bridge — contextBridge.exposeInMainWorld          │
 ├──────────────────────────────────────────────────────────────┤
 │                     Main Process                             │
@@ -40,6 +52,18 @@ CLUI is an Electron desktop application that provides a graphical interface for 
 │  │ HTTP hooks on      │  │ GitHub raw fetch + cache   │      │
 │  │ 127.0.0.1:19836    │  │ TTL: 5 minutes             │      │
 │  └────────────────────┘  └────────────────────────────┘      │
+│                                                              │
+│  ┌────────────────────┐  ┌────────────────────────────┐      │
+│  │ CostTracker        │  │ GitContext                 │      │
+│  │ Per-run cost/token  │  │ Git status + diff for     │      │
+│  │ recording + summary │  │ working directory          │      │
+│  └────────────────────┘  └────────────────────────────┘      │
+│                                                              │
+│  ┌────────────────────┐                                      │
+│  │ AutoAttach         │                                      │
+│  │ Project-scoped     │                                      │
+│  │ context files      │                                      │
+│  └────────────────────┘                                      │
 └──────────────────────────────────────────────────────────────┘
          │                              │
     claude -p (NDJSON)          raw.githubusercontent.com
@@ -101,6 +125,29 @@ HTTP server that intercepts Claude Code tool calls via PreToolUse hooks:
 
 Security: per-launch app secret, per-run tokens, sensitive field masking, 5-minute auto-deny timeout.
 
+### CostTracker (`cost-tracker.ts`)
+
+Records per-run cost and token usage data. Provides:
+
+- `recordRun()` — persists a `CostRecord` after each task completion.
+- `getSummary()` — returns aggregated `CostSummary` with breakdowns by model, project, and day.
+- `getHistory()` — returns raw cost records for display in the Cost Dashboard.
+
+### GitContext (`git-context.ts`)
+
+Provides git repository awareness for the active working directory:
+
+- `getStatus()` — returns branch name, repo detection, and file-level status (`M`/`A`/`D`/`R`/`?`).
+- `getDiff()` — returns diff output for the working directory.
+
+### AutoAttach (`auto-attach.ts`)
+
+Manages project-scoped context files that are automatically attached to prompts:
+
+- `getConfig()` — reads auto-attach configuration for a project path.
+- `setConfig()` / `addFile()` / `removeFile()` — CRUD operations on the file list.
+- `resolveFiles()` — resolves relative paths to absolute paths for attachment.
+
 ### Marketplace Catalog (`marketplace/catalog.ts`)
 
 Fetches plugin metadata from three Anthropic GitHub repos:
@@ -124,11 +171,20 @@ All methods map to `ipcRenderer.invoke()` (request-response) or `ipcRenderer.sen
 
 ### State Management
 
-Single Zustand store (`stores/sessionStore.ts`) holds all application state:
-- Tab list with full `TabState` objects (messages, status, attachments, permissions, etc.)
-- Active tab selection
-- Marketplace state (catalog, search, filter, install progress)
-- UI state (expanded, marketplace open)
+Multi-store Zustand architecture. Each store manages a focused domain:
+
+| Store | File | Manages |
+|-------|------|---------|
+| Session store | `stores/sessionStore.ts` | Tabs, messages, tab status, marketplace state, UI state |
+| Command palette store | `stores/commandPaletteStore.ts` | Palette visibility, search, command selection |
+| Comparison store | `stores/comparisonStore.ts` | Multi-model comparison groups and results |
+| Workflow store | `stores/workflowStore.ts` | Workflow definitions, step execution, progress |
+| Tab group store | `stores/tabGroupStore.ts` | Tab group CRUD, collapse state, ordering |
+| Notification store | `stores/notificationStore.ts` | Toast queue, notification preferences |
+| Snippet store | `stores/snippetStore.ts` | User-defined prompt snippets (CRUD) |
+| Shortcut store | `stores/shortcutStore.ts` | Keyboard shortcut bindings and customization |
+| Export store | `stores/exportStore.ts` | Session export dialog state and options |
+| Tab order | `stores/tabOrder.ts` | Persistent tab ordering (localStorage) |
 
 ### Theme System (`theme.ts`)
 
@@ -138,10 +194,39 @@ Theme mode state machine: `system | light | dark` with separate `_systemIsDark` 
 
 ### Key Components
 
-- **TabStrip** — tab bar with new tab, history picker, settings popover.
-- **ConversationView** — scrollable message timeline with markdown rendering (react-markdown + remark-gfm), tool call cards, permission cards.
-- **InputBar** — prompt input with attachment chips, voice recording, slash command menu, model picker.
-- **MarketplacePanel** — plugin browser with search, semantic tag filters, install confirmation.
+| Component | File | Description |
+|-----------|------|-------------|
+| TabStrip | `TabStrip.tsx` | Tab bar with new tab, history picker, settings popover |
+| TabGroupHeader | `TabGroupHeader.tsx` | Collapsible header for tab groups |
+| TabContextMenu | `TabContextMenu.tsx` | Right-click context menu for tabs (group, close, rename) |
+| ConversationView | `ConversationView.tsx` | Scrollable message timeline with markdown rendering, tool call cards, permission cards |
+| InputBar | `InputBar.tsx` | Prompt input with attachment chips, voice recording, slash command menu |
+| CommandPalette | `CommandPalette.tsx` | Fuzzy-searchable command launcher (`Ctrl+K` / `Cmd+K`) |
+| CostDashboard | `CostDashboard.tsx` | Token usage and cost visualization by model/project/day |
+| DiffViewer | `DiffViewer.tsx` | Inline diff display for Edit tool calls |
+| GitPanel | `GitPanel.tsx` | Git status and diff for the working directory |
+| ComparisonView | `ComparisonView.tsx` | Side-by-side multi-model response comparison |
+| ComparisonLauncher | `ComparisonLauncher.tsx` | UI to initiate a model comparison |
+| WorkflowManager | `WorkflowManager.tsx` | Workflow chain management and execution |
+| WorkflowEditor | `WorkflowEditor.tsx` | Create and edit workflow step definitions |
+| WorkflowProgress | `WorkflowProgress.tsx` | Step-by-step execution progress display |
+| SnippetManager | `SnippetManager.tsx` | CRUD interface for prompt snippets |
+| ShortcutSettings | `ShortcutSettings.tsx` | Keyboard shortcut customization UI |
+| ToastContainer | `ToastContainer.tsx` | Stacked toast notification display |
+| Toast | `Toast.tsx` | Individual toast notification |
+| ExportDialog | `ExportDialog.tsx` | Session export to Markdown or JSON |
+| MarketplacePanel | `MarketplacePanel.tsx` | Plugin browser with search, tag filters, install confirmation |
+| PermissionCard | `PermissionCard.tsx` | Allow/Deny prompt for tool calls |
+| PermissionDeniedCard | `PermissionDeniedCard.tsx` | Fallback card when tools were denied |
+| PermissionEditor | `PermissionEditor.tsx` | Permission rules management UI |
+| PermissionWizard | `PermissionWizard.tsx` | First-run permission mode selection |
+| HistoryPicker | `HistoryPicker.tsx` | Session history browser |
+| SettingsPopover | `SettingsPopover.tsx` | App settings (theme, size, sound, etc.) |
+| SlashCommandMenu | `SlashCommandMenu.tsx` | Autocomplete menu for `/` commands |
+| StatusBar | `StatusBar.tsx` | Cost/tokens/model display at bottom of conversation |
+| RetryBanner | `RetryBanner.tsx` | Retry state display for failed runs |
+| AttachmentChips | `AttachmentChips.tsx` | File/image attachment badges below input |
+| PopoverLayer | `PopoverLayer.tsx` | Portal layer for popover positioning |
 
 ### Performance Patterns
 
