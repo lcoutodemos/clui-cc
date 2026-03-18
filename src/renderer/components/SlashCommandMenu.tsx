@@ -11,7 +11,9 @@ export interface SlashCommand {
   command: string
   description: string
   icon: React.ReactNode
+  badge?: string
   insertOnly?: boolean
+  insertText?: string
 }
 
 export const SLASH_COMMANDS: SlashCommand[] = [
@@ -120,18 +122,31 @@ export function SlashCommandMenu({ filter, selectedIndex, onSelect, anchorRect, 
                 {cmd.icon}
               </span>
               <div className="min-w-0 flex-1">
-                <span
-                  className="text-[12px] font-mono font-medium"
-                  style={{ color: isSelected ? colors.accent : colors.textPrimary }}
-                >
-                  {cmd.command}
-                </span>
-                <span
-                  className="text-[11px] ml-2"
+                <div className="flex items-center gap-2 min-w-0">
+                  <span
+                    className="text-[12px] font-mono font-medium"
+                    style={{ color: isSelected ? colors.accent : colors.textPrimary }}
+                  >
+                    {cmd.command}
+                  </span>
+                  {cmd.badge && (
+                    <span
+                      className="text-[9px] uppercase tracking-[0.14em] px-1.5 py-0.5 rounded-full"
+                      style={{
+                        color: isSelected ? colors.accent : colors.textTertiary,
+                        background: isSelected ? colors.accentSoft : colors.surfaceHover,
+                      }}
+                    >
+                      {cmd.badge}
+                    </span>
+                  )}
+                </div>
+                <div
+                  className="text-[11px]"
                   style={{ color: colors.textTertiary }}
                 >
                   {cmd.description}
-                </span>
+                </div>
               </div>
             </button>
           )

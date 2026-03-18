@@ -1,9 +1,10 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { motion } from 'framer-motion'
-import { DotsThree, Bell, ArrowsOutSimple, Moon, ShieldCheck } from '@phosphor-icons/react'
+import { DotsThree, Bell, ArrowsOutSimple, Moon, ShieldCheck, NotePencil } from '@phosphor-icons/react'
 import { useThemeStore } from '../theme'
 import { useSessionStore } from '../stores/sessionStore'
+import { useSnippetStore } from '../stores/snippetStore'
 import { usePopoverLayer } from './PopoverLayer'
 import { useColors } from '../theme'
 import { PermissionEditor } from './PermissionEditor'
@@ -53,6 +54,7 @@ export function SettingsPopover() {
   const setThemeMode = useThemeStore((s) => s.setThemeMode)
   const expandedUI = useThemeStore((s) => s.expandedUI)
   const setExpandedUI = useThemeStore((s) => s.setExpandedUI)
+  const openSnippetManager = useSnippetStore((s) => s.openManager)
   const isExpanded = useSessionStore((s) => s.isExpanded)
   const popoverLayer = usePopoverLayer()
   const colors = useColors()
@@ -261,6 +263,24 @@ export function SettingsPopover() {
                 <ShieldCheck size={14} style={{ color: colors.textTertiary }} />
                 <div className="text-[12px] font-medium" style={{ color: colors.textPrimary }}>
                   Permissions
+                </div>
+              </button>
+            </div>
+
+            <div style={{ height: 1, background: colors.popoverBorder }} />
+
+            <div>
+              <button
+                onClick={() => {
+                  openSnippetManager()
+                  setOpen(false)
+                }}
+                className="flex items-center gap-2 w-full text-left cursor-pointer rounded-md px-0 py-0 transition-colors"
+                style={{ background: 'transparent' }}
+              >
+                <NotePencil size={14} style={{ color: colors.textTertiary }} />
+                <div className="text-[12px] font-medium" style={{ color: colors.textPrimary }}>
+                  Snippets
                 </div>
               </button>
             </div>

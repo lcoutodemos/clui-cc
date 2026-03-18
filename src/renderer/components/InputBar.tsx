@@ -1,7 +1,8 @@
 import React, { useState, useRef, useCallback, useEffect, useLayoutEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Microphone, ArrowUp, SpinnerGap, X, Check } from '@phosphor-icons/react'
+import { Microphone, ArrowUp, SpinnerGap, X, Check, Sparkle, Lightning } from '@phosphor-icons/react'
 import { useSessionStore, AVAILABLE_MODELS } from '../stores/sessionStore'
+import { useSnippetStore } from '../stores/snippetStore'
 import { AttachmentChips } from './AttachmentChips'
 import { SlashCommandMenu, getFilteredCommandsWithExtras, type SlashCommand } from './SlashCommandMenu'
 import { useColors } from '../theme'
@@ -85,6 +86,7 @@ export function InputBar() {
   const preferredModel = useSessionStore((s) => s.preferredModel)
   const activeTabId = useSessionStore((s) => s.activeTabId)
   const tab = useSessionStore((s) => s.tabs.find((t) => t.id === s.activeTabId))
+  const snippets = useSnippetStore((s) => s.snippets)
   const colors = useColors()
   const isBusy = tab?.status === 'running' || tab?.status === 'connecting'
   const isConnecting = tab?.status === 'connecting'
@@ -95,7 +97,14 @@ export function InputBar() {
   const skillCommands: SlashCommand[] = (tab?.sessionSkills || []).map((skill) => ({
     command: `/${skill}`,
     description: `Run skill: ${skill}`,
-    icon: <span className="text-[11px]">✦</span>,
+    icon: <Sparkle size={12} />,
+  }))
+  const snippetCommands: SlashCommand[] = snippets.map((snippet) => ({
+    command: snippet.command,
+    description: `Snippet: ${snippet.name}`,
+    icon: <Lightning size={12} />,
+    badge: 'Snippet',
+    insertText: snippet.content,
   }))
 
   useEffect(() => {
@@ -279,6 +288,12 @@ export function InputBar() {
 
   const handleSlashSelect = useCallback((cmd: SlashCommand) => {
     const isSkillCommand = !!tab?.sessionSkills?.includes(cmd.command.replace(/^\//, ''))
+    if (cmd.insertText) {
+      setInput(cmd.insertText)
+      setSlashFilter(null)
+      requestAnimationFrame(() => textareaRef.current?.focus())
+      return
+    }
     if (isSkillCommand || cmd.insertOnly) {
       setInput(`${cmd.command} `)
       setSlashFilter(null)
@@ -293,7 +308,7 @@ export function InputBar() {
   // ─── Send ───
   const handleSend = useCallback(async () => {
     if (showSlashMenu) {
-      const filtered = getFilteredCommandsWithExtras(slashFilter!, skillCommands)
+      const filtered = getFilteredCommandsWithExtras(slashFilter!, [...snippetCommands, ...skillCommands])
       if (filtered.length > 0) {
         handleSlashSelect(filtered[slashIndex])
         return
@@ -397,14 +412,16 @@ export function InputBar() {
     agentMemorySnapshot,
     activeTabId,
     addSystemMessage,
+    snippetCommands,
+    skillCommands,
   ])
 
   // ─── Keyboard ───
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (showSlashMenu) {
-      const filtered = getFilteredCommandsWithExtras(slashFilter!, skillCommands)
-      if (e.key === 'ArrowDown') { e.preventDefault(); setSlashIndex((i) => (i + 1) % filtered.length); return }
-      if (e.key === 'ArrowUp') { e.preventDefault(); setSlashIndex((i) => (i - 1 + filtered.length) % filtered.length); return }
+      const filtered = getFilteredCommandsWithExtras(slashFilter!, [...snippetCommands, ...skillCommands])
+      if (e.key === 'ArrowDown' && filtered.length > 0) { e.preventDefault(); setSlashIndex((i) => (i + 1) % filtered.length); return }
+      if (e.key === 'ArrowUp' && filtered.length > 0) { e.preventDefault(); setSlashIndex((i) => (i - 1 + filtered.length) % filtered.length); return }
       if (e.key === 'Tab') { e.preventDefault(); if (filtered.length > 0) handleSlashSelect(filtered[slashIndex]); return }
       if (e.key === 'Escape') { e.preventDefault(); setSlashFilter(null); return }
     }
@@ -502,7 +519,7 @@ export function InputBar() {
             selectedIndex={slashIndex}
             onSelect={handleSlashSelect}
             anchorRect={wrapperRef.current?.getBoundingClientRect() ?? null}
-            extraCommands={skillCommands}
+            extraCommands={[...snippetCommands, ...skillCommands]}
           />
         )}
       </AnimatePresence>
