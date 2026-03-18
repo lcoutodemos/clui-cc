@@ -4,12 +4,14 @@ import { motion } from 'framer-motion'
 import {
   Plus, ClockCounterClockwise, GearSix, HeadCircuit, Lightning, DownloadSimple,
   Browser, Cpu, Moon, Sun, ArrowsOutSimple, ArrowsInSimple, X, GitBranch,
+  TerminalWindow, Broom,
 } from '@phosphor-icons/react'
 import { usePopoverLayer } from './PopoverLayer'
 import { useColors } from '../theme'
 import { useThemeStore } from '../theme'
 import { useCommandPaletteStore } from '../stores/commandPaletteStore'
 import { useSessionStore, AVAILABLE_MODELS } from '../stores/sessionStore'
+import { useTerminalStore } from '../stores/terminalStore'
 import { useShortcutStore } from '../stores/shortcutStore'
 import { useSnippetStore } from '../stores/snippetStore'
 import type { PaletteCommand } from '../../shared/command-palette'
@@ -31,6 +33,8 @@ const ICON_MAP: Record<string, React.ReactNode> = {
   ArrowsInSimple: <ArrowsInSimple size={ICON_SIZE} />,
   X: <X size={ICON_SIZE} />,
   GitBranch: <GitBranch size={ICON_SIZE} />,
+  TerminalWindow: <TerminalWindow size={ICON_SIZE} />,
+  Broom: <Broom size={ICON_SIZE} />,
 }
 
 function resolveIcon(name: string): React.ReactNode {
@@ -74,6 +78,16 @@ function executeCommand(command: PaletteCommand): void {
     const tabId = id.replace('tab:', '')
     session.selectTab(tabId)
     if (!session.isExpanded) session.toggleExpanded()
+  } else if (id === 'terminal-toggle') {
+    useTerminalStore.getState().toggleMode()
+  } else if (id === 'terminal-new-tab') {
+    useTerminalStore.getState().toggleMode()
+    useTerminalStore.getState().createTermTab().catch(() => {})
+  } else if (id === 'terminal-close-tab') {
+    const term = useTerminalStore.getState()
+    if (term.activeTermTabId) term.closeTermTab(term.activeTermTabId)
+  } else if (id === 'terminal-clear') {
+    window.dispatchEvent(new CustomEvent('clui-terminal-shortcut', { detail: { action: 'clear' } }))
   }
 }
 
@@ -141,6 +155,40 @@ function buildCommands(): PaletteCommand[] {
     })
   }
 
+  // Terminal commands
+  const { terminalMode, ptyAvailable } = useTerminalStore.getState()
+  if (ptyAvailable !== false) {
+    commands.push({
+      id: 'terminal-toggle',
+      category: 'terminal',
+      icon: 'TerminalWindow',
+      label: terminalMode ? 'Switch to Chat' : 'Open Terminal',
+      shortcut: 'Ctrl+`',
+    })
+    commands.push({
+      id: 'terminal-new-tab',
+      category: 'terminal',
+      icon: 'TerminalWindow',
+      label: 'New Terminal Tab',
+      shortcut: 'Ctrl+Shift+T',
+    })
+    if (terminalMode) {
+      commands.push({
+        id: 'terminal-close-tab',
+        category: 'terminal',
+        icon: 'X',
+        label: 'Close Terminal Tab',
+        shortcut: 'Ctrl+Shift+W',
+      })
+      commands.push({
+        id: 'terminal-clear',
+        category: 'terminal',
+        icon: 'Broom',
+        label: 'Clear Terminal',
+      })
+    }
+  }
+
   return commands
 }
 
@@ -151,9 +199,10 @@ const CATEGORY_LABELS: Record<string, string> = {
   tab: 'Tabs',
   model: 'Models',
   theme: 'Theme',
+  terminal: 'Terminal',
 }
 
-const CATEGORY_ORDER = ['action', 'tab', 'model', 'theme']
+const CATEGORY_ORDER = ['action', 'tab', 'model', 'theme', 'terminal']
 
 function groupByCategory(commands: PaletteCommand[]): Array<{ category: string; label: string; items: PaletteCommand[] }> {
   const map = new Map<string, PaletteCommand[]>()

@@ -95,6 +95,11 @@ export default function App() {
     return unsub
   }, [setSystemTheme])
 
+  // ─── Terminal availability check ───
+  useEffect(() => {
+    useTerminalStore.getState().checkAvailability()
+  }, [])
+
   useEffect(() => {
     useSessionStore.getState().initStaticInfo().then(() => {
       const homeDir = useSessionStore.getState().staticInfo?.homePath || '~'

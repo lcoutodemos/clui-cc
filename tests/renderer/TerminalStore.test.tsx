@@ -6,9 +6,16 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const mockClui = {
   terminalCreate: vi.fn().mockResolvedValue({ termTabId: 'mock-term-1' }),
   terminalClose: vi.fn().mockResolvedValue(undefined),
+  terminalAvailable: vi.fn().mockResolvedValue(true),
 }
 Object.defineProperty(globalThis, 'window', {
-  value: { ...globalThis.window, clui: mockClui },
+  value: { ...globalThis.window, clui: mockClui, dispatchEvent: vi.fn() },
+  writable: true,
+})
+
+// Mock navigator.platform
+Object.defineProperty(globalThis, 'navigator', {
+  value: { ...globalThis.navigator, platform: 'Win32' },
   writable: true,
 })
 
@@ -20,6 +27,8 @@ describe('TerminalStore', () => {
       termTabs: [],
       activeTermTabId: null,
       terminalMode: false,
+      ptyAvailable: true,
+      fontSize: 13,
     })
     vi.clearAllMocks()
   })
@@ -35,6 +44,12 @@ describe('TerminalStore', () => {
   it('toggleMode flips terminalMode', () => {
     useTerminalStore.getState().toggleMode()
     expect(useTerminalStore.getState().terminalMode).toBe(true)
+    useTerminalStore.getState().toggleMode()
+    expect(useTerminalStore.getState().terminalMode).toBe(false)
+  })
+
+  it('toggleMode does nothing when ptyAvailable is false', () => {
+    useTerminalStore.setState({ ptyAvailable: false })
     useTerminalStore.getState().toggleMode()
     expect(useTerminalStore.getState().terminalMode).toBe(false)
   })
@@ -72,5 +87,20 @@ describe('TerminalStore', () => {
     const tab = useTerminalStore.getState().termTabs.find((t) => t.id === 'mock-term-1')
     expect(tab?.status).toBe('exited')
     expect(tab?.exitCode).toBe(0)
+  })
+
+  it('setFontSize clamps between 9 and 24', () => {
+    useTerminalStore.getState().setFontSize(5)
+    expect(useTerminalStore.getState().fontSize).toBe(9)
+    useTerminalStore.getState().setFontSize(30)
+    expect(useTerminalStore.getState().fontSize).toBe(24)
+    useTerminalStore.getState().setFontSize(16)
+    expect(useTerminalStore.getState().fontSize).toBe(16)
+  })
+
+  it('checkAvailability sets ptyAvailable', async () => {
+    useTerminalStore.setState({ ptyAvailable: null })
+    await useTerminalStore.getState().checkAvailability()
+    expect(useTerminalStore.getState().ptyAvailable).toBe(true)
   })
 })

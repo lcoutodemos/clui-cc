@@ -96,6 +96,7 @@ export interface CluiAPI {
   onWindowShown(callback: () => void): () => void
 
   // Terminal
+  terminalAvailable(): Promise<boolean>
   terminalCreate(options?: { shell?: string; cwd?: string; cols?: number; rows?: number }): Promise<{ termTabId: string | null; error?: string }>
   terminalWrite(termTabId: string, data: string): void
   terminalResize(termTabId: string, cols: number, rows: number): void
@@ -226,6 +227,7 @@ const api: CluiAPI = {
   },
 
   // Terminal
+  terminalAvailable: () => ipcRenderer.invoke(IPC.TERMINAL_AVAILABLE),
   terminalCreate: (options) => ipcRenderer.invoke(IPC.TERMINAL_CREATE, options),
   terminalWrite: (termTabId, data) => ipcRenderer.send(IPC.TERMINAL_WRITE, termTabId, data),
   terminalResize: (termTabId, cols, rows) => ipcRenderer.send(IPC.TERMINAL_RESIZE, termTabId, cols, rows),

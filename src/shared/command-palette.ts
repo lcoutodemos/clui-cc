@@ -2,7 +2,7 @@
 
 export interface PaletteCommand {
   id: string
-  category: 'action' | 'tab' | 'model' | 'theme'
+  category: 'action' | 'tab' | 'model' | 'theme' | 'terminal'
   icon: string
   label: string
   description?: string

@@ -569,6 +569,7 @@ export const IPC = {
   TERMINAL_CLOSE: 'clui:terminal-close',
   TERMINAL_DATA: 'clui:terminal-data',
   TERMINAL_EXIT: 'clui:terminal-exit',
+  TERMINAL_AVAILABLE: 'clui:terminal-available',
 
   // Error logging
   LOG_RENDERER_ERROR: 'clui:log-renderer-error',

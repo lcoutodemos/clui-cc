@@ -987,6 +987,8 @@ ipcMain.handle(IPC.GIT_DIFF, (_event, cwd: string, file?: string) => {
 
 // ─── Terminal IPC ───
 
+ipcMain.handle(IPC.TERMINAL_AVAILABLE, () => terminalManager.isAvailable())
+
 ipcMain.handle(IPC.TERMINAL_CREATE, (_event, options?: { shell?: string; cwd?: string; cols?: number; rows?: number }) => {
   try {
     const termTabId = terminalManager.create(options || {})

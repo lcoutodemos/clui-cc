@@ -69,13 +69,20 @@ export class TerminalManager {
 
     log(`Creating terminal: shell=${shell} cwd=${cwd} cols=${cols} rows=${rows}`)
 
-    const pty = this.ptyModule.spawn(shell, [], {
-      name: 'xterm-256color',
-      cols,
-      rows,
-      cwd,
-      env,
-    })
+    let pty: any
+    try {
+      pty = this.ptyModule.spawn(shell, [], {
+        name: 'xterm-256color',
+        cols,
+        rows,
+        cwd,
+        env,
+      })
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      log(`PTY spawn failed: ${msg}`)
+      throw new Error(`Failed to spawn shell "${shell}": ${msg}`)
+    }
 
     const session: TerminalSession = {
       pty,
