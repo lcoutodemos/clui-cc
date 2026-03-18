@@ -656,10 +656,10 @@ ipcMain.handle(IPC.TRANSCRIBE_AUDIO, async (_event, audioBase64: string) => {
     const buf = Buffer.from(audioBase64, 'base64')
     writeFileSync(tmpWav, buf)
 
-    // Find whisper-cli (whisper-cpp homebrew) or whisper (python)
+    // Find whisperkit-cli (Apple CoreML) or whisper (python)
     const candidates = [
-      '/opt/homebrew/bin/whisper-cli',
-      '/usr/local/bin/whisper-cli',
+      '/opt/homebrew/bin/whisperkit-cli',
+      '/usr/local/bin/whisperkit-cli',
       '/opt/homebrew/bin/whisper',
       '/usr/local/bin/whisper',
       join(homedir(), '.local/bin/whisper'),
@@ -672,7 +672,7 @@ ipcMain.handle(IPC.TRANSCRIBE_AUDIO, async (_event, audioBase64: string) => {
 
     if (!whisperBin) {
       try {
-        whisperBin = execSync('/bin/zsh -lc "whence -p whisper-cli"', { encoding: 'utf-8' }).trim()
+        whisperBin = execSync('/bin/zsh -lc "whence -p whisperkit-cli"', { encoding: 'utf-8' }).trim()
       } catch {}
     }
     if (!whisperBin) {
@@ -683,54 +683,26 @@ ipcMain.handle(IPC.TRANSCRIBE_AUDIO, async (_event, audioBase64: string) => {
 
     if (!whisperBin) {
       return {
-        error: 'Whisper not found. Install with: brew install whisper-cli',
+        error: 'Whisper not found. Install with: brew install whisperkit-cli',
         transcript: null,
       }
     }
 
-    const isWhisperCpp = whisperBin.includes('whisper-cli')
+    const isWhisperKit = whisperBin.includes('whisperkit-cli')
 
-    // Find model file — prefer multilingual (auto-detect language) over .en (English-only)
-    const modelCandidates = [
-      join(homedir(), '.local/share/whisper/ggml-base.bin'),
-      join(homedir(), '.local/share/whisper/ggml-tiny.bin'),
-      '/opt/homebrew/share/whisper-cpp/models/ggml-base.bin',
-      '/opt/homebrew/share/whisper-cpp/models/ggml-tiny.bin',
-      // Fall back to English-only models if multilingual not available
-      join(homedir(), '.local/share/whisper/ggml-base.en.bin'),
-      join(homedir(), '.local/share/whisper/ggml-tiny.en.bin'),
-      '/opt/homebrew/share/whisper-cpp/models/ggml-base.en.bin',
-      '/opt/homebrew/share/whisper-cpp/models/ggml-tiny.en.bin',
-    ]
-
-    let modelPath = ''
-    for (const m of modelCandidates) {
-      if (existsSync(m)) { modelPath = m; break }
-    }
-
-    // Detect if using an English-only model (.en suffix) — force English if so
-    const isEnglishOnly = modelPath.includes('.en.')
-    log(`Transcribing with: ${whisperBin} (model: ${modelPath || 'default'}, lang: ${isEnglishOnly ? 'en' : 'auto'})`)
+    log(`Transcribing with: ${whisperBin} (backend: ${isWhisperKit ? 'WhisperKit' : 'Python whisper'})`)
 
     let output: string
-    if (isWhisperCpp) {
-      // whisper-cpp: whisper-cli -m model -f file --no-timestamps
-      if (!modelPath) {
-        return {
-          error: 'Whisper model not found. Download with:\nmkdir -p ~/.local/share/whisper && curl -L -o ~/.local/share/whisper/ggml-tiny.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin',
-          transcript: null,
-        }
-      }
-      const langFlag = isEnglishOnly ? '-l en' : '-l auto'
+    if (isWhisperKit) {
+      // WhisperKit: auto-downloads CoreML models on first run
       output = execSync(
-        `"${whisperBin}" -m "${modelPath}" -f "${tmpWav}" --no-timestamps ${langFlag}`,
-        { encoding: 'utf-8', timeout: 30000 }
+        `"${whisperBin}" transcribe --audio-path "${tmpWav}" --model tiny --without-timestamps --skip-special-tokens`,
+        { encoding: 'utf-8', timeout: 60000 }
       )
     } else {
-      // Python whisper: auto-detect language unless English-only model
-      const langFlag = isEnglishOnly ? '--language en' : ''
+      // Python whisper: auto-detect language
       output = execSync(
-        `"${whisperBin}" "${tmpWav}" --model tiny ${langFlag} --output_format txt --output_dir "${tmpdir()}"`,
+        `"${whisperBin}" "${tmpWav}" --model tiny --output_format txt --output_dir "${tmpdir()}"`,
         { encoding: 'utf-8', timeout: 30000 }
       )
       // Python whisper writes .txt file
@@ -747,7 +719,7 @@ ipcMain.handle(IPC.TRANSCRIBE_AUDIO, async (_event, audioBase64: string) => {
       }
     }
 
-    // whisper-cpp prints to stdout directly
+    // WhisperKit prints to stdout directly
     // Strip timestamp patterns and known hallucination outputs
     const HALLUCINATIONS = /^\s*(\[BLANK_AUDIO\]|you\.?|thank you\.?|thanks\.?)\s*$/i
     const transcript = output

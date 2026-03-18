@@ -155,7 +155,7 @@ If not, install it:
 2. Install Whisper manually:
 
 ```bash
-brew install whisper-cli
+brew install whisperkit-cli
 ```
 
 3. Rerun the installer:

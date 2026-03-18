@@ -35,7 +35,7 @@ fi
 
 step "Step 2/6 — Checking voice support (Whisper)"
 
-if command -v whisper-cli &>/dev/null || command -v whisper &>/dev/null; then
+if command -v whisperkit-cli &>/dev/null || command -v whisper &>/dev/null; then
   echo "Whisper is already installed."
 else
   echo "Whisper is not installed. Voice input requires it."
@@ -54,12 +54,12 @@ else
 
   echo "Installing Whisper via Homebrew..."
   echo
-  if ! brew install whisper-cli; then
+  if ! brew install whisperkit-cli; then
     echo
     echo "Whisper installation failed."
     echo
     echo "  Try running manually:"
-    echo "    brew install whisper-cli"
+    echo "    brew install whisperkit-cli"
     echo
     echo "  Then double-click this file again."
     echo
@@ -67,12 +67,12 @@ else
   fi
 
   # Verify
-  if ! command -v whisper-cli &>/dev/null && ! command -v whisper &>/dev/null; then
+  if ! command -v whisperkit-cli &>/dev/null && ! command -v whisper &>/dev/null; then
     echo
     echo "Whisper was installed but the command is not available."
     echo
     echo "  Try opening a new Terminal window and running:"
-    echo "    whisper-cli --help"
+    echo "    whisperkit-cli --help"
     echo
     echo "  If that works, double-click this file again."
     echo
