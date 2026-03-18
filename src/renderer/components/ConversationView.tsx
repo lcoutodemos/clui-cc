@@ -146,6 +146,7 @@ export function ConversationView({ overrideTabId }: { overrideTabId?: string } =
   return (
     <div
       data-clui-ui
+      data-testid="conversation-view"
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
@@ -396,6 +397,7 @@ function UserMessage({ message, skipMotion }: { message: Message; skipMotion?: b
   const colors = useColors()
   const content = (
     <div
+      data-testid="message-user"
       className="text-[13px] leading-[1.5] px-3 py-1.5 max-w-[85%]"
       style={{
         background: colors.userBubble,
@@ -588,7 +590,7 @@ const AssistantMessage = React.memo(function AssistantMessage({
   }), [colors])
 
   const inner = (
-    <div className="group/msg relative">
+    <div data-testid="message-assistant" className="group/msg relative">
       <div className="text-[13px] leading-[1.6] prose-cloud min-w-0 max-w-[92%]">
         <Markdown remarkPlugins={REMARK_PLUGINS} components={markdownComponents}>
           {message.content}
@@ -792,6 +794,7 @@ function SystemMessage({ message, skipMotion }: { message: Message; skipMotion?:
 
   const inner = (
     <div
+      data-testid={isError ? 'message-system-error' : 'message-system'}
       className="text-[11px] leading-[1.5] px-2.5 py-1 rounded-lg inline-block whitespace-pre-wrap"
       style={{
         background: isError ? colors.statusErrorBg : colors.surfaceHover,

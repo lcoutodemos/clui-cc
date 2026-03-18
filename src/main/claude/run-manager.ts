@@ -4,7 +4,7 @@ import { homedir } from 'os'
 import { StreamParser } from '../stream-parser'
 import { normalize } from './event-normalizer'
 import { log as _log } from '../logger'
-import { findClaudeBinary, getLoginShellPath, ensureBinDirInPath } from '../platform'
+import { findClaudeBinary, getClaudeLaunchPrefixArgs, getLoginShellPath, ensureBinDirInPath } from '../platform'
 import type { ClaudeEvent, NormalizedEvent, RunOptions, EnrichedError } from '../../shared/types'
 
 const MAX_RING_LINES = 100
@@ -120,6 +120,7 @@ export class RunManager extends EventEmitter {
     const cwd = options.projectPath === '~' ? homedir() : options.projectPath
 
     const args: string[] = [
+      ...getClaudeLaunchPrefixArgs(),
       '-p',
       '--input-format', 'stream-json',
       '--output-format', 'stream-json',

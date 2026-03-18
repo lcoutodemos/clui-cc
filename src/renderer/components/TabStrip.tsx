@@ -179,6 +179,7 @@ export function TabStrip() {
   return (
     <div
       data-clui-ui
+      data-testid="tab-strip"
       className="flex items-center no-drag"
       style={{ padding: '8px 0' }}
     >
@@ -270,6 +271,7 @@ export function TabStrip() {
 
       <div className="flex items-center gap-0.5 flex-shrink-0 ml-1 pr-2">
         <button
+          data-testid="tab-new-button"
           onClick={() => createTab()}
           className="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded-full transition-colors"
           style={{ color: colors.textTertiary }}

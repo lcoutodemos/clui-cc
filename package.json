@@ -18,6 +18,8 @@
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "test": "vitest run",
+    "test:e2e": "npm run build && playwright test",
+    "test:e2e:headed": "npm run build && playwright test --headed",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "dist": "electron-vite build && electron-builder",
@@ -80,6 +82,7 @@
     "npmRebuild": false
   },
   "devDependencies": {
+    "@playwright/test": "^1.58.2",
     "@tailwindcss/vite": "^4.2.1",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",

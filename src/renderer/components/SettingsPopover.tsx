@@ -145,6 +145,7 @@ export function SettingsPopover() {
     <>
       <button
         ref={triggerRef}
+        data-testid="settings-button"
         onClick={handleToggle}
         className="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded-full transition-colors"
         style={{ color: colors.textTertiary }}
@@ -303,6 +304,7 @@ export function SettingsPopover() {
             {/* Permissions */}
             <div>
               <button
+                data-testid="settings-permissions-button"
                 onClick={() => setPermEditorOpen((o) => !o)}
                 className="flex items-center gap-2 w-full text-left cursor-pointer rounded-md px-0 py-0 transition-colors"
                 style={{ background: 'transparent' }}

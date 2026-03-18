@@ -4,7 +4,7 @@ import { homedir } from 'os'
 import { appendFileSync } from 'fs'
 import { join } from 'path'
 import { StreamParser } from './stream-parser'
-import { findClaudeBinary, getLoginShellPath, ensureBinDirInPath } from './platform'
+import { findClaudeBinary, getClaudeLaunchPrefixArgs, getLoginShellPath, ensureBinDirInPath } from './platform'
 import type { ClaudeEvent, RunOptions } from '../shared/types'
 
 const LOG_FILE = join(homedir(), '.clui-debug.log')
@@ -40,6 +40,7 @@ export class ProcessManager extends EventEmitter {
     const cwd = options.projectPath === '~' ? homedir() : options.projectPath
 
     const args: string[] = [
+      ...getClaudeLaunchPrefixArgs(),
       '-p',
       '--output-format', 'stream-json',
       '--verbose',

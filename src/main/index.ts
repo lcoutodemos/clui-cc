@@ -24,9 +24,24 @@ import type { RunOptions, NormalizedEvent, EnrichedError, ExportOptions, Session
 
 const DEBUG_MODE = process.env.CLUI_DEBUG === '1'
 const SPACES_DEBUG = DEBUG_MODE || process.env.CLUI_SPACES_DEBUG === '1'
+const E2E_MODE = process.env.CLUI_E2E === '1'
 
 function log(msg: string): void {
   _log('main', msg)
+}
+
+function getE2EStartPayload() {
+  return {
+    version: 'e2e-fake-claude',
+    auth: {
+      email: 'e2e@local.test',
+      subscriptionType: 'Max',
+      authMethod: 'mock',
+    },
+    mcpServers: [],
+    projectPath: process.cwd(),
+    homePath: homedir(),
+  }
 }
 
 let mainWindow: BrowserWindow | null = null
@@ -158,7 +173,9 @@ function createWindow(): void {
     // Enable OS-level click-through for transparent regions.
     // { forward: true } ensures mousemove events still reach the renderer
     // so it can toggle click-through off when cursor enters interactive UI.
-    mainWindow?.setIgnoreMouseEvents(true, { forward: true })
+    if (!E2E_MODE) {
+      mainWindow?.setIgnoreMouseEvents(true, { forward: true })
+    }
     if (process.env.ELECTRON_RENDERER_URL) {
       mainWindow?.webContents.openDevTools({ mode: 'detach' })
     }
@@ -244,6 +261,9 @@ ipcMain.handle(IPC.IS_VISIBLE, () => {
 // OS-level click-through toggle — renderer calls this on mousemove
 // to enable clicks on interactive UI while passing through transparent areas
 ipcMain.on(IPC.SET_IGNORE_MOUSE_EVENTS, (event, ignore: boolean, options?: { forward?: boolean }) => {
+  if (E2E_MODE) {
+    return
+  }
   const win = BrowserWindow.fromWebContents(event.sender)
   if (win && !win.isDestroyed()) {
     win.setIgnoreMouseEvents(ignore, options || {})
@@ -254,6 +274,9 @@ ipcMain.on(IPC.SET_IGNORE_MOUSE_EVENTS, (event, ignore: boolean, options?: { for
 
 ipcMain.handle(IPC.START, async () => {
   log('IPC START — fetching static CLI info')
+  if (E2E_MODE) {
+    return getE2EStartPayload()
+  }
   const { execSync } = require('child_process')
 
   let version = 'unknown'
@@ -1012,6 +1035,9 @@ nativeTheme.on('updated', () => {
 // ─── Desktop Notifications ───
 
 ipcMain.handle(IPC.NOTIFY_DESKTOP, (_event, title: string, body: string) => {
+  if (E2E_MODE) {
+    return
+  }
   if (!mainWindow?.isFocused() && Notification.isSupported()) {
     const notification = new Notification({ title, body })
     notification.on('click', () => {
@@ -1031,15 +1057,17 @@ app.whenReady().then(() => {
   // macOS: become an accessory app. Accessory apps can have key windows (keyboard works)
   // without deactivating the currently active app (hover preserved in browsers).
   // This is how Spotlight, Alfred, Raycast work.
-  if (process.platform === 'darwin' && app.dock) {
+  if (!E2E_MODE && process.platform === 'darwin' && app.dock) {
     app.dock.hide()
   }
 
   // Skill provisioning — non-blocking, streams status to renderer
-  ensureSkills((status: SkillStatus) => {
-    log(`Skill ${status.name}: ${status.state}${status.error ? ` — ${status.error}` : ''}`)
-    broadcast(IPC.SKILL_STATUS, status)
-  }).catch((err: Error) => log(`Skill provisioning error: ${err.message}`))
+  if (!E2E_MODE) {
+    ensureSkills((status: SkillStatus) => {
+      log(`Skill ${status.name}: ${status.state}${status.error ? ` — ${status.error}` : ''}`)
+      broadcast(IPC.SKILL_STATUS, status)
+    }).catch((err: Error) => log(`Skill provisioning error: ${err.message}`))
+  }
 
   createWindow()
   snapshotWindowState('after createWindow')
@@ -1069,47 +1097,48 @@ app.whenReady().then(() => {
     })
   }
 
+  if (!E2E_MODE) {
+    // Register user-configured shortcut with automatic fallback on conflict
+    const shortcutConfig = loadShortcutConfig()
+    let primaryShortcut = shortcutConfig.primary
+    let registered = globalShortcut.register(primaryShortcut, () => toggleWindow(`shortcut ${primaryShortcut}`))
 
-  // Register user-configured shortcut with automatic fallback on conflict
-  const shortcutConfig = loadShortcutConfig()
-  let primaryShortcut = shortcutConfig.primary
-  let registered = globalShortcut.register(primaryShortcut, () => toggleWindow(`shortcut ${primaryShortcut}`))
-
-  if (!registered) {
-    log(`${primaryShortcut} shortcut registration failed — trying alternatives`)
-    // Try safe alternatives until one works
-    for (const alt of getSafeAlternatives()) {
-      registered = globalShortcut.register(alt, () => toggleWindow(`shortcut ${alt}`))
-      if (registered) {
-        primaryShortcut = alt
-        saveShortcutConfig({ primary: alt })
-        log(`Registered fallback shortcut: ${alt}`)
-        break
+    if (!registered) {
+      log(`${primaryShortcut} shortcut registration failed — trying alternatives`)
+      // Try safe alternatives until one works
+      for (const alt of getSafeAlternatives()) {
+        registered = globalShortcut.register(alt, () => toggleWindow(`shortcut ${alt}`))
+        if (registered) {
+          primaryShortcut = alt
+          saveShortcutConfig({ primary: alt })
+          log(`Registered fallback shortcut: ${alt}`)
+          break
+        }
+      }
+      if (!registered) {
+        log('All shortcut alternatives failed')
       }
     }
-    if (!registered) {
-      log('All shortcut alternatives failed')
+    // Secondary shortcut always registered
+    globalShortcut.register('CommandOrControl+Shift+K', () => toggleWindow('shortcut Cmd/Ctrl+Shift+K'))
+
+    const trayIconPath = join(__dirname, process.platform === 'darwin' ? '../../resources/trayTemplate.png' : '../../resources/icon.png')
+    const trayIcon = nativeImage.createFromPath(trayIconPath)
+    if (process.platform === 'darwin') {
+      trayIcon.setTemplateImage(true)
     }
-  }
-  // Secondary shortcut always registered
-  globalShortcut.register('CommandOrControl+Shift+K', () => toggleWindow('shortcut Cmd/Ctrl+Shift+K'))
+    tray = new Tray(trayIcon)
+    tray.setToolTip('Clui CC — Claude Code UI')
+    tray.on('click', () => toggleWindow('tray click'))
+    tray.setContextMenu(
+      Menu.buildFromTemplate([
+        { label: 'Show Clui CC', click: () => toggleWindow('tray menu Show Clui CC') },
+        { label: 'Quit', click: () => { app.quit() } },
+      ])
+    )
 
-  const trayIconPath = join(__dirname, process.platform === 'darwin' ? '../../resources/trayTemplate.png' : '../../resources/icon.png')
-  const trayIcon = nativeImage.createFromPath(trayIconPath)
-  if (process.platform === 'darwin') {
-    trayIcon.setTemplateImage(true)
+    app.on('activate', () => toggleWindow('app activate'))
   }
-  tray = new Tray(trayIcon)
-  tray.setToolTip('Clui CC — Claude Code UI')
-  tray.on('click', () => toggleWindow('tray click'))
-  tray.setContextMenu(
-    Menu.buildFromTemplate([
-      { label: 'Show Clui CC', click: () => toggleWindow('tray menu Show Clui CC') },
-      { label: 'Quit', click: () => { app.quit() } },
-    ])
-  )
-
-  app.on('activate', () => toggleWindow('app activate'))
 })
 
 app.on('will-quit', () => {
