@@ -117,6 +117,16 @@ export interface UnknownEvent {
   [key: string]: unknown
 }
 
+// ─── Tab Groups ───
+
+export interface TabGroup {
+  id: string
+  name: string
+  color?: 'red' | 'orange' | 'green' | 'blue' | 'purple' | 'pink'
+  collapsed: boolean
+  order: number
+}
+
 // ─── Tab State Machine (v2 — from execution plan) ───
 
 export type TabStatus = 'connecting' | 'idle' | 'running' | 'completed' | 'failed' | 'dead'
@@ -220,6 +230,8 @@ export interface TabState {
   hasChosenDirectory: boolean
   /** Extra directories accessible via --add-dir (session-preserving) */
   additionalDirs: string[]
+  /** Tab group this tab belongs to (undefined = ungrouped) */
+  groupId?: string
 }
 
 export interface Message {
