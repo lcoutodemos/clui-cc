@@ -28,6 +28,7 @@ const BUILT_IN_COMMANDS = new Set([
   '/done',
   '/release',
   '/memory',
+  '/export',
   '/cost',
   '/model',
   '/mcp',

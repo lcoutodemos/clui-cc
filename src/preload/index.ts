@@ -11,6 +11,9 @@ import type {
   SessionLoadMessage,
   AgentMemorySnapshot,
   AgentMemoryClaimResult,
+  ExportOptions,
+  SessionExportData,
+  SessionExportResult,
 } from '../shared/types'
 
 export interface CluiAPI {
@@ -37,6 +40,7 @@ export interface CluiAPI {
   resetTabSession(tabId: string): void
   listSessions(projectPath?: string): Promise<SessionMeta[]>
   loadSession(sessionId: string, projectPath?: string): Promise<SessionLoadMessage[]>
+  exportSession(data: SessionExportData, options: ExportOptions): Promise<SessionExportResult>
   pinSession(sessionId: string, projectPath: string): Promise<boolean>
   unpinSession(sessionId: string): Promise<boolean>
   agentMemoryGet(projectPath: string): Promise<AgentMemorySnapshot>
@@ -100,6 +104,7 @@ const api: CluiAPI = {
   resetTabSession: (tabId) => ipcRenderer.send(IPC.RESET_TAB_SESSION, tabId),
   listSessions: (projectPath?: string) => ipcRenderer.invoke(IPC.LIST_SESSIONS, projectPath),
   loadSession: (sessionId: string, projectPath?: string) => ipcRenderer.invoke(IPC.LOAD_SESSION, { sessionId, projectPath }),
+  exportSession: (data, options) => ipcRenderer.invoke(IPC.EXPORT_SESSION, { data, options }),
   pinSession: (sessionId, projectPath) => ipcRenderer.invoke(IPC.PIN_SESSION, { sessionId, projectPath }),
   unpinSession: (sessionId) => ipcRenderer.invoke(IPC.UNPIN_SESSION, sessionId),
   agentMemoryGet: (projectPath) => ipcRenderer.invoke(IPC.AGENT_MEMORY_GET, projectPath),

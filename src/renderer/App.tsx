@@ -7,10 +7,12 @@ import { InputBar } from './components/InputBar'
 import { StatusBar } from './components/StatusBar'
 import { MarketplacePanel } from './components/MarketplacePanel'
 import { SnippetManager } from './components/SnippetManager'
+import { ExportDialog } from './components/ExportDialog'
 import { PermissionWizard } from './components/PermissionWizard'
 import { PopoverLayerProvider } from './components/PopoverLayer'
 import { useClaudeEvents } from './hooks/useClaudeEvents'
 import { useHealthReconciliation } from './hooks/useHealthReconciliation'
+import { useExportStore } from './stores/exportStore'
 import { useSessionStore } from './stores/sessionStore'
 import { useSnippetStore } from './stores/snippetStore'
 import { useColors, useThemeStore, spacing } from './theme'
@@ -105,6 +107,7 @@ export default function App() {
   const isExpanded = useSessionStore((s) => s.isExpanded)
   const marketplaceOpen = useSessionStore((s) => s.marketplaceOpen)
   const snippetManagerOpen = useSnippetStore((s) => s.managerOpen)
+  const exportDialogOpen = useExportStore((s) => s.isOpen)
   const isRunning = activeTabStatus === 'running' || activeTabStatus === 'connecting'
 
   // Layout dimensions — expandedUI widens and heightens the panel
@@ -206,6 +209,41 @@ export default function App() {
                     }}
                   >
                     <SnippetManager />
+                  </div>
+                </motion.div>
+              </div>
+            )}
+          </AnimatePresence>
+
+          <AnimatePresence initial={false}>
+            {exportDialogOpen && (
+              <div
+                data-clui-ui
+                style={{
+                  width: expandedUI ? 720 : 560,
+                  maxWidth: expandedUI ? 720 : 560,
+                  marginLeft: '50%',
+                  transform: 'translateX(-50%)',
+                  marginBottom: 14,
+                  position: 'relative',
+                  zIndex: 31,
+                }}
+              >
+                <motion.div
+                  initial={{ opacity: 0, y: 14, scale: 0.98 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 10, scale: 0.985 }}
+                  transition={TRANSITION}
+                >
+                  <div
+                    data-clui-ui
+                    className="glass-surface overflow-hidden no-drag"
+                    style={{
+                      borderRadius: 24,
+                      maxHeight: 500,
+                    }}
+                  >
+                    <ExportDialog />
                   </div>
                 </motion.div>
               </div>
