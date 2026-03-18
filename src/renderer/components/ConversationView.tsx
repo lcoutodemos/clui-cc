@@ -10,6 +10,7 @@ import {
 import { useSessionStore } from '../stores/sessionStore'
 import { PermissionCard } from './PermissionCard'
 import { PermissionDeniedCard } from './PermissionDeniedCard'
+import { RetryBanner } from './RetryBanner'
 import { useColors, useThemeStore } from '../theme'
 import type { Message } from '../../shared/types'
 
@@ -146,6 +147,10 @@ export function ConversationView() {
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
+      <AnimatePresence>
+        {tab.retryState && <RetryBanner tabId={tab.id} />}
+      </AnimatePresence>
+
       {/* Scrollable messages area */}
       <div
         ref={scrollRef}

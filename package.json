@@ -25,7 +25,7 @@
     "dist:mac": "electron-vite build && electron-builder --mac",
     "doctor": "bash scripts/doctor.sh",
     "doctor:win": "powershell -ExecutionPolicy Bypass -File scripts/doctor.ps1",
-    "postinstall": "electron-builder install-app-deps && node scripts/postinstall.js"
+    "postinstall": "node scripts/postinstall.js"
   },
   "dependencies": {
     "@phosphor-icons/react": "^2.1.10",

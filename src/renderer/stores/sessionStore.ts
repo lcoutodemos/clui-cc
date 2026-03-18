@@ -1,5 +1,6 @@
 import { create } from 'zustand'
-import type { TabStatus, NormalizedEvent, EnrichedError, Message, TabState, Attachment, CatalogPlugin, PluginStatus } from '../../shared/types'
+import type { TabStatus, NormalizedEvent, EnrichedError, Message, TabState, Attachment, CatalogPlugin, PluginStatus, RunOptions } from '../../shared/types'
+import { canScheduleAutoResume, DEFAULT_AUTO_RESUME_MAX_RETRIES, getAutoResumeDelayMs } from '../../shared/retry-policy'
 import { useThemeStore } from '../theme'
 import notificationSrc from '../../../resources/notification.mp3'
 
@@ -70,6 +71,8 @@ interface State {
   addAttachments: (attachments: Attachment[]) => void
   removeAttachment: (attachmentId: string) => void
   clearAttachments: () => void
+  retryTab: (tabId: string) => void
+  stopRetrying: (tabId: string) => void
   handleNormalizedEvent: (tabId: string, event: NormalizedEvent) => void
   handleStatusChange: (tabId: string, newStatus: string, oldStatus: string) => void
   handleError: (tabId: string, error: EnrichedError) => void
@@ -77,6 +80,15 @@ interface State {
 
 let msgCounter = 0
 const nextMsgId = () => `msg-${++msgCounter}`
+const retryTimers = new Map<string, ReturnType<typeof setTimeout>>()
+
+function clearRetryTimer(tabId: string) {
+  const timer = retryTimers.get(tabId)
+  if (timer) {
+    clearTimeout(timer)
+    retryTimers.delete(tabId)
+  }
+}
 
 // ─── Notification sound (plays when task completes while window is hidden) ───
 const notificationAudio = new Audio(notificationSrc)
@@ -103,6 +115,9 @@ function makeLocalTab(): TabState {
     currentActivity: '',
     permissionQueue: [],
     permissionDenied: null,
+    retryState: null,
+    lastRunOptions: null,
+    queuedRunOptions: [],
     attachments: [],
     messages: [],
     title: 'New Tab',
@@ -320,6 +335,7 @@ export const useSessionStore = create<State>((set, get) => ({
   },
 
   closeTab: (tabId) => {
+    clearRetryTimer(tabId)
     window.clui.closeTab(tabId).catch(() => {})
 
     const s = get()
@@ -341,10 +357,11 @@ export const useSessionStore = create<State>((set, get) => ({
 
   clearTab: () => {
     const { activeTabId } = get()
+    clearRetryTimer(activeTabId)
     set((s) => ({
       tabs: s.tabs.map((t) =>
         t.id === activeTabId
-          ? { ...t, messages: [], lastResult: null, currentActivity: '', permissionQueue: [], permissionDenied: null, queuedPrompts: [] }
+          ? { ...t, messages: [], lastResult: null, currentActivity: '', permissionQueue: [], permissionDenied: null, retryState: null, lastRunOptions: null, queuedPrompts: [], queuedRunOptions: [] }
           : t
       ),
     }))
@@ -516,6 +533,70 @@ export const useSessionStore = create<State>((set, get) => ({
     }))
   },
 
+  stopRetrying: (tabId) => {
+    const tab = get().tabs.find((t) => t.id === tabId)
+    clearRetryTimer(tabId)
+    set((s) => ({
+      tabs: s.tabs.map((t) => {
+        if (t.id !== tabId || !t.retryState) return t
+        return {
+          ...t,
+          retryState: {
+            ...t.retryState,
+            isRetrying: false,
+            nextRetryAt: null,
+            stopped: true,
+          },
+          currentActivity: '',
+        }
+      }),
+    }))
+
+    if (tab?.activeRequestId && (tab.status === 'connecting' || tab.status === 'running')) {
+      void window.clui.stopTab(tabId).catch(() => {})
+    }
+  },
+
+  retryTab: (tabId) => {
+    clearRetryTimer(tabId)
+    const { tabs } = get()
+    const tab = tabs.find((t) => t.id === tabId)
+    if (!tab?.lastRunOptions) return
+
+    const maxAttempts = useThemeStore.getState().autoResumeMaxRetries || DEFAULT_AUTO_RESUME_MAX_RETRIES
+    const requestId = crypto.randomUUID()
+
+    set((s) => ({
+      tabs: s.tabs.map((t) =>
+        t.id === tabId
+          ? {
+              ...t,
+              status: 'connecting' as TabStatus,
+              activeRequestId: requestId,
+              currentActivity: 'Reconnecting...',
+              retryState: {
+                isRetrying: true,
+                attempt: 1,
+                maxAttempts,
+                nextRetryAt: null,
+                lastError: t.retryState?.lastError,
+              },
+            }
+          : t
+      ),
+    }))
+
+    void window.clui.retry(tabId, requestId, tab.lastRunOptions).catch((err: Error) => {
+      get().handleError(tabId, {
+        message: err.message,
+        stderrTail: [],
+        exitCode: null,
+        elapsedMs: 0,
+        toolCallCount: 0,
+      })
+    })
+  },
+
   // ─── Send ───
 
   sendMessage: (prompt, projectPath) => {
@@ -544,6 +625,17 @@ export const useSessionStore = create<State>((set, get) => ({
       ? (prompt.length > 30 ? prompt.substring(0, 27) + '...' : prompt)
       : tab.title
 
+    const { preferredModel } = get()
+    const runOptions: RunOptions = {
+      prompt: fullPrompt,
+      projectPath: resolvedPath,
+      sessionId: tab.claudeSessionId || undefined,
+      model: preferredModel || undefined,
+      addDirs: tab.additionalDirs.length > 0 ? tab.additionalDirs : undefined,
+    }
+
+    clearRetryTimer(activeTabId)
+
     // Optimistic update: clear attachments
     // If busy, add to queuedPrompts (shown at bottom); otherwise add to messages and set connecting
     set((s) => ({
@@ -564,6 +656,7 @@ export const useSessionStore = create<State>((set, get) => ({
             title,
             attachments: [],
             queuedPrompts: [...withEffectiveBase.queuedPrompts, prompt],
+            queuedRunOptions: [...withEffectiveBase.queuedRunOptions, runOptions],
           }
         }
         return {
@@ -573,6 +666,8 @@ export const useSessionStore = create<State>((set, get) => ({
           currentActivity: 'Starting...',
           title,
           attachments: [],
+          retryState: null,
+          lastRunOptions: runOptions,
           messages: [
             ...withEffectiveBase.messages,
             { id: nextMsgId(), role: 'user' as const, content: prompt, timestamp: Date.now() },
@@ -582,14 +677,7 @@ export const useSessionStore = create<State>((set, get) => ({
     }))
 
     // Send to backend — ControlPlane will queue if a run is active
-    const { preferredModel } = get()
-    window.clui.prompt(activeTabId, requestId, {
-      prompt: fullPrompt,
-      projectPath: resolvedPath,
-      sessionId: tab.claudeSessionId || undefined,
-      model: preferredModel || undefined,
-      addDirs: tab.additionalDirs.length > 0 ? tab.additionalDirs : undefined,
-    }).catch((err: Error) => {
+    window.clui.prompt(activeTabId, requestId, runOptions).catch((err: Error) => {
       get().handleError(activeTabId, {
         message: err.message,
         stderrTail: [],
@@ -624,7 +712,12 @@ export const useSessionStore = create<State>((set, get) => ({
               // Move the first queued prompt into the timeline (it's now being processed)
               if (updated.queuedPrompts.length > 0) {
                 const [nextPrompt, ...rest] = updated.queuedPrompts
+                const [nextRunOptions, ...restRunOptions] = updated.queuedRunOptions
                 updated.queuedPrompts = rest
+                updated.queuedRunOptions = restRunOptions
+                if (nextRunOptions) {
+                  updated.lastRunOptions = nextRunOptions
+                }
                 updated.messages = [
                   ...updated.messages,
                   { id: nextMsgId(), role: 'user' as const, content: nextPrompt, timestamp: Date.now() },
@@ -717,6 +810,7 @@ export const useSessionStore = create<State>((set, get) => ({
             updated.activeRequestId = null
             updated.currentActivity = ''
             updated.permissionQueue = []
+            updated.retryState = null
             updated.lastResult = {
               totalCostUsd: event.costUsd,
               durationMs: event.durationMs,
@@ -758,6 +852,14 @@ export const useSessionStore = create<State>((set, get) => ({
             updated.currentActivity = ''
             updated.permissionQueue = []
             updated.permissionDenied = null
+            updated.retryState = updated.retryState
+              ? {
+                  ...updated.retryState,
+                  isRetrying: false,
+                  nextRetryAt: null,
+                  lastError: `Session ended unexpectedly (exit ${event.exitCode})`,
+                }
+              : null
             updated.messages = [
               ...updated.messages,
               {
@@ -806,9 +908,123 @@ export const useSessionStore = create<State>((set, get) => ({
 
       return { tabs }
     })
+
+    if (event.type !== 'session_dead') return
+
+    const tab = get().tabs.find((t) => t.id === tabId)
+    if (!tab) return
+
+    const { autoResumeEnabled, autoResumeMaxRetries } = useThemeStore.getState()
+    const maxAttempts = autoResumeMaxRetries || DEFAULT_AUTO_RESUME_MAX_RETRIES
+    const currentAttempt = tab.retryState?.attempt ?? 0
+
+    const shouldRetry = canScheduleAutoResume({
+      enabled: autoResumeEnabled,
+      currentAttempt,
+      maxAttempts,
+      hasRunOptions: !!tab.lastRunOptions,
+      isAlreadyRetrying: tab.retryState?.isRetrying ?? false,
+    })
+
+    if (!shouldRetry) {
+      if (autoResumeEnabled && tab.lastRunOptions && currentAttempt >= maxAttempts) {
+        set((s) => ({
+          tabs: s.tabs.map((t) =>
+            t.id === tabId
+              ? {
+                  ...t,
+                  retryState: {
+                    isRetrying: false,
+                    attempt: currentAttempt,
+                    maxAttempts,
+                    nextRetryAt: null,
+                    lastError: `Session ended unexpectedly (exit ${event.exitCode})`,
+                    exhausted: true,
+                  },
+                  currentActivity: '',
+                }
+              : t
+          ),
+        }))
+      }
+      return
+    }
+
+    const attempt = currentAttempt + 1
+    const delay = getAutoResumeDelayMs(attempt)
+    const nextRetryAt = delay > 0 ? Date.now() + delay : null
+
+    set((s) => ({
+      tabs: s.tabs.map((t) =>
+        t.id === tabId
+          ? {
+              ...t,
+              retryState: {
+                isRetrying: true,
+                attempt,
+                maxAttempts,
+                nextRetryAt,
+                lastError: `Session ended unexpectedly (exit ${event.exitCode})`,
+              },
+              currentActivity: delay === 0 ? 'Reconnecting...' : t.currentActivity,
+            }
+          : t
+      ),
+    }))
+
+    clearRetryTimer(tabId)
+
+    const triggerRetry = () => {
+      retryTimers.delete(tabId)
+      const currentTab = get().tabs.find((t) => t.id === tabId)
+      if (!currentTab?.lastRunOptions) return
+      if (currentTab.retryState?.stopped || currentTab.retryState?.exhausted) return
+
+      const requestId = crypto.randomUUID()
+
+      set((s) => ({
+        tabs: s.tabs.map((t) =>
+          t.id === tabId
+            ? {
+                ...t,
+                status: 'connecting' as TabStatus,
+                activeRequestId: requestId,
+                currentActivity: 'Reconnecting...',
+                retryState: t.retryState
+                  ? {
+                      ...t.retryState,
+                      isRetrying: true,
+                      nextRetryAt: null,
+                    }
+                  : null,
+              }
+            : t
+        ),
+      }))
+
+      void window.clui.retry(tabId, requestId, currentTab.lastRunOptions).catch((err: Error) => {
+        get().handleError(tabId, {
+          message: err.message,
+          stderrTail: [],
+          exitCode: null,
+          elapsedMs: 0,
+          toolCallCount: 0,
+        })
+      })
+    }
+
+    if (delay === 0) {
+      setTimeout(triggerRetry, 0)
+    } else {
+      retryTimers.set(tabId, setTimeout(triggerRetry, delay))
+    }
   },
 
   handleStatusChange: (tabId, newStatus) => {
+    if (newStatus === 'completed' || newStatus === 'failed' || newStatus === 'idle') {
+      clearRetryTimer(tabId)
+    }
+
     set((s) => ({
       tabs: s.tabs.map((t) =>
         t.id === tabId
@@ -817,6 +1033,9 @@ export const useSessionStore = create<State>((set, get) => ({
               status: newStatus as TabStatus,
               // Clear activity when transitioning to idle (e.g., after warmup init)
               ...(newStatus === 'idle' ? { currentActivity: '', permissionQueue: [] as import('../../shared/types').PermissionRequest[], permissionDenied: null } : {}),
+              ...((newStatus === 'completed' || newStatus === 'failed')
+                ? { retryState: null }
+                : {}),
             }
           : t
       ),
@@ -838,6 +1057,7 @@ export const useSessionStore = create<State>((set, get) => ({
           activeRequestId: null,
           currentActivity: '',
           permissionQueue: [],
+          retryState: t.retryState,
           messages: alreadyHasError
             ? t.messages
             : [

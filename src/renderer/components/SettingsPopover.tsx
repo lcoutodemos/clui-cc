@@ -47,6 +47,8 @@ function RowToggle({
 export function SettingsPopover() {
   const soundEnabled = useThemeStore((s) => s.soundEnabled)
   const setSoundEnabled = useThemeStore((s) => s.setSoundEnabled)
+  const autoResumeEnabled = useThemeStore((s) => s.autoResumeEnabled)
+  const setAutoResumeEnabled = useThemeStore((s) => s.setAutoResumeEnabled)
   const themeMode = useThemeStore((s) => s.themeMode)
   const setThemeMode = useThemeStore((s) => s.setThemeMode)
   const expandedUI = useThemeStore((s) => s.expandedUI)
@@ -203,6 +205,26 @@ export function SettingsPopover() {
                   onChange={setSoundEnabled}
                   colors={colors}
                   label="Toggle notification sound"
+                />
+              </div>
+            </div>
+
+            <div style={{ height: 1, background: colors.popoverBorder }} />
+
+            {/* Auto-resume */}
+            <div>
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2 min-w-0">
+                  <ArrowsOutSimple size={14} style={{ color: colors.textTertiary }} />
+                  <div className="text-[12px] font-medium" style={{ color: colors.textPrimary }}>
+                    Auto-resume on crash
+                  </div>
+                </div>
+                <RowToggle
+                  checked={autoResumeEnabled}
+                  onChange={setAutoResumeEnabled}
+                  colors={colors}
+                  label="Toggle auto-resume after unexpected session crash"
                 />
               </div>
             </div>

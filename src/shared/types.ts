@@ -129,6 +129,16 @@ export interface PermissionRequest {
   options: Array<{ optionId: string; kind?: string; label: string }>
 }
 
+export interface RetryState {
+  isRetrying: boolean
+  attempt: number
+  maxAttempts: number
+  nextRetryAt: number | null
+  lastError?: string
+  exhausted?: boolean
+  stopped?: boolean
+}
+
 export interface Attachment {
   id: string
   type: 'image' | 'file'
@@ -151,6 +161,9 @@ export interface TabState {
   permissionQueue: PermissionRequest[]
   /** Fallback card when tools were denied and no interactive permission is available */
   permissionDenied: { tools: Array<{ toolName: string; toolUseId: string }> } | null
+  retryState: RetryState | null
+  lastRunOptions: RunOptions | null
+  queuedRunOptions: RunOptions[]
   attachments: Attachment[]
   messages: Message[]
   title: string

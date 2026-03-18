@@ -219,7 +219,13 @@ export class ControlPlane extends EventEmitter {
         // Unexpected exit — emit enriched error (includes stderr tail)
         const enriched = this.runManager.getEnrichedError(requestId, code)
         this.emit('error', tabId, enriched)
-        this._setTabStatus(tabId, code === null ? 'dead' : 'failed')
+        this.emit('event', tabId, {
+          type: 'session_dead',
+          exitCode: code,
+          signal,
+          stderrTail: enriched.stderrTail,
+        })
+        this._setTabStatus(tabId, 'dead')
       }
 
       // Resolve the inflight promise
@@ -365,7 +371,13 @@ export class ControlPlane extends EventEmitter {
       } else {
         const enriched = this.ptyRunManager.getEnrichedError(requestId, code)
         this.emit('error', tabId, enriched)
-        this._setTabStatus(tabId, code === null ? 'dead' : 'failed')
+        this.emit('event', tabId, {
+          type: 'session_dead',
+          exitCode: code,
+          signal: null,
+          stderrTail: enriched.stderrTail,
+        })
+        this._setTabStatus(tabId, 'dead')
       }
 
       if (inflight) {
@@ -684,15 +696,14 @@ export class ControlPlane extends EventEmitter {
 
   /**
    * Retry: re-submit the same prompt on the same tab/session.
-   * If the tab is dead, creates a fresh session.
+   * If the tab is dead, preserve the stored session ID so Claude can resume.
    */
   async retry(tabId: string, requestId: string, options: RunOptions): Promise<void> {
     const tab = this.tabs.get(tabId)
     if (!tab) throw new Error(`Tab ${tabId} does not exist`)
 
-    // If dead, clear session so a new one starts
+    // Clear only the dead status; keep the session ID for --resume.
     if (tab.status === 'dead') {
-      tab.claudeSessionId = null
       this._setTabStatus(tabId, 'idle')
     }
 
