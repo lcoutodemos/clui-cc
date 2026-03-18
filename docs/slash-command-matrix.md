@@ -3,7 +3,34 @@
 CLI Version: 2.1.63 | Date: 2026-03-08
 Test session: 450d2d0f-4b03-4761-8ecd-8d179998127d
 
-## Protocol Finding
+## App-Level Slash Commands
+
+These commands are intercepted by the CLUI app before reaching the CLI. Defined in `src/renderer/components/SlashCommandMenu.tsx`.
+
+| Command | Description | Behavior |
+|---------|-------------|----------|
+| `/clear` | Clear conversation history | Resets the active tab's message list |
+| `/compare` | Compare two models side-by-side | Opens ComparisonLauncher for multi-model comparison |
+| `/workflow` | Open workflow manager | Opens WorkflowManager for step-by-step prompt chains |
+| `/focus` | Set the current work focus | Inserted as prompt text (agent memory) |
+| `/claim` | Claim a work item by key | Inserted as prompt text (agent memory) |
+| `/done` | Mark the current work as done | Inserted as prompt text (agent memory) |
+| `/release` | Release the current claim | Inserted as prompt text (agent memory) |
+| `/memory` | Show active and recent shared work | Displays agent memory snapshot |
+| `/export` | Export session to Markdown or JSON | Opens ExportDialog |
+| `/cost` | Show token usage and cost | Opens CostDashboard |
+| `/model` | Show current model info | Displays session model metadata |
+| `/mcp` | Show MCP server status | Displays connected MCP servers |
+| `/skills` | Show available skills | Lists installed and available skills |
+| `/help` | Show available commands | Lists all slash commands |
+
+Commands marked as `insertOnly` (focus, claim, done, release) are inserted into the input bar as prompt prefixes rather than executed directly.
+
+## CLI Slash Commands (Passthrough)
+
+The following section documents commands that are passed through to the Claude Code CLI and their behavior in stream-json mode.
+
+### Protocol Finding
 
 `--input-format stream-json` is **completely broken** in CLI 2.1.63 (hangs forever, 0 events).
 The only working mode is one-shot `claude -p` with stdin closed + `--resume` for multi-turn.

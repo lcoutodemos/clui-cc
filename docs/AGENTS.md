@@ -5,7 +5,7 @@
 
 ## What This Project Is
 
-Clui CC is an **Electron desktop overlay** (macOS production, Windows beta) that wraps the Claude Code CLI (`claude -p --output-format stream-json`) in a floating pill UI. It is NOT a web app, NOT a VS Code extension, and does NOT call the Anthropic API directly — it spawns CLI subprocesses.
+Clui CC is an **Electron desktop overlay** (macOS + Windows) that wraps the Claude Code CLI (`claude -p --output-format stream-json`) in a floating pill UI. It is NOT a web app, NOT a VS Code extension, and does NOT call the Anthropic API directly — it spawns CLI subprocesses.
 
 ## Quick Reference
 
@@ -14,7 +14,9 @@ Clui CC is an **Electron desktop overlay** (macOS production, Windows beta) that
 | Install deps | `npm install` |
 | Dev mode (hot-reload) | `npm run dev` |
 | Type-check / build | `npm run build` |
-| Toggle overlay | `Alt+Space` |
+| Run tests | `npm run test` |
+| Tests in watch mode | `npm run test:watch` |
+| Toggle overlay | `Alt+Space` (macOS) / `Ctrl+Space` (Windows) |
 | Debug logging | `CLUI_DEBUG=1 npm run dev` (writes to `~/.clui-debug.log`) |
 
 **Main process changes require full restart.** Renderer changes hot-reload.
@@ -22,7 +24,7 @@ Clui CC is an **Electron desktop overlay** (macOS production, Windows beta) that
 ## Architecture (3-Layer)
 
 ```
-Renderer (React 19 + Zustand 5 + Tailwind CSS 4)
+Renderer (React 19 + Zustand 5 + Tailwind CSS 4 + Framer Motion)
     ↕  contextBridge IPC (src/preload/index.ts)
 Main Process (Node.js / Electron 33)
     ↕  spawns subprocess
@@ -35,7 +37,7 @@ Claude Code CLI (claude -p --output-format stream-json)
 |-------|-----------|---------|
 | **Renderer** | `src/renderer/` | UI state, theming, user input, message display |
 | **Preload** | `src/preload/` | Typed IPC bridge (`window.clui` API). Security boundary. |
-| **Main** | `src/main/` | Process lifecycle, tab state machine, permission server, marketplace |
+| **Main** | `src/main/` | Process lifecycle, tab state machine, permission server, marketplace, cost tracking, git context, auto-attach |
 
 ### Key Files by Concern
 
@@ -46,7 +48,23 @@ Claude Code CLI (claude -p --output-format stream-json)
 | Raw NDJSON → canonical events | `src/main/claude/event-normalizer.ts` |
 | Permission hook server | `src/main/hooks/permission-server.ts` |
 | All TypeScript types & IPC channels | `src/shared/types.ts` |
-| Zustand state store | `src/renderer/stores/sessionStore.ts` |
+| Session state store | `src/renderer/stores/sessionStore.ts` |
+| Notification store (toasts) | `src/renderer/stores/notificationStore.ts` |
+| Command palette store | `src/renderer/stores/commandPaletteStore.ts` |
+| Comparison store (multi-model) | `src/renderer/stores/comparisonStore.ts` |
+| Workflow store | `src/renderer/stores/workflowStore.ts` |
+| Tab group store | `src/renderer/stores/tabGroupStore.ts` |
+| Snippet store | `src/renderer/stores/snippetStore.ts` |
+| Shortcut store | `src/renderer/stores/shortcutStore.ts` |
+| Export store | `src/renderer/stores/exportStore.ts` |
+| Tab ordering | `src/renderer/stores/tabOrder.ts` |
+| Cost tracking | `src/main/cost-tracker.ts` |
+| Git context | `src/main/git-context.ts` |
+| Auto-attach config | `src/main/auto-attach.ts` |
+| Diff algorithm | `src/renderer/utils/diff.ts` |
+| Keyboard shortcuts | `src/shared/keyboard-shortcuts.ts` |
+| Session export logic | `src/shared/session-export.ts` |
+| Command palette definitions | `src/shared/command-palette.ts` |
 | Theme / color system | `src/renderer/theme.ts` |
 | Main window & IPC handler setup | `src/main/index.ts` |
 | Marketplace catalog | `src/main/marketplace/catalog.ts` |
@@ -76,18 +94,40 @@ All IPC and event types live in `src/shared/types.ts`. Key types:
 - **`IPC`** — const object with all IPC channel names (use these, never raw strings)
 - **`RunOptions`** — options passed when spawning a Claude CLI run
 - **`CatalogPlugin`** — marketplace plugin metadata
+- **`CostRecord`** — per-run cost/token data
+- **`CostSummary`** — aggregated cost breakdown by model, project, day
+- **`GitStatus`** — repository branch + file status
+- **`GitFileStatus`** — individual file change status (`M`/`A`/`D`/`R`/`?`)
+- **`TabGroup`** — tab group with name, color, collapse state
+- **`AutoAttachConfig`** — project-scoped context files for auto-attachment
+- **`ExportOptions`** / **`SessionExportData`** — session export configuration and output
+- **`ShortcutBinding`** / **`ShortcutMap`** — keyboard shortcut customization
+- **`AgentAssignment`** / **`AgentMemorySnapshot`** — multi-agent work coordination
+
+Additional types in dedicated shared modules:
+
+- **`PaletteCommand`** — `src/shared/command-palette.ts`
+- **`ShortcutActionId`** / **`ShortcutConflict`** — `src/shared/keyboard-shortcuts.ts`
+
+Renderer-only types (in store files):
+
+- **`ComparisonGroup`** — `src/renderer/stores/comparisonStore.ts`
+- **`Workflow`** / **`WorkflowStep`** / **`WorkflowExecution`** — `src/renderer/stores/workflowStore.ts`
+- **`Snippet`** — `src/renderer/stores/snippetStore.ts`
+- **`Toast`** — `src/renderer/stores/notificationStore.ts`
 
 ## Conventions & Rules
 
 ### Must Follow
 
 1. **TypeScript strict mode** — zero errors required (`npm run build` must pass)
-2. **Use `IPC.*` constants** for all IPC channel names — never hardcode strings
-3. **Use `useColors()` hook** for all color references in renderer — never hardcode colors
-4. **Narrow Zustand selectors** with custom equality functions for performance
-5. **All new IPC channels** must be added to `src/shared/types.ts` AND wired in both `src/preload/index.ts` and `src/main/index.ts`
-6. **Tab state transitions** go through `ControlPlane` only — never mutate tab state directly
-7. **Always persist the Claude session ID** — whenever a session is created or resumed, save the session ID to a durable location (e.g., a file in `~/.claude/` or app config) so it can be recovered if the app or process crashes. Never rely solely on in-memory state for session tracking. If the session crashes, it must be resumable via `claude --resume <session-id>` without manual lookup.
+2. **Tests must pass** — `npm run test` must pass with zero failures
+3. **Use `IPC.*` constants** for all IPC channel names — never hardcode strings
+4. **Use `useColors()` hook** for all color references in renderer — never hardcode colors
+5. **Narrow Zustand selectors** with custom equality functions for performance
+6. **All new IPC channels** must be added to `src/shared/types.ts` AND wired in both `src/preload/index.ts` and `src/main/index.ts`
+7. **Tab state transitions** go through `ControlPlane` only — never mutate tab state directly
+8. **Always persist the Claude session ID** — whenever a session is created or resumed, save the session ID to a durable location (e.g., a file in `~/.claude/` or app config) so it can be recovered if the app or process crashes. Never rely solely on in-memory state for session tracking. If the session crashes, it must be resumable via `claude --resume <session-id>` without manual lookup.
 
 ### Security — Do Not Break
 
@@ -142,6 +182,7 @@ All IPC and event types live in `src/shared/types.ts`. Key types:
 | Animation | Framer Motion | 12 |
 | Icons | Phosphor Icons | 2 |
 | Markdown | react-markdown + remark-gfm | 9 / 4 |
+| Testing | Vitest | 4 |
 | PTY (legacy) | node-pty | 1.1 |
 
 ## Network Surface
@@ -156,7 +197,7 @@ No telemetry. No analytics. No auto-update.
 
 ## Development Workflow — Mandatory for All Issues
 
-Every issue (bug fix, feature, refactor) MUST follow this workflow strictly:
+Every issue (bug fix, feature, refactor) MUST follow this workflow strictly.
 
 This applies to any coding agent, in any client, using any LLM.
 
