@@ -16,6 +16,7 @@ import type {
   SessionExportResult,
   CostRecord,
   CostSummary,
+  AutoAttachState,
   GitStatus,
 } from '../shared/types'
 
@@ -34,6 +35,10 @@ export interface CluiAPI {
   openExternal(url: string): Promise<boolean>
   openInTerminal(sessionId: string | null, projectPath?: string): Promise<boolean>
   attachFiles(): Promise<Attachment[] | null>
+  getAutoAttachConfig(projectPath: string): Promise<AutoAttachState>
+  setAutoAttachFiles(projectPath: string, files: string[]): Promise<AutoAttachState>
+  addAutoAttachFile(projectPath: string): Promise<AutoAttachState>
+  removeAutoAttachFile(projectPath: string, relativePath: string): Promise<AutoAttachState>
   takeScreenshot(): Promise<Attachment | null>
   pasteImage(dataUrl: string): Promise<Attachment | null>
   transcribeAudio(audioBase64: string): Promise<{ error: string | null; transcript: string | null }>
@@ -103,6 +108,10 @@ const api: CluiAPI = {
   openExternal: (url) => ipcRenderer.invoke(IPC.OPEN_EXTERNAL, url),
   openInTerminal: (sessionId, projectPath) => ipcRenderer.invoke(IPC.OPEN_IN_TERMINAL, { sessionId, projectPath }),
   attachFiles: () => ipcRenderer.invoke(IPC.ATTACH_FILES),
+  getAutoAttachConfig: (projectPath) => ipcRenderer.invoke(IPC.AUTO_ATTACH_GET, projectPath),
+  setAutoAttachFiles: (projectPath, files) => ipcRenderer.invoke(IPC.AUTO_ATTACH_SET, { projectPath, files }),
+  addAutoAttachFile: (projectPath) => ipcRenderer.invoke(IPC.AUTO_ATTACH_ADD, projectPath),
+  removeAutoAttachFile: (projectPath, relativePath) => ipcRenderer.invoke(IPC.AUTO_ATTACH_REMOVE, { projectPath, relativePath }),
   takeScreenshot: () => ipcRenderer.invoke(IPC.TAKE_SCREENSHOT),
   pasteImage: (dataUrl) => ipcRenderer.invoke(IPC.PASTE_IMAGE, dataUrl),
   transcribeAudio: (audioBase64) => ipcRenderer.invoke(IPC.TRANSCRIBE_AUDIO, audioBase64),

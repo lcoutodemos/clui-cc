@@ -670,6 +670,30 @@ export const useSessionStore = create<State>((set, get) => ({
           : t
       ),
     }))
+    void window.clui.getAutoAttachConfig(dir).then((state) => {
+      set((s) => ({
+        tabs: s.tabs.map((t) => {
+          if (t.id !== activeTabId) return t
+
+          const manualAttachments = t.attachments.filter((attachment) => !attachment.autoAttached)
+          const manualPaths = new Set(manualAttachments.map((attachment) => attachment.path.toLowerCase()))
+          const autoAttachments = state.attachments.filter((attachment) => !manualPaths.has(attachment.path.toLowerCase()))
+
+          return {
+            ...t,
+            attachments: [...manualAttachments, ...autoAttachments],
+          }
+        }),
+      }))
+
+      if (state.warnings.length > 0) {
+        useNotificationStore.getState().addToast({
+          type: 'warning',
+          title: 'Auto-attach skipped files',
+          message: state.warnings[0],
+        })
+      }
+    }).catch(() => {})
     void get().refreshAgentMemory(dir)
   },
 

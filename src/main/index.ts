@@ -17,6 +17,7 @@ import { AgentMemory } from './agent-memory'
 import { PinnedSessionStore } from './pinned-sessions'
 import { exportSessionToFile } from './session-export'
 import { appendRecord as costAppendRecord, getSummary as costGetSummary, getHistory as costGetHistory } from './cost-tracker'
+import { AutoAttachManager } from './auto-attach'
 import { GitContextProvider } from './git-context'
 import { IPC } from '../shared/types'
 import type { RunOptions, NormalizedEvent, EnrichedError, ExportOptions, SessionExportData, CostRecord } from '../shared/types'
@@ -38,6 +39,7 @@ const INTERACTIVE_PTY = process.env.CLUI_INTERACTIVE_PERMISSIONS_PTY === '1'
 
 const settingsManager = new SettingsManager()
 const pinnedSessions = new PinnedSessionStore()
+const autoAttachManager = new AutoAttachManager()
 const gitContext = new GitContextProvider()
 let agentMemory: AgentMemory | null = null
 
@@ -638,6 +640,39 @@ ipcMain.handle(IPC.ATTACH_FILES, async () => {
       size: stat.size,
     }
   })
+})
+
+ipcMain.handle(IPC.AUTO_ATTACH_GET, (_event, projectPath: string) => {
+  return autoAttachManager.getState(projectPath)
+})
+
+ipcMain.handle(IPC.AUTO_ATTACH_SET, (_event, { projectPath, files }: { projectPath: string; files: string[] }) => {
+  return autoAttachManager.setFiles(projectPath, files)
+})
+
+ipcMain.handle(IPC.AUTO_ATTACH_ADD, async (_event, projectPath: string) => {
+  if (!mainWindow) {
+    return autoAttachManager.getState(projectPath)
+  }
+
+  if (process.platform === 'darwin') app.focus()
+  const options = {
+    defaultPath: projectPath === '~' ? homedir() : projectPath,
+    properties: ['openFile', 'multiSelections'] as const,
+  }
+  const result = process.platform === 'darwin'
+    ? await dialog.showOpenDialog(options)
+    : await dialog.showOpenDialog(mainWindow, options)
+
+  if (result.canceled || result.filePaths.length === 0) {
+    return autoAttachManager.getState(projectPath)
+  }
+
+  return autoAttachManager.addFiles(projectPath, result.filePaths)
+})
+
+ipcMain.handle(IPC.AUTO_ATTACH_REMOVE, (_event, { projectPath, relativePath }: { projectPath: string; relativePath: string }) => {
+  return autoAttachManager.removeFile(projectPath, relativePath)
 })
 
 ipcMain.handle(IPC.TAKE_SCREENSHOT, async () => {

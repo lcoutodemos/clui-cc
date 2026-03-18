@@ -172,6 +172,19 @@ export interface Attachment {
   dataUrl?: string
   /** File size in bytes */
   size?: number
+  /** True when injected from per-project auto-attach config */
+  autoAttached?: boolean
+}
+
+export interface AutoAttachConfig {
+  projectPath: string
+  files: string[]
+}
+
+export interface AutoAttachState {
+  config: AutoAttachConfig
+  attachments: Attachment[]
+  warnings: string[]
 }
 
 export interface TabState {
@@ -425,6 +438,10 @@ export const IPC = {
   OPEN_EXTERNAL: 'clui:open-external',
   OPEN_IN_TERMINAL: 'clui:open-in-terminal',
   ATTACH_FILES: 'clui:attach-files',
+  AUTO_ATTACH_GET: 'clui:auto-attach-get',
+  AUTO_ATTACH_SET: 'clui:auto-attach-set',
+  AUTO_ATTACH_ADD: 'clui:auto-attach-add',
+  AUTO_ATTACH_REMOVE: 'clui:auto-attach-remove',
   TAKE_SCREENSHOT: 'clui:take-screenshot',
   TRANSCRIBE_AUDIO: 'clui:transcribe-audio',
   PASTE_IMAGE: 'clui:paste-image',
