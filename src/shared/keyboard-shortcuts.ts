@@ -3,6 +3,8 @@ import type { ShortcutBinding, ShortcutMap } from './types'
 export type ShortcutActionId =
   | 'next-tab'
   | 'previous-tab'
+  | 'move-tab-left'
+  | 'move-tab-right'
   | 'new-tab'
   | 'close-tab'
   | 'toggle-expand'
@@ -28,6 +30,8 @@ export interface ShortcutConflict {
 const SHORTCUT_DEFINITIONS: ShortcutDefinition[] = [
   { id: 'next-tab', label: 'Next Tab', category: 'navigation', windows: 'Ctrl+Tab', mac: 'Cmd+Tab' },
   { id: 'previous-tab', label: 'Previous Tab', category: 'navigation', windows: 'Ctrl+Shift+Tab', mac: 'Cmd+Shift+Tab' },
+  { id: 'move-tab-left', label: 'Move Tab Left', category: 'navigation', windows: 'Alt+Shift+Left', mac: 'Alt+Shift+Left' },
+  { id: 'move-tab-right', label: 'Move Tab Right', category: 'navigation', windows: 'Alt+Shift+Right', mac: 'Alt+Shift+Right' },
   { id: 'new-tab', label: 'New Tab', category: 'navigation', windows: 'Ctrl+T', mac: 'Cmd+T' },
   { id: 'close-tab', label: 'Close Tab', category: 'navigation', windows: 'Ctrl+W', mac: 'Cmd+W' },
   { id: 'toggle-expand', label: 'Toggle Expand', category: 'view', windows: 'Ctrl+E', mac: 'Cmd+E' },
@@ -101,8 +105,8 @@ export function keyboardEventToShortcut(
     parts.push('Ctrl')
   }
 
-  if (event.shiftKey) parts.push('Shift')
   if (event.altKey) parts.push('Alt')
+  if (event.shiftKey) parts.push('Shift')
 
   const key = normalizeKey(event.key)
   if (!key) return null

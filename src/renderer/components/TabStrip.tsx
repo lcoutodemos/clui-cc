@@ -1,7 +1,8 @@
 import React from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { AnimatePresence, Reorder } from 'framer-motion'
 import { Plus, X } from '@phosphor-icons/react'
 import { useSessionStore } from '../stores/sessionStore'
+import { orderTabsByTabOrder } from '../stores/tabOrder'
 import { HistoryPicker } from './HistoryPicker'
 import { SettingsPopover } from './SettingsPopover'
 import { useColors } from '../theme'
@@ -38,11 +39,17 @@ function StatusDot({ status, hasUnread, hasPermission }: { status: TabStatus; ha
 
 export function TabStrip() {
   const tabs = useSessionStore((s) => s.tabs)
+  const tabOrder = useSessionStore((s) => s.tabOrder)
   const activeTabId = useSessionStore((s) => s.activeTabId)
   const selectTab = useSessionStore((s) => s.selectTab)
   const createTab = useSessionStore((s) => s.createTab)
   const closeTab = useSessionStore((s) => s.closeTab)
+  const reorderTabs = useSessionStore((s) => s.reorderTabs)
   const colors = useColors()
+  const [draggingTabId, setDraggingTabId] = React.useState<string | null>(null)
+
+  const orderedTabs = orderTabsByTabOrder(tabs, tabOrder)
+  const orderedTabIds = orderedTabs.map((tab) => tab.id)
 
   return (
     <div
@@ -50,34 +57,49 @@ export function TabStrip() {
       className="flex items-center no-drag"
       style={{ padding: '8px 0' }}
     >
-      {/* Scrollable tabs area — clipped by master card edge */}
       <div className="relative min-w-0 flex-1">
-        <div
+        <Reorder.Group
+          axis="x"
+          values={orderedTabIds}
+          onReorder={reorderTabs}
+          role="tablist"
+          aria-dropeffect="move"
           className="flex items-center gap-1 overflow-x-auto min-w-0"
           style={{
             scrollbarWidth: 'none',
             paddingLeft: 8,
-            // Extra right breathing room so clipped tabs fade out before the edge.
             paddingRight: 14,
-            // Right-only content fade so the parent card's own animated background
-            // shows through cleanly in both collapsed and expanded states.
             maskImage: 'linear-gradient(to right, black 0%, black calc(100% - 40px), transparent 100%)',
             WebkitMaskImage: 'linear-gradient(to right, black 0%, black calc(100% - 40px), transparent 100%)',
           }}
         >
           <AnimatePresence mode="popLayout">
-            {tabs.map((tab) => {
+            {orderedTabs.map((tab) => {
               const isActive = tab.id === activeTabId
+              const isDragging = tab.id === draggingTabId
+
               return (
-                <motion.div
+                <Reorder.Item
                   key={tab.id}
+                  value={tab.id}
                   layout
                   initial={{ opacity: 0, scale: 0.9 }}
                   animate={{ opacity: 1, scale: 1 }}
                   exit={{ opacity: 0, scale: 0.9 }}
-                  transition={{ duration: 0.15 }}
+                  transition={{ duration: 0.15, type: 'spring', stiffness: 320, damping: 28 }}
                   onClick={() => selectTab(tab.id)}
-                  className="group flex items-center gap-1.5 cursor-pointer select-none flex-shrink-0 max-w-[160px] transition-all duration-150"
+                  onDragStart={() => setDraggingTabId(tab.id)}
+                  onDragEnd={() => setDraggingTabId(null)}
+                  whileDrag={{
+                    scale: 1.03,
+                    opacity: 0.9,
+                    zIndex: 20,
+                    boxShadow: '0 10px 24px rgba(0, 0, 0, 0.22)',
+                  }}
+                  role="tab"
+                  aria-selected={isActive}
+                  aria-grabbed={isDragging}
+                  className="group flex items-center gap-1.5 select-none flex-shrink-0 max-w-[160px] transition-all duration-150"
                   style={{
                     background: isActive ? colors.tabActive : 'transparent',
                     border: isActive ? `1px solid ${colors.tabActiveBorder}` : '1px solid transparent',
@@ -86,13 +108,18 @@ export function TabStrip() {
                     fontSize: 12,
                     color: isActive ? colors.textPrimary : colors.textTertiary,
                     fontWeight: isActive ? 500 : 400,
+                    cursor: isDragging ? 'grabbing' : 'grab',
                   }}
                 >
                   <StatusDot status={tab.status} hasUnread={tab.hasUnread} hasPermission={tab.permissionQueue.length > 0} />
                   <span className="truncate flex-1">{tab.title}</span>
-                  {tabs.length > 1 && (
+                  {orderedTabs.length > 1 && (
                     <button
-                      onClick={(e) => { e.stopPropagation(); closeTab(tab.id) }}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        closeTab(tab.id)
+                      }}
+                      onPointerDown={(e) => e.stopPropagation()}
                       className="flex-shrink-0 rounded-full w-4 h-4 flex items-center justify-center transition-opacity"
                       style={{
                         opacity: isActive ? 0.5 : 0,
@@ -104,14 +131,13 @@ export function TabStrip() {
                       <X size={10} />
                     </button>
                   )}
-                </motion.div>
+                </Reorder.Item>
               )
             })}
           </AnimatePresence>
-        </div>
+        </Reorder.Group>
       </div>
 
-      {/* Pinned action buttons — always visible on the right */}
       <div className="flex items-center gap-0.5 flex-shrink-0 ml-1 pr-2">
         <button
           onClick={() => createTab()}

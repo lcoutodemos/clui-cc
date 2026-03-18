@@ -45,6 +45,7 @@ describe('keyboard shortcuts', () => {
 
     expect(windowsBindings.find((binding) => binding.id === 'command-palette')?.currentKeys).toBe('Ctrl+K')
     expect(macBindings.find((binding) => binding.id === 'command-palette')?.currentKeys).toBe('Cmd+K')
+    expect(windowsBindings.find((binding) => binding.id === 'move-tab-left')?.currentKeys).toBe('Alt+Shift+Left')
   })
 
   it('normalizes keyboard events into shortcut strings', () => {
@@ -63,6 +64,14 @@ describe('keyboard shortcuts', () => {
       shiftKey: true,
       altKey: false,
     } as KeyboardEvent, true)).toBe('Cmd+Shift+Tab')
+
+    expect(keyboardEventToShortcut({
+      key: 'ArrowLeft',
+      ctrlKey: false,
+      metaKey: false,
+      shiftKey: true,
+      altKey: true,
+    } as KeyboardEvent, false)).toBe('Alt+Shift+Left')
   })
 
   it('detects shortcut conflicts', () => {

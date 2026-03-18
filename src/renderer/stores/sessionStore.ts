@@ -16,6 +16,13 @@ import type {
 import { canScheduleAutoResume, DEFAULT_AUTO_RESUME_MAX_RETRIES, getAutoResumeDelayMs } from '../../shared/retry-policy'
 import { useThemeStore } from '../theme'
 import { useNotificationStore } from './notificationStore'
+import {
+  loadStoredTabOrder,
+  moveTabOrderItem,
+  orderTabsByTabOrder,
+  reconcileTabOrder,
+  saveStoredTabOrder,
+} from './tabOrder'
 import notificationSrc from '../../../resources/notification.mp3'
 
 // ─── Known models ───
@@ -38,6 +45,7 @@ interface StaticInfo {
 
 interface State {
   tabs: TabState[]
+  tabOrder: string[]
   activeTabId: string
   /** Global expand/collapse — user-controlled, not per-tab */
   isExpanded: boolean
@@ -67,6 +75,8 @@ interface State {
   setPreferredModel: (model: string | null) => void
   setPermissionMode: (mode: 'ask' | 'auto') => void
   createTab: () => Promise<string>
+  reorderTabs: (newOrder: string[]) => void
+  moveActiveTab: (direction: 'left' | 'right') => void
   selectTab: (tabId: string) => void
   closeTab: (tabId: string) => void
   clearTab: () => void
@@ -206,9 +216,11 @@ function makeLocalTab(): TabState {
 }
 
 const initialTab = makeLocalTab()
+const initialTabOrder = reconcileTabOrder(loadStoredTabOrder(), [initialTab])
 
 export const useSessionStore = create<State>((set, get) => ({
-  tabs: [initialTab],
+  tabs: orderTabsByTabOrder([initialTab], initialTabOrder),
+  tabOrder: initialTabOrder,
   activeTabId: initialTab.id,
   isExpanded: false,
   staticInfo: null,
@@ -265,9 +277,11 @@ export const useSessionStore = create<State>((set, get) => ({
         workingDirectory: homeDir,
       }
       set((s) => ({
-        tabs: [...s.tabs, tab],
+        tabs: orderTabsByTabOrder([...s.tabs, tab], [...s.tabOrder, tab.id]),
+        tabOrder: reconcileTabOrder([...s.tabOrder, tab.id], [...s.tabs, tab]),
         activeTabId: tab.id,
       }))
+      saveStoredTabOrder(get().tabOrder)
       void get().refreshAgentMemory(homeDir)
       void get().refreshAgentMemory(defaultDir)
       return tabId
@@ -275,12 +289,30 @@ export const useSessionStore = create<State>((set, get) => ({
       const tab = makeLocalTab()
       tab.workingDirectory = homeDir
       set((s) => ({
-        tabs: [...s.tabs, tab],
+        tabs: orderTabsByTabOrder([...s.tabs, tab], [...s.tabOrder, tab.id]),
+        tabOrder: reconcileTabOrder([...s.tabOrder, tab.id], [...s.tabs, tab]),
         activeTabId: tab.id,
       }))
+      saveStoredTabOrder(get().tabOrder)
       void get().refreshAgentMemory(homeDir)
       return tab.id
     }
+  },
+
+  reorderTabs: (newOrder) => {
+    set((s) => {
+      const nextOrder = reconcileTabOrder(newOrder, s.tabs)
+      return {
+        tabs: orderTabsByTabOrder(s.tabs, nextOrder),
+        tabOrder: nextOrder,
+      }
+    })
+    saveStoredTabOrder(get().tabOrder)
+  },
+
+  moveActiveTab: (direction) => {
+    const { activeTabId, tabOrder, reorderTabs } = get()
+    reorderTabs(moveTabOrderItem(tabOrder, activeTabId, direction))
   },
 
   selectTab: (tabId) => {
@@ -453,20 +485,38 @@ export const useSessionStore = create<State>((set, get) => ({
 
     const s = get()
     const remaining = s.tabs.filter((t) => t.id !== tabId)
+    const remainingOrder = s.tabOrder.filter((id) => id !== tabId)
 
     if (s.activeTabId === tabId) {
       if (remaining.length === 0) {
         const newTab = makeLocalTab()
-        set({ tabs: [newTab], activeTabId: newTab.id })
+        const nextOrder = reconcileTabOrder([newTab.id], [newTab])
+        set({
+          tabs: orderTabsByTabOrder([newTab], nextOrder),
+          tabOrder: nextOrder,
+          activeTabId: newTab.id,
+        })
+        saveStoredTabOrder(get().tabOrder)
         void get().refreshAgentMemory(getResolvedProjectPath(newTab, get().staticInfo))
         return
       }
       const closedIndex = s.tabs.findIndex((t) => t.id === tabId)
       const newActive = remaining[Math.min(closedIndex, remaining.length - 1)]
-      set({ tabs: remaining, activeTabId: newActive.id })
+      const nextOrder = reconcileTabOrder(remainingOrder, remaining)
+      set({
+        tabs: orderTabsByTabOrder(remaining, nextOrder),
+        tabOrder: nextOrder,
+        activeTabId: newActive.id,
+      })
+      saveStoredTabOrder(get().tabOrder)
       void get().refreshAgentMemory(getResolvedProjectPath(newActive, get().staticInfo))
     } else {
-      set({ tabs: remaining })
+      const nextOrder = reconcileTabOrder(remainingOrder, remaining)
+      set({
+        tabs: orderTabsByTabOrder(remaining, nextOrder),
+        tabOrder: nextOrder,
+      })
+      saveStoredTabOrder(get().tabOrder)
       void get().refreshAgentMemory(getResolvedProjectPath(get().tabs.find((t) => t.id === s.activeTabId), get().staticInfo))
     }
   },
@@ -509,10 +559,12 @@ export const useSessionStore = create<State>((set, get) => ({
         messages,
       }
       set((s) => ({
-        tabs: [...s.tabs, tab],
+        tabs: orderTabsByTabOrder([...s.tabs, tab], [...s.tabOrder, tab.id]),
+        tabOrder: reconcileTabOrder([...s.tabOrder, tab.id], [...s.tabs, tab]),
         activeTabId: tab.id,
         isExpanded: true,
       }))
+      saveStoredTabOrder(get().tabOrder)
       // Don't call initSession — the first real prompt will use --resume with the sessionId
       return tabId
     } catch {
@@ -522,10 +574,12 @@ export const useSessionStore = create<State>((set, get) => ({
       tab.workingDirectory = defaultDir
       tab.hasChosenDirectory = !!projectPath
       set((s) => ({
-        tabs: [...s.tabs, tab],
+        tabs: orderTabsByTabOrder([...s.tabs, tab], [...s.tabOrder, tab.id]),
+        tabOrder: reconcileTabOrder([...s.tabOrder, tab.id], [...s.tabs, tab]),
         activeTabId: tab.id,
         isExpanded: true,
       }))
+      saveStoredTabOrder(get().tabOrder)
       return tab.id
     } finally {
       void get().refreshAgentMemory(defaultDir)
