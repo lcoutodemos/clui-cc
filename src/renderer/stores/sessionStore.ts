@@ -15,6 +15,7 @@ import type {
 } from '../../shared/types'
 import { canScheduleAutoResume, DEFAULT_AUTO_RESUME_MAX_RETRIES, getAutoResumeDelayMs } from '../../shared/retry-policy'
 import { useThemeStore } from '../theme'
+import { useNotificationStore } from './notificationStore'
 import notificationSrc from '../../../resources/notification.mp3'
 
 // ─── Known models ───
@@ -382,10 +383,20 @@ export const useSessionStore = create<State>((set, get) => ({
         marketplacePluginStates: { ...s.marketplacePluginStates, [plugin.id]: 'installed' as PluginStatus },
         marketplaceInstalledNames: [...s.marketplaceInstalledNames, plugin.installName],
       }))
+      useNotificationStore.getState().addToast({
+        type: 'success',
+        title: 'Skill installed',
+        message: plugin.name,
+      })
     } else {
       set((s) => ({
         marketplacePluginStates: { ...s.marketplacePluginStates, [plugin.id]: 'failed' },
       }))
+      useNotificationStore.getState().addToast({
+        type: 'error',
+        title: 'Install failed',
+        message: result.error || plugin.name,
+      })
     }
   },
 
@@ -396,6 +407,11 @@ export const useSessionStore = create<State>((set, get) => ({
         marketplacePluginStates: { ...s.marketplacePluginStates, [plugin.id]: 'not_installed' as PluginStatus },
         marketplaceInstalledNames: s.marketplaceInstalledNames.filter((n) => n !== plugin.installName),
       }))
+      useNotificationStore.getState().addToast({
+        type: 'info',
+        title: 'Skill uninstalled',
+        message: plugin.name,
+      })
     }
   },
 
@@ -1018,6 +1034,13 @@ export const useSessionStore = create<State>((set, get) => ({
             }
             // Play notification sound if window is hidden
             playNotificationIfHidden()
+            // Desktop notification when window is not focused
+            if (useNotificationStore.getState().desktopEnabled) {
+              window.clui.sendDesktopNotification(
+                'Task Complete',
+                `Finished in ${Math.round(event.durationMs / 1000)}s ($${event.costUsd.toFixed(4)})`,
+              ).catch(() => {})
+            }
             break
 
           case 'error':
@@ -1055,6 +1078,11 @@ export const useSessionStore = create<State>((set, get) => ({
                 timestamp: Date.now(),
               },
             ]
+            useNotificationStore.getState().addToast({
+              type: 'error',
+              title: 'Process crashed',
+              message: `Session ended unexpectedly (exit ${event.exitCode})`,
+            })
             break
 
           case 'permission_request': {
@@ -1258,5 +1286,10 @@ export const useSessionStore = create<State>((set, get) => ({
         }
       }),
     }))
+    useNotificationStore.getState().addToast({
+      type: 'error',
+      title: 'Error',
+      message: error.message,
+    })
   },
 }))

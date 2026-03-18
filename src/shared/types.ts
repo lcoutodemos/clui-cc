@@ -438,6 +438,11 @@ export const IPC = {
   PERMISSIONS_NEEDS_SETUP: 'clui:permissions-needs-setup',
   PERMISSIONS_DISMISS_SETUP: 'clui:permissions-dismiss-setup',
 
+  // Notifications
+  NOTIFY_DESKTOP: 'clui:notify-desktop',
+  GET_NOTIFICATION_PREFS: 'clui:get-notification-prefs',
+  SET_NOTIFICATION_PREFS: 'clui:set-notification-prefs',
+
   // Legacy (kept for backward compat during migration)
   STREAM_EVENT: 'clui:stream-event',
   RUN_COMPLETE: 'clui:run-complete',

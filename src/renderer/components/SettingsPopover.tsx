@@ -1,10 +1,11 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { motion } from 'framer-motion'
-import { DotsThree, Bell, ArrowsOutSimple, Moon, ShieldCheck, NotePencil } from '@phosphor-icons/react'
+import { DotsThree, Bell, BellRinging, ChatText, ArrowsOutSimple, Moon, ShieldCheck, NotePencil } from '@phosphor-icons/react'
 import { useThemeStore } from '../theme'
 import { useSessionStore } from '../stores/sessionStore'
 import { useSnippetStore } from '../stores/snippetStore'
+import { useNotificationStore } from '../stores/notificationStore'
 import { usePopoverLayer } from './PopoverLayer'
 import { useColors } from '../theme'
 import { PermissionEditor } from './PermissionEditor'
@@ -54,6 +55,10 @@ export function SettingsPopover() {
   const setThemeMode = useThemeStore((s) => s.setThemeMode)
   const expandedUI = useThemeStore((s) => s.expandedUI)
   const setExpandedUI = useThemeStore((s) => s.setExpandedUI)
+  const desktopEnabled = useNotificationStore((s) => s.desktopEnabled)
+  const setDesktopEnabled = useNotificationStore((s) => s.setDesktopEnabled)
+  const toastsEnabled = useNotificationStore((s) => s.toastsEnabled)
+  const setToastsEnabled = useNotificationStore((s) => s.setToastsEnabled)
   const openSnippetManager = useSnippetStore((s) => s.openManager)
   const isExpanded = useSessionStore((s) => s.isExpanded)
   const popoverLayer = usePopoverLayer()
@@ -207,6 +212,46 @@ export function SettingsPopover() {
                   onChange={setSoundEnabled}
                   colors={colors}
                   label="Toggle notification sound"
+                />
+              </div>
+            </div>
+
+            <div style={{ height: 1, background: colors.popoverBorder }} />
+
+            {/* Desktop notifications */}
+            <div>
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2 min-w-0">
+                  <BellRinging size={14} style={{ color: colors.textTertiary }} />
+                  <div className="text-[12px] font-medium" style={{ color: colors.textPrimary }}>
+                    Desktop notifications
+                  </div>
+                </div>
+                <RowToggle
+                  checked={desktopEnabled}
+                  onChange={setDesktopEnabled}
+                  colors={colors}
+                  label="Toggle desktop notifications"
+                />
+              </div>
+            </div>
+
+            <div style={{ height: 1, background: colors.popoverBorder }} />
+
+            {/* Toast notifications */}
+            <div>
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2 min-w-0">
+                  <ChatText size={14} style={{ color: colors.textTertiary }} />
+                  <div className="text-[12px] font-medium" style={{ color: colors.textPrimary }}>
+                    Toast notifications
+                  </div>
+                </div>
+                <RowToggle
+                  checked={toastsEnabled}
+                  onChange={setToastsEnabled}
+                  colors={colors}
+                  label="Toggle toast notifications"
                 />
               </div>
             </div>
