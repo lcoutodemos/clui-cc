@@ -8,11 +8,13 @@ import { StatusBar } from './components/StatusBar'
 import { MarketplacePanel } from './components/MarketplacePanel'
 import { SnippetManager } from './components/SnippetManager'
 import { PermissionWizard } from './components/PermissionWizard'
+import { CommandPalette } from './components/CommandPalette'
 import { PopoverLayerProvider } from './components/PopoverLayer'
 import { useClaudeEvents } from './hooks/useClaudeEvents'
 import { useHealthReconciliation } from './hooks/useHealthReconciliation'
 import { useSessionStore } from './stores/sessionStore'
 import { useSnippetStore } from './stores/snippetStore'
+import { useCommandPaletteStore } from './stores/commandPaletteStore'
 import { useColors, useThemeStore, spacing } from './theme'
 
 const TRANSITION = { duration: 0.26, ease: [0.4, 0, 0.1, 1] as const }
@@ -66,6 +68,18 @@ export default function App() {
         }).catch(() => {})
       }
     })
+  }, [])
+
+  // ─── Command palette shortcut (Ctrl+K / Cmd+K) ───
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault()
+        useCommandPaletteStore.getState().toggle()
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
   }, [])
 
   // OS-level click-through (RAF-throttled to avoid per-pixel IPC)
@@ -128,6 +142,7 @@ export default function App() {
 
   return (
     <PopoverLayerProvider>
+      <CommandPalette />
       <div className="flex flex-col justify-end h-full" style={{ background: 'transparent' }}>
 
         {/* ─── 460px content column, centered. Circles overflow left. ─── */}
