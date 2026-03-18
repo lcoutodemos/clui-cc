@@ -73,6 +73,7 @@ export interface CluiAPI {
   getGitStatus(cwd: string): Promise<GitStatus>
   getGitDiff(cwd: string, file?: string): Promise<string>
   sendDesktopNotification(title: string, body: string): Promise<void>
+  logRendererError(payload: { error: string; stack?: string; componentStack?: string; activeTabId?: string }): void
   getTheme(): Promise<{ isDark: boolean }>
   onThemeChange(callback: (isDark: boolean) => void): () => void
 
@@ -151,6 +152,7 @@ const api: CluiAPI = {
   getGitStatus: (cwd) => ipcRenderer.invoke(IPC.GIT_STATUS, cwd),
   getGitDiff: (cwd, file) => ipcRenderer.invoke(IPC.GIT_DIFF, cwd, file),
   sendDesktopNotification: (title: string, body: string) => ipcRenderer.invoke(IPC.NOTIFY_DESKTOP, title, body),
+  logRendererError: (payload) => ipcRenderer.send(IPC.LOG_RENDERER_ERROR, payload),
   getTheme: () => ipcRenderer.invoke(IPC.GET_THEME),
   onThemeChange: (callback) => {
     const handler = (_e: Electron.IpcRendererEvent, isDark: boolean) => callback(isDark)
