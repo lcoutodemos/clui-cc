@@ -15,6 +15,9 @@ import { ShortcutSettings } from './components/ShortcutSettings'
 import { PermissionWizard } from './components/PermissionWizard'
 import { CommandPalette } from './components/CommandPalette'
 import { GitPanel } from './components/GitPanel'
+import { WorkflowManager } from './components/WorkflowManager'
+import { WorkflowEditor } from './components/WorkflowEditor'
+import { WorkflowProgress } from './components/WorkflowProgress'
 import { ToastContainer } from './components/ToastContainer'
 import { PopoverLayerProvider } from './components/PopoverLayer'
 import { useClaudeEvents } from './hooks/useClaudeEvents'
@@ -27,6 +30,7 @@ import { useSnippetStore } from './stores/snippetStore'
 import { useCommandPaletteStore } from './stores/commandPaletteStore'
 import { orderTabsByTabOrder, reconcileTabOrder, replaceTabOrderId, saveStoredTabOrder } from './stores/tabOrder'
 import { useComparisonStore } from './stores/comparisonStore'
+import { useWorkflowStore } from './stores/workflowStore'
 import { useColors, useThemeStore, spacing } from './theme'
 
 const TRANSITION = { duration: 0.26, ease: [0.4, 0, 0.1, 1] as const }
@@ -216,6 +220,9 @@ export default function App() {
   const shortcutBindings = useShortcutStore((s) => s.bindings)
   const shortcutSettingsOpen = useShortcutStore((s) => s.settingsOpen)
   const captureTargetId = useShortcutStore((s) => s.captureTargetId)
+  const workflowManagerOpen = useWorkflowStore((s) => s.managerOpen)
+  const workflowEditorOpen = useWorkflowStore((s) => s.editorOpen)
+  const workflowExecution = useWorkflowStore((s) => s.activeExecution)
   const activeComparison = useComparisonStore((s) => s.activeComparison)
   const comparisonLauncherOpen = useComparisonStore((s) => s.launcherOpen)
   const isRunning = activeTabStatus === 'running' || activeTabStatus === 'connecting'
@@ -365,6 +372,76 @@ export default function App() {
           </AnimatePresence>
 
           <AnimatePresence initial={false}>
+            {workflowManagerOpen && !workflowEditorOpen && (
+              <div
+                data-clui-ui
+                style={{
+                  width: 720,
+                  maxWidth: 720,
+                  marginLeft: '50%',
+                  transform: 'translateX(-50%)',
+                  marginBottom: 14,
+                  position: 'relative',
+                  zIndex: 29,
+                }}
+              >
+                <motion.div
+                  initial={{ opacity: 0, y: 14, scale: 0.98 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 10, scale: 0.985 }}
+                  transition={TRANSITION}
+                >
+                  <div
+                    data-clui-ui
+                    className="glass-surface overflow-hidden no-drag"
+                    style={{
+                      borderRadius: 24,
+                      maxHeight: 470,
+                    }}
+                  >
+                    <WorkflowManager />
+                  </div>
+                </motion.div>
+              </div>
+            )}
+          </AnimatePresence>
+
+          <AnimatePresence initial={false}>
+            {workflowEditorOpen && (
+              <div
+                data-clui-ui
+                style={{
+                  width: 720,
+                  maxWidth: 720,
+                  marginLeft: '50%',
+                  transform: 'translateX(-50%)',
+                  marginBottom: 14,
+                  position: 'relative',
+                  zIndex: 29,
+                }}
+              >
+                <motion.div
+                  initial={{ opacity: 0, y: 14, scale: 0.98 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 10, scale: 0.985 }}
+                  transition={TRANSITION}
+                >
+                  <div
+                    data-clui-ui
+                    className="glass-surface overflow-hidden no-drag"
+                    style={{
+                      borderRadius: 24,
+                      maxHeight: 470,
+                    }}
+                  >
+                    <WorkflowEditor />
+                  </div>
+                </motion.div>
+              </div>
+            )}
+          </AnimatePresence>
+
+          <AnimatePresence initial={false}>
             {shortcutSettingsOpen && (
               <div
                 data-clui-ui
@@ -476,6 +553,7 @@ export default function App() {
               className="overflow-hidden no-drag"
             >
               <div style={{ maxHeight: bodyMaxHeight }}>
+                {workflowExecution && <WorkflowProgress />}
                 {isComparing ? <ComparisonView /> : <ConversationView />}
                 {!isComparing && <StatusBar />}
               </div>

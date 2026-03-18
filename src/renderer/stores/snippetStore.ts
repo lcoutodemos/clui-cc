@@ -33,6 +33,7 @@ const BUILT_IN_COMMANDS = new Set([
   '/model',
   '/mcp',
   '/skills',
+  '/workflow',
   '/help',
 ])
 
