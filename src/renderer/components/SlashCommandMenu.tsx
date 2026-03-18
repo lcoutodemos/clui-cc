@@ -2,7 +2,7 @@ import React, { useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { motion } from 'framer-motion'
 import {
-  Trash, Cpu, CurrencyDollar, Question, HardDrives, Sparkle,
+  Trash, Cpu, CurrencyDollar, Question, HardDrives, Sparkle, Export,
 } from '@phosphor-icons/react'
 import { usePopoverLayer } from './PopoverLayer'
 import { useColors } from '../theme'
@@ -23,6 +23,7 @@ export const SLASH_COMMANDS: SlashCommand[] = [
   { command: '/done', description: 'Mark the current work as done', icon: <Question size={13} />, insertOnly: true },
   { command: '/release', description: 'Release the current claim', icon: <Trash size={13} />, insertOnly: true },
   { command: '/memory', description: 'Show active and recent shared work', icon: <HardDrives size={13} /> },
+  { command: '/export', description: 'Export this session to Markdown or JSON', icon: <Export size={13} /> },
   { command: '/cost', description: 'Show token usage and cost', icon: <CurrencyDollar size={13} /> },
   { command: '/model', description: 'Show current model info', icon: <Cpu size={13} /> },
   { command: '/mcp', description: 'Show MCP server status', icon: <HardDrives size={13} /> },

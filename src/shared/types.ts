@@ -227,6 +227,32 @@ export interface RunResult {
   sessionId: string
 }
 
+export type ExportFormat = 'markdown' | 'json'
+
+export interface ExportOptions {
+  format: ExportFormat
+  includeUserMessages: boolean
+  includeAssistantMessages: boolean
+  includeToolCalls: boolean
+  includeMetadata: boolean
+}
+
+export interface SessionExportData {
+  title: string
+  exportedAt: string
+  sessionId: string | null
+  projectPath: string
+  model: string | null
+  messages: Message[]
+  lastResult: RunResult | null
+}
+
+export interface SessionExportResult {
+  ok: boolean
+  path: string | null
+  error?: string
+}
+
 // ─── Canonical Events (normalized from raw stream) ───
 
 export type NormalizedEvent =
@@ -359,6 +385,7 @@ export const IPC = {
   ANIMATE_HEIGHT: 'clui:animate-height',
   LIST_SESSIONS: 'clui:list-sessions',
   LOAD_SESSION: 'clui:load-session',
+  EXPORT_SESSION: 'clui:export-session',
   AGENT_MEMORY_GET: 'clui:agent-memory-get',
   AGENT_MEMORY_FOCUS: 'clui:agent-memory-focus',
   AGENT_MEMORY_CLAIM: 'clui:agent-memory-claim',

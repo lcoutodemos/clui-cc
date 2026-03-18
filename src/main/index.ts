@@ -15,8 +15,9 @@ import { buildScreenshotCommand, getScreenshotTempPath } from './screenshot'
 import { SettingsManager } from './settings-manager'
 import { AgentMemory } from './agent-memory'
 import { PinnedSessionStore } from './pinned-sessions'
+import { exportSessionToFile } from './session-export'
 import { IPC } from '../shared/types'
-import type { RunOptions, NormalizedEvent, EnrichedError } from '../shared/types'
+import type { RunOptions, NormalizedEvent, EnrichedError, ExportOptions, SessionExportData } from '../shared/types'
 
 const DEBUG_MODE = process.env.CLUI_DEBUG === '1'
 const SPACES_DEBUG = DEBUG_MODE || process.env.CLUI_SPACES_DEBUG === '1'
@@ -507,6 +508,14 @@ ipcMain.handle(IPC.LOAD_SESSION, async (_e, arg: { sessionId: string; projectPat
     return []
   }
 })
+
+ipcMain.handle(
+  IPC.EXPORT_SESSION,
+  async (_event, { data, options }: { data: SessionExportData; options: ExportOptions }) => {
+    log(`IPC EXPORT_SESSION ${data.sessionId || data.title}`)
+    return exportSessionToFile(mainWindow, data, options)
+  },
+)
 
 ipcMain.handle(IPC.AGENT_MEMORY_GET, (_event, projectPath: string) => {
   log(`IPC AGENT_MEMORY_GET: ${projectPath}`)

@@ -1,11 +1,12 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { motion } from 'framer-motion'
-import { Clock, ChatCircle, PushPin } from '@phosphor-icons/react'
+import { Clock, ChatCircle, PushPin, DownloadSimple } from '@phosphor-icons/react'
+import { useExportStore } from '../stores/exportStore'
 import { useSessionStore } from '../stores/sessionStore'
 import { usePopoverLayer } from './PopoverLayer'
 import { useColors } from '../theme'
-import type { SessionMeta } from '../../shared/types'
+import type { Message, SessionMeta } from '../../shared/types'
 
 function formatTimeAgo(isoDate: string): string {
   const diff = Date.now() - new Date(isoDate).getTime()
@@ -25,8 +26,16 @@ function formatSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)}M`
 }
 
+function getSessionTitle(session: SessionMeta): string {
+  return session.firstMessage
+    ? (session.firstMessage.length > 30 ? session.firstMessage.substring(0, 27) + '...' : session.firstMessage)
+    : session.slug || 'Resumed'
+}
+
 export function HistoryPicker() {
   const resumeSession = useSessionStore((s) => s.resumeSession)
+  const addSystemMessage = useSessionStore((s) => s.addSystemMessage)
+  const openExportDialog = useExportStore((s) => s.openDialog)
   const isExpanded = useSessionStore((s) => s.isExpanded)
   const activeTab = useSessionStore(
     (s) => s.tabs.find((t) => t.id === s.activeTabId),
@@ -97,10 +106,40 @@ export function HistoryPicker() {
 
   const handleSelect = (session: SessionMeta) => {
     setOpen(false)
-    const title = session.firstMessage
-      ? (session.firstMessage.length > 30 ? session.firstMessage.substring(0, 27) + '...' : session.firstMessage)
-      : session.slug || 'Resumed'
-    void resumeSession(session.sessionId, title, effectiveProjectPath)
+    void resumeSession(session.sessionId, getSessionTitle(session), effectiveProjectPath)
+  }
+
+  const handleExportSession = async (session: SessionMeta, event: React.MouseEvent) => {
+    event.stopPropagation()
+    try {
+      const history = await window.clui.loadSession(session.sessionId, effectiveProjectPath)
+      if (history.length === 0) {
+        addSystemMessage('Nothing to export for that session.')
+        return
+      }
+
+      const messages: Message[] = history.map((message) => ({
+        id: `${session.sessionId}-${message.timestamp}-${message.role}`,
+        role: message.role as Message['role'],
+        content: message.content,
+        toolName: message.toolName,
+        toolStatus: message.toolName ? 'completed' : undefined,
+        timestamp: message.timestamp,
+      }))
+
+      openExportDialog({
+        title: getSessionTitle(session),
+        exportedAt: new Date().toISOString(),
+        sessionId: session.sessionId,
+        projectPath: effectiveProjectPath,
+        model: null,
+        messages,
+        lastResult: null,
+      })
+      setOpen(false)
+    } catch {
+      addSystemMessage('Failed to load that session for export.')
+    }
   }
 
   const handleTogglePin = async (session: SessionMeta, event: React.MouseEvent) => {
@@ -204,14 +243,24 @@ export function HistoryPicker() {
                         </div>
                       </div>
                     </button>
-                    <button
-                      onClick={(event) => void handleTogglePin(session, event)}
-                      className="flex-shrink-0 mt-0.5"
-                      style={{ color: colors.accent }}
-                      title="Unpin session"
-                    >
-                      <PushPin size={13} weight="fill" />
-                    </button>
+                    <div className="flex items-center gap-1 flex-shrink-0 mt-0.5">
+                      <button
+                        onClick={(event) => void handleExportSession(session, event)}
+                        className="flex-shrink-0"
+                        style={{ color: colors.textTertiary }}
+                        title="Export session"
+                      >
+                        <DownloadSimple size={13} />
+                      </button>
+                      <button
+                        onClick={(event) => void handleTogglePin(session, event)}
+                        className="flex-shrink-0"
+                        style={{ color: colors.accent }}
+                        title="Unpin session"
+                      >
+                        <PushPin size={13} weight="fill" />
+                      </button>
+                    </div>
                   </div>
                 ))}
                 <div className="mx-3 my-1" style={{ height: 1, background: colors.popoverBorder }} />
@@ -247,14 +296,24 @@ export function HistoryPicker() {
                         </div>
                       </div>
                     </button>
-                    <button
-                      onClick={(event) => void handleTogglePin(session, event)}
-                      className="flex-shrink-0 mt-0.5"
-                      style={{ color: colors.textTertiary }}
-                      title="Pin session"
-                    >
-                      <PushPin size={13} />
-                    </button>
+                    <div className="flex items-center gap-1 flex-shrink-0 mt-0.5">
+                      <button
+                        onClick={(event) => void handleExportSession(session, event)}
+                        className="flex-shrink-0"
+                        style={{ color: colors.textTertiary }}
+                        title="Export session"
+                      >
+                        <DownloadSimple size={13} />
+                      </button>
+                      <button
+                        onClick={(event) => void handleTogglePin(session, event)}
+                        className="flex-shrink-0"
+                        style={{ color: colors.textTertiary }}
+                        title="Pin session"
+                      >
+                        <PushPin size={13} />
+                      </button>
+                    </div>
                   </div>
                 ))}
               </>

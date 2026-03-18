@@ -2,11 +2,12 @@ import React, { useState, useRef, useCallback, useEffect, useLayoutEffect } from
 import { motion, AnimatePresence } from 'framer-motion'
 import { Microphone, ArrowUp, SpinnerGap, X, Check, Sparkle, Lightning } from '@phosphor-icons/react'
 import { useSessionStore, AVAILABLE_MODELS } from '../stores/sessionStore'
+import { useExportStore } from '../stores/exportStore'
 import { useSnippetStore } from '../stores/snippetStore'
 import { AttachmentChips } from './AttachmentChips'
 import { SlashCommandMenu, getFilteredCommandsWithExtras, type SlashCommand } from './SlashCommandMenu'
 import { useColors } from '../theme'
-import type { AgentAssignment, AgentMemorySnapshot } from '../../shared/types'
+import type { AgentAssignment, AgentMemorySnapshot, SessionExportData } from '../../shared/types'
 
 const INPUT_MIN_HEIGHT = 20
 const INPUT_MAX_HEIGHT = 140
@@ -81,6 +82,7 @@ export function InputBar() {
   const releaseAgentWork = useSessionStore((s) => s.releaseAgentWork)
 
   const setPreferredModel = useSessionStore((s) => s.setPreferredModel)
+  const openExportDialog = useExportStore((s) => s.openDialog)
   const staticInfo = useSessionStore((s) => s.staticInfo)
   const agentMemorySnapshot = useSessionStore((s) => s.agentMemorySnapshot)
   const preferredModel = useSessionStore((s) => s.preferredModel)
@@ -118,6 +120,26 @@ export function InputBar() {
     })
     return unsub
   }, [])
+
+  const buildCurrentExportData = useCallback((): SessionExportData | null => {
+    if (!tab || tab.messages.length === 0) {
+      return null
+    }
+
+    const projectPath = tab.hasChosenDirectory
+      ? tab.workingDirectory
+      : (staticInfo?.homePath || tab.workingDirectory || '~')
+
+    return {
+      title: tab.title,
+      exportedAt: new Date().toISOString(),
+      sessionId: tab.claudeSessionId,
+      projectPath,
+      model: tab.sessionModel,
+      messages: tab.messages,
+      lastResult: tab.lastResult,
+    }
+  }, [tab, staticInfo])
 
   const measureInlineHeight = useCallback((value: string): number => {
     if (typeof document === 'undefined') return 0
@@ -221,6 +243,15 @@ export function InputBar() {
           addSystemMessage(formatMemorySnapshot(snapshot || agentMemorySnapshot, activeTabId))
         })
         break
+      case '/export': {
+        const exportData = buildCurrentExportData()
+        if (!exportData) {
+          addSystemMessage('Nothing to export in this session.')
+        } else {
+          openExportDialog(exportData)
+        }
+        break
+      }
       case '/cost': {
         if (tab?.lastResult) {
           const r = tab.lastResult
@@ -274,6 +305,7 @@ export function InputBar() {
       case '/help': {
         const lines = [
           '/clear — Clear conversation history',
+          '/export — Export this session to Markdown or JSON',
           '/cost — Show token usage and cost',
           '/model — Show model info & switch models',
           '/mcp — Show MCP server status',
@@ -284,7 +316,7 @@ export function InputBar() {
         break
       }
     }
-  }, [tab, clearTab, addSystemMessage, staticInfo, preferredModel, refreshAgentMemory, agentMemorySnapshot, activeTabId])
+  }, [tab, clearTab, addSystemMessage, staticInfo, preferredModel, refreshAgentMemory, agentMemorySnapshot, activeTabId, buildCurrentExportData, openExportDialog])
 
   const handleSlashSelect = useCallback((cmd: SlashCommand) => {
     const isSkillCommand = !!tab?.sessionSkills?.includes(cmd.command.replace(/^\//, ''))
