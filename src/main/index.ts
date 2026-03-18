@@ -10,6 +10,13 @@ import { log as _log, LOG_FILE, flushLogs } from './logger'
 import { IPC } from '../shared/types'
 import type { RunOptions, NormalizedEvent, EnrichedError } from '../shared/types'
 
+// ─── Linux / Wayland workaround ───
+// Force X11 backend on Linux to ensure global shortcuts and transparency work.
+// XWayland provides full compatibility with no performance penalty for overlay apps.
+if (process.platform === 'linux') {
+  app.commandLine.appendSwitch('ozone-platform', 'x11')
+}
+
 const DEBUG_MODE = process.env.CLUI_DEBUG === '1'
 const SPACES_DEBUG = DEBUG_MODE || process.env.CLUI_SPACES_DEBUG === '1'
 
@@ -116,7 +123,7 @@ function createWindow(): void {
     roundedCorners: true,
     backgroundColor: '#00000000',
     show: false,
-    icon: join(__dirname, '../../resources/icon.icns'),
+    icon: join(__dirname, process.platform === 'linux' ? '../../resources/icon.iconset/icon_256x256.png' : '../../resources/icon.icns'),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
@@ -475,9 +482,10 @@ ipcMain.handle(IPC.SELECT_DIRECTORY, async () => {
   if (!mainWindow) return null
   // macOS: activate app so unparented dialog appears on top (not behind other apps).
   // Unparented avoids modal dimming on the transparent overlay.
-  // Activation is fine here — user is actively interacting with CLUI.
   if (process.platform === 'darwin') app.focus()
   const options = { properties: ['openDirectory'] as const }
+  // macOS: unparented dialog avoids modal dimming on transparent overlay
+  // Linux/Windows: parent to main window for proper stacking
   const result = process.platform === 'darwin'
     ? await dialog.showOpenDialog(options)
     : await dialog.showOpenDialog(mainWindow, options)
@@ -565,10 +573,28 @@ ipcMain.handle(IPC.TAKE_SCREENSHOT, async () => {
     const timestamp = Date.now()
     const screenshotPath = join(tmpdir(), `clui-screenshot-${timestamp}.png`)
 
-    execSync(`/usr/sbin/screencapture -i "${screenshotPath}"`, {
-      timeout: 30000,
-      stdio: 'ignore',
-    })
+    if (process.platform === 'linux') {
+      // Try common Linux screenshot tools: gnome-screenshot, scrot, import (ImageMagick)
+      const cmds = [
+        `gnome-screenshot -a -f "${screenshotPath}"`,
+        `scrot -s "${screenshotPath}"`,
+        `import "${screenshotPath}"`,
+      ]
+      let captured = false
+      for (const cmd of cmds) {
+        try {
+          execSync(cmd, { timeout: 30000, stdio: 'ignore' })
+          captured = true
+          break
+        } catch {}
+      }
+      if (!captured) return null
+    } else {
+      execSync(`/usr/sbin/screencapture -i "${screenshotPath}"`, {
+        timeout: 30000,
+        stdio: 'ignore',
+      })
+    }
 
     if (!existsSync(screenshotPath)) {
       return null
@@ -643,12 +669,15 @@ ipcMain.handle(IPC.TRANSCRIBE_AUDIO, async (_event, audioBase64: string) => {
     const buf = Buffer.from(audioBase64, 'base64')
     writeFileSync(tmpWav, buf)
 
-    // Find whisper-cli (whisper-cpp homebrew) or whisper (python)
+    // Find whisper-cli (whisper-cpp) or whisper (python)
     const candidates = [
       '/opt/homebrew/bin/whisper-cli',
       '/usr/local/bin/whisper-cli',
       '/opt/homebrew/bin/whisper',
       '/usr/local/bin/whisper',
+      '/usr/bin/whisper-cli',
+      '/usr/bin/whisper',
+      join(homedir(), '.local/bin/whisper-cli'),
       join(homedir(), '.local/bin/whisper'),
     ]
 
@@ -658,21 +687,25 @@ ipcMain.handle(IPC.TRANSCRIBE_AUDIO, async (_event, audioBase64: string) => {
     }
 
     if (!whisperBin) {
+      const shell = process.platform === 'linux' ? '/bin/bash' : '/bin/zsh'
+      const whichCmd = process.platform === 'linux' ? 'which' : 'whence -p'
       try {
-        whisperBin = execSync('/bin/zsh -lc "whence -p whisper-cli"', { encoding: 'utf-8' }).trim()
+        whisperBin = execSync(`${shell} -lc "${whichCmd} whisper-cli"`, { encoding: 'utf-8' }).trim()
       } catch {}
     }
     if (!whisperBin) {
+      const shell = process.platform === 'linux' ? '/bin/bash' : '/bin/zsh'
+      const whichCmd = process.platform === 'linux' ? 'which' : 'whence -p'
       try {
-        whisperBin = execSync('/bin/zsh -lc "whence -p whisper"', { encoding: 'utf-8' }).trim()
+        whisperBin = execSync(`${shell} -lc "${whichCmd} whisper"`, { encoding: 'utf-8' }).trim()
       } catch {}
     }
 
     if (!whisperBin) {
-      return {
-        error: 'Whisper not found. Install with: brew install whisper-cli',
-        transcript: null,
-      }
+      const installHint = process.platform === 'linux'
+        ? 'Whisper not found. Install with: pip install openai-whisper'
+        : 'Whisper not found. Install with: brew install whisper-cli'
+      return { error: installHint, transcript: null }
     }
 
     const isWhisperCpp = whisperBin.includes('whisper-cli')
@@ -683,11 +716,15 @@ ipcMain.handle(IPC.TRANSCRIBE_AUDIO, async (_event, audioBase64: string) => {
       join(homedir(), '.local/share/whisper/ggml-tiny.bin'),
       '/opt/homebrew/share/whisper-cpp/models/ggml-base.bin',
       '/opt/homebrew/share/whisper-cpp/models/ggml-tiny.bin',
+      '/usr/share/whisper-cpp/models/ggml-base.bin',
+      '/usr/share/whisper-cpp/models/ggml-tiny.bin',
       // Fall back to English-only models if multilingual not available
       join(homedir(), '.local/share/whisper/ggml-base.en.bin'),
       join(homedir(), '.local/share/whisper/ggml-tiny.en.bin'),
       '/opt/homebrew/share/whisper-cpp/models/ggml-base.en.bin',
       '/opt/homebrew/share/whisper-cpp/models/ggml-tiny.en.bin',
+      '/usr/share/whisper-cpp/models/ggml-base.en.bin',
+      '/usr/share/whisper-cpp/models/ggml-tiny.en.bin',
     ]
 
     let modelPath = ''
@@ -797,25 +834,53 @@ ipcMain.handle(IPC.OPEN_IN_TERMINAL, (_event, arg: string | null | { sessionId?:
     projectPath = arg.projectPath && arg.projectPath !== '~' ? arg.projectPath : process.cwd()
   }
 
-  // Escape for AppleScript: double quotes → backslash-escaped, backslashes doubled
-  const projectDir = projectPath.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
   let cmd: string
   if (sessionId) {
-    cmd = `cd \\"${projectDir}\\" && ${claudeBin} --resume ${sessionId}`
+    cmd = `cd "${projectPath}" && ${claudeBin} --resume ${sessionId}`
   } else {
-    cmd = `cd \\"${projectDir}\\" && ${claudeBin}`
+    cmd = `cd "${projectPath}" && ${claudeBin}`
   }
 
-  const script = `tell application "Terminal"
-  activate
-  do script "${cmd}"
-end tell`
-
   try {
-    execFile('/usr/bin/osascript', ['-e', script], (err: Error | null) => {
-      if (err) log(`Failed to open terminal: ${err.message}`)
-      else log(`Opened terminal with: ${cmd}`)
-    })
+    if (process.platform === 'linux') {
+      // Try common Linux terminal emulators
+      const terminals = [
+        ['x-terminal-emulator', '-e'],
+        ['gnome-terminal', '--'],
+        ['konsole', '-e'],
+        ['xfce4-terminal', '-e'],
+        ['xterm', '-e'],
+      ]
+      let launched = false
+      for (const [term, flag] of terminals) {
+        try {
+          execFile(term, [flag, 'bash', '-c', cmd], (err: Error | null) => {
+            if (err) log(`Terminal ${term} error: ${err.message}`)
+          })
+          launched = true
+          log(`Opened terminal (${term}) with: ${cmd}`)
+          break
+        } catch {}
+      }
+      if (!launched) {
+        log('No supported terminal emulator found on Linux')
+        return false
+      }
+    } else {
+      // macOS: use AppleScript
+      const projectDir = projectPath.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+      let osascriptCmd: string
+      if (sessionId) {
+        osascriptCmd = `cd \\"${projectDir}\\" && ${claudeBin} --resume ${sessionId}`
+      } else {
+        osascriptCmd = `cd \\"${projectDir}\\" && ${claudeBin}`
+      }
+      const script = `tell application "Terminal"\n  activate\n  do script "${osascriptCmd}"\nend tell`
+      execFile('/usr/bin/osascript', ['-e', script], (err: Error | null) => {
+        if (err) log(`Failed to open terminal: ${err.message}`)
+        else log(`Opened terminal with: ${osascriptCmd}`)
+      })
+    }
     return true
   } catch (err: unknown) {
     log(`Failed to open terminal: ${err}`)
@@ -858,9 +923,8 @@ nativeTheme.on('updated', () => {
 // ─── App Lifecycle ───
 
 app.whenReady().then(() => {
-  // macOS: become an accessory app. Accessory apps can have key windows (keyboard works)
-  // without deactivating the currently active app (hover preserved in browsers).
-  // This is how Spotlight, Alfred, Raycast work.
+  // macOS: become an accessory app — key windows without deactivating active app.
+  // Linux: no dock equivalent, but skipTaskbar on the window achieves similar effect.
   if (process.platform === 'darwin' && app.dock) {
     app.dock.hide()
   }
@@ -908,9 +972,11 @@ app.whenReady().then(() => {
   }
   globalShortcut.register('CommandOrControl+Shift+K', () => toggleWindow('shortcut Cmd/Ctrl+Shift+K'))
 
-  const trayIconPath = join(__dirname, '../../resources/trayTemplate.png')
+  const trayIconPath = process.platform === 'linux'
+    ? join(__dirname, '../../resources/icon.iconset/icon_32x32.png')
+    : join(__dirname, '../../resources/trayTemplate.png')
   const trayIcon = nativeImage.createFromPath(trayIconPath)
-  trayIcon.setTemplateImage(true)
+  if (process.platform === 'darwin') trayIcon.setTemplateImage(true)
   tray = new Tray(trayIcon)
   tray.setToolTip('Clui CC — Claude Code UI')
   tray.on('click', () => toggleWindow('tray click'))

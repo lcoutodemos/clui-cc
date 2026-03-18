@@ -17,6 +17,7 @@
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "dist": "electron-vite build --mode production && electron-builder --mac --dir",
+    "dist:linux": "electron-vite build --mode production && electron-builder --linux AppImage",
     "doctor": "bash scripts/doctor.sh",
     "postinstall": "electron-builder install-app-deps && bash scripts/patch-dev-icon.sh"
   },
@@ -41,6 +42,20 @@
       "resources/**/*",
       "package.json"
     ],
+    "linux": {
+      "target": [
+        { "target": "AppImage", "arch": ["x64"] }
+      ],
+      "icon": "resources/icon.iconset",
+      "category": "Utility",
+      "executableName": "clui-cc",
+      "desktop": {
+        "StartupWMClass": "clui-cc"
+      }
+    },
+    "appImage": {
+      "artifactName": "Clui-CC-${version}-${arch}.AppImage"
+    },
     "mac": {
       "icon": "resources/icon.icns",
       "entitlements": "resources/entitlements.mac.plist",
