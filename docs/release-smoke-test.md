@@ -13,12 +13,22 @@ npm run build      # production build — must exit 0 with no errors
 ```
 
 **Prerequisites check (verified by `npm run doctor`):**
+
+macOS:
 - macOS 13+
 - Xcode Command Line Tools installed (`xcode-select -p` returns a path)
 - macOS SDK available (`xcrun --sdk macosx --show-sdk-path` returns a path)
 - clang++ available with working C++ headers
 - `node --version` returns 18+
 - `python3` available with `distutils` importable
+- `claude --version` returns 2.1+
+
+Linux:
+- 64-bit Linux with X11 or Wayland
+- g++ or clang++ available
+- `make` and `pkg-config` installed
+- `node --version` returns 18+
+- `python3` available with `setuptools`
 - `claude --version` returns 2.1+
 
 **Expected output:**
@@ -35,17 +45,23 @@ npm run build      # production build — must exit 0 with no errors
 
 ## Runtime Smoke Test Checklist
 
-### Prerequisites
+### Prerequisites (macOS)
 - [ ] macOS 13+
 - [ ] Xcode Command Line Tools installed (`xcode-select -p` returns a path)
+- [ ] Node.js 18+
+- [ ] `claude` CLI installed and authenticated (`claude --version` returns 2.1+)
+
+### Prerequisites (Linux)
+- [ ] 64-bit Linux distro (Ubuntu 22.04+, Fedora 39+, or similar)
+- [ ] build-essential, pkg-config installed
 - [ ] Node.js 18+
 - [ ] `claude` CLI installed and authenticated (`claude --version` returns 2.1+)
 
 ### Startup
 - [ ] `npm run dev` or `./commands/start.command` launches the app
 - [ ] Floating pill appears at bottom-center of screen
-- [ ] `⌥ + Space` toggles visibility (fallback: `Cmd+Shift+K`)
-- [ ] Tray icon appears in menu bar
+- [ ] `Alt+Space` toggles visibility (fallback: `Cmd+Shift+K` macOS / `Ctrl+Shift+K` Linux)
+- [ ] Tray icon appears in menu bar (macOS) or system tray (Linux)
 - [ ] Tray menu shows Quit option
 
 ### Tab Management
@@ -119,6 +135,15 @@ npm run build      # production build — must exit 0 with no errors
 - [ ] Skill auto-install silently skips on failure
 - [ ] All prompt/response functionality works (uses local CLI)
 
+### Linux-Specific Checks
+- [ ] AppImage launches (`chmod +x` + run)
+- [ ] Window floats on top (not tiled) in GNOME/KDE
+- [ ] Tray icon visible in system tray
+- [ ] Global shortcut `Alt+Space` works
+- [ ] Screenshot captures via `gnome-screenshot` or `scrot`
+- [ ] "Open in Terminal" launches a terminal emulator
+- [ ] Transparency works with compositor running
+
 ## Last Verified
 
 - **Date:** 2026-03-12
@@ -126,4 +151,5 @@ npm run build      # production build — must exit 0 with no errors
 - **Electron:** 33.x
 - **Claude CLI:** 2.1.71
 - **macOS:** 15.x (Sequoia)
+- **Linux:** Not yet verified (AppImage build config added)
 - **Build result:** Pass (zero build errors)

@@ -4,7 +4,7 @@ Thanks for your interest in contributing! Clui CC is a desktop overlay for Claud
 
 ## Getting Started
 
-1. Make sure you have the [prerequisites](README.md#prerequisites) installed (macOS, Xcode CLT, Node.js 18+, Claude Code CLI 2.1+)
+1. Make sure you have the [prerequisites](README.md#prerequisites) installed (macOS or Linux, build tools, Node.js 18+, Claude Code CLI 2.1+)
 2. Fork and clone the repo:
    ```bash
    git clone https://github.com/<your-username>/clui-cc.git
@@ -34,7 +34,8 @@ Thanks for your interest in contributing! Clui CC is a desktop overlay for Claud
 - **Main process** changes (`src/main/`) require a full restart (`Ctrl+C` then `npm run dev`).
 - **Renderer** changes (`src/renderer/`) hot-reload automatically.
 - Set `CLUI_DEBUG=1` to enable verbose main-process logging to `~/.clui-debug.log`.
-- The app creates a transparent, click-through window. Use `⌥ + Space` to toggle visibility (fallback: `Cmd+Shift+K`).
+- The app creates a transparent, click-through window. Use `Alt+Space` to toggle visibility (fallback: `Cmd+Shift+K` on macOS, `Ctrl+Shift+K` on Linux).
+- **Linux developers:** the app forces X11 mode via `--ozone-platform=x11`. Test on both X11 and Wayland (XWayland) if possible.
 
 ## Code Style
 
@@ -53,7 +54,8 @@ Thanks for your interest in contributing! Clui CC is a desktop overlay for Claud
 ## Reporting Bugs
 
 Open an issue with:
-- macOS version
+- OS and version (macOS version, or Linux distro + kernel version)
+- Desktop environment / window manager (Linux: GNOME, KDE, i3, sway, etc.)
 - Node.js version (`node --version`)
 - Claude Code CLI version (`claude --version`)
 - Steps to reproduce

@@ -5,7 +5,7 @@
 
 ## What This Project Is
 
-Clui CC is a **macOS-only Electron overlay** that wraps the Claude Code CLI (`claude -p --output-format stream-json`) in a floating pill UI. It is NOT a web app, NOT a VS Code extension, and does NOT call the Anthropic API directly — it spawns CLI subprocesses.
+Clui CC is a **macOS and Linux Electron overlay** that wraps the Claude Code CLI (`claude -p --output-format stream-json`) in a floating pill UI. It is NOT a web app, NOT a VS Code extension, and does NOT call the Anthropic API directly — it spawns CLI subprocesses.
 
 ## Quick Reference
 
@@ -14,7 +14,8 @@ Clui CC is a **macOS-only Electron overlay** that wraps the Claude Code CLI (`cl
 | Install deps | `npm install` |
 | Dev mode (hot-reload) | `npm run dev` |
 | Type-check / build | `npm run build` |
-| Toggle overlay | `⌥ + Space` (fallback: `Cmd+Shift+K`) |
+| Toggle overlay | `Alt+Space` (fallback: `Cmd+Shift+K` macOS / `Ctrl+Shift+K` Linux) |
+| Package Linux AppImage | `npm run dist:linux` |
 | Debug logging | `CLUI_DEBUG=1 npm run dev` (writes to `~/.clui-debug.log`) |
 
 **Main process changes require full restart.** Renderer changes hot-reload.
@@ -159,5 +160,5 @@ No telemetry. No analytics. No auto-update.
 2. **Adding raw color values** instead of using `useColors()` — breaks theming
 3. **Mutating tab state from renderer** instead of going through ControlPlane events
 4. **Hardcoding IPC strings** instead of using `IPC.*` constants
-5. **Testing on non-macOS** — this is macOS-only (transparent windows, node-pty bindings)
+5. **Platform-specific code** — when adding features that touch OS APIs (tray, shortcuts, screenshots, terminal launch), add `process.platform` branches for both `darwin` and `linux`. Linux forces X11 via `--ozone-platform=x11` for Wayland compat.
 6. **Not handling the `session_dead` event** — if a Claude process crashes, the tab must transition to `dead` status

@@ -10,10 +10,27 @@ This checks your local environment and prints pass/fail status without changing 
 
 ## Install Fails with "gyp" or "make" Errors
 
-Install Xcode Command Line Tools, then retry:
+**macOS:** Install Xcode Command Line Tools, then retry:
 
 ```bash
 xcode-select --install
+```
+
+```bash
+npm install
+```
+
+**Linux:** Install build essentials and pkg-config:
+
+```bash
+# Debian/Ubuntu
+sudo apt install build-essential pkg-config python3 python3-setuptools
+
+# Fedora/RHEL
+sudo dnf groupinstall "Development Tools" && sudo dnf install pkg-config python3-setuptools
+
+# Arch
+sudo pacman -S base-devel pkg-config python-setuptools
 ```
 
 ```bash
@@ -94,11 +111,17 @@ EOF
 
 ## Install Fails on `node-pty`
 
-`node-pty` is native and requires macOS toolchains. Confirm:
+`node-pty` is a native module and requires platform toolchains.
 
+**macOS** — confirm:
 - macOS 13+
 - Xcode CLT installed
 - Python 3 with `setuptools`/`distutils` available
+
+**Linux** — confirm:
+- `build-essential` (or equivalent) installed
+- `pkg-config` installed
+- Python 3 with `setuptools` available
 
 Then retry `npm install`.
 
@@ -114,15 +137,21 @@ claude --version
 claude
 ```
 
-## `⌥ + Space` Does Not Toggle
+## `Alt+Space` Does Not Toggle
 
-Grant Accessibility permissions:
+**macOS:** Grant Accessibility permissions:
 
 - System Settings -> Privacy & Security -> Accessibility
 
+**Linux (Wayland):** The app uses XWayland for global shortcuts. If `Alt+Space` is claimed by your desktop environment (e.g., GNOME uses it for window menu), remap or disable the DE shortcut:
+
+- **GNOME:** Settings -> Keyboard -> Keyboard Shortcuts -> search "Activate the window menu" -> disable or rebind
+- **KDE:** System Settings -> Shortcuts -> search "Alt+Space" -> remove conflict
+
 Fallback shortcut:
 
-- `Cmd+Shift+K`
+- macOS: `Cmd+Shift+K`
+- Linux: `Ctrl+Shift+K`
 
 ## Packaged App Won't Open (Security Warning)
 
@@ -139,6 +168,8 @@ You only need to do this once. This is a local build, not App Store distribution
 ## Install Fails at Whisper Step
 
 The installer requires Whisper for voice input. If it fails:
+
+**macOS:**
 
 1. Make sure Homebrew is installed:
 
@@ -162,6 +193,29 @@ brew install whisper-cli
 
 ```bash
 ./install-app.command
+```
+
+**Linux:**
+
+Install via pip:
+
+```bash
+pip install openai-whisper
+```
+
+Or install whisper-cpp from source:
+
+```bash
+git clone https://github.com/ggerganov/whisper.cpp.git
+cd whisper.cpp && make
+sudo cp main /usr/local/bin/whisper-cli
+```
+
+Download a model:
+
+```bash
+mkdir -p ~/.local/share/whisper
+curl -L -o ~/.local/share/whisper/ggml-tiny.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin
 ```
 
 ## Install Fails at Build Step
@@ -198,6 +252,53 @@ Expected when offline. Marketplace needs internet access; core app features cont
 
 Try:
 
-- `⌥ + Space`
-- `Cmd+Shift+K`
-- Confirm app is running from the menu bar tray
+- `Alt+Space`
+- `Cmd+Shift+K` (macOS) or `Ctrl+Shift+K` (Linux)
+- Confirm app is running from the system tray
+
+## Linux: Window Tiles Instead of Floating (Tiling WMs)
+
+If using i3, sway, Hyprland, or another tiling WM, add a floating rule:
+
+```
+# i3 config (~/.config/i3/config)
+for_window [class="clui-cc"] floating enable, sticky enable
+
+# sway config (~/.config/sway/config)
+for_window [app_id="clui-cc"] floating enable, sticky enable
+
+# Hyprland config (~/.config/hypr/hyprland.conf)
+windowrulev2 = float, class:clui-cc
+windowrulev2 = pin, class:clui-cc
+```
+
+## Linux: Transparency Not Working
+
+Clui CC requires a compositor for transparent windows. Most desktop environments include one (GNOME, KDE, XFCE with compositing enabled).
+
+If using a standalone WM without a compositor, install one:
+
+```bash
+# picom (works with i3, openbox, etc.)
+sudo apt install picom
+picom &
+```
+
+## Linux: AppImage Won't Launch
+
+Make sure FUSE is available (required by AppImage):
+
+```bash
+# Debian/Ubuntu
+sudo apt install libfuse2
+
+# Fedora
+sudo dnf install fuse-libs
+```
+
+Or extract and run without FUSE:
+
+```bash
+./Clui-CC-*-x64.AppImage --appimage-extract
+./squashfs-root/clui-cc
+```

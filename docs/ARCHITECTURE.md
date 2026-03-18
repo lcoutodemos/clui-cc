@@ -2,7 +2,21 @@
 
 ## Overview
 
-CLUI is an Electron desktop application that provides a graphical interface for Claude Code CLI. It spawns `claude -p` subprocesses, parses their NDJSON output, and presents conversations in a floating overlay window.
+CLUI is an Electron desktop application (macOS and Linux) that provides a graphical interface for Claude Code CLI. It spawns `claude -p` subprocesses, parses their NDJSON output, and presents conversations in a floating overlay window.
+
+### Platform Abstraction
+
+The main process (`src/main/index.ts`) contains platform-specific branches for:
+
+| Concern | macOS | Linux |
+|---------|-------|-------|
+| Window type | `type: 'panel'` (NSPanel) | Standard frameless window |
+| Dock/taskbar | `app.dock.hide()` | `skipTaskbar: true` on window |
+| Tray icon | Template image (auto dark/light) | Regular PNG icon |
+| Global shortcuts | Native (Cocoa) | Via X11 (`--ozone-platform=x11`) |
+| Screenshot | `/usr/sbin/screencapture -i` | `gnome-screenshot` / `scrot` / `import` |
+| Open in terminal | AppleScript → Terminal.app | `x-terminal-emulator` / `gnome-terminal` / `konsole` / `xterm` |
+| Whisper lookup | Homebrew paths + `/bin/zsh` | System paths + `/bin/bash` |
 
 ```
 ┌──────────────────────────────────────────────────────────────┐

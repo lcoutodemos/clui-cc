@@ -1,6 +1,6 @@
 # Clui CC — Command Line User Interface for Claude Code
 
-A lightweight, transparent desktop overlay for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) on macOS. Clui CC wraps the Claude Code CLI in a floating pill interface with multi-tab sessions, a permission approval UI, voice input, and a skills marketplace.
+A lightweight, transparent desktop overlay for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) on macOS and Linux. Clui CC wraps the Claude Code CLI in a floating pill interface with multi-tab sessions, a permission approval UI, voice input, and a skills marketplace.
 
 ## Demo
 
@@ -10,7 +10,7 @@ A lightweight, transparent desktop overlay for [Claude Code](https://docs.anthro
 
 ## Features
 
-- **Floating overlay** — transparent, click-through window that stays on top. Toggle with `⌥ + Space` (fallback: `Cmd+Shift+K`).
+- **Floating overlay** — transparent, click-through window that stays on top. Toggle with `Alt+Space` (fallback: `Ctrl+Shift+K` on Linux, `Cmd+Shift+K` on macOS).
 - **Multi-tab sessions** — each tab spawns its own `claude -p` process with independent session state.
 - **Permission approval UI** — intercepts tool calls via PreToolUse HTTP hooks so you can review and approve/deny from the UI.
 - **Conversation history** — browse and resume past Claude Code sessions.
@@ -37,6 +37,8 @@ See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the full deep-dive.
 
 ## Install App (Recommended)
 
+### macOS
+
 The fastest way to get Clui CC running as a regular Mac app. This installs dependencies, voice support (Whisper), builds the app, copies it to `/Applications`, and launches it.
 
 **1) Clone the repo**
@@ -55,6 +57,35 @@ Open the `clui-cc` folder in Finder and double-click `install-app.command`.
 <p align="center"><img src="docs/shortcut.png" width="520" alt="Press Option + Space to show or hide Clui CC" /></p>
 
 After the initial install, just open **Clui CC** from your Applications folder or Spotlight.
+
+### Linux (AppImage)
+
+**1) Clone and build**
+
+```bash
+git clone https://github.com/lcoutodemos/clui-cc.git
+cd clui-cc
+npm install
+npm run dist:linux
+```
+
+**2) Run the AppImage**
+
+```bash
+chmod +x release/Clui-CC-*-x64.AppImage
+./release/Clui-CC-*-x64.AppImage
+```
+
+Or download pre-built AppImage from [GitHub Releases](https://github.com/lcoutodemos/clui-cc/releases).
+
+> **Tiling WMs (i3, sway, Hyprland):** Add a floating rule for `clui-cc`:
+> ```
+> # i3 config
+> for_window [class="clui-cc"] floating enable, sticky enable
+>
+> # sway config
+> for_window [app_id="clui-cc"] floating enable, sticky enable
+> ```
 
 <details>
 <summary><strong>Terminal / Developer Commands</strong></summary>
@@ -79,7 +110,7 @@ cd clui-cc
 ./commands/start.command
 ```
 
-> Press **⌥ + Space** to show/hide the overlay. If your macOS input source claims that combo, use **Cmd+Shift+K**.
+> Press **Alt+Space** to show/hide the overlay. Fallback: **Cmd+Shift+K** (macOS) or **Ctrl+Shift+K** (Linux).
 
 To stop:
 
@@ -108,12 +139,15 @@ Renderer changes update instantly. Main-process changes require restarting `npm 
 | `./commands/stop.command` | Stop all Clui CC processes |
 | `npm run build` | Production build (no packaging) |
 | `npm run dist` | Package as macOS `.app` into `release/` |
+| `npm run dist:linux` | Package as Linux AppImage into `release/` |
 | `npm run doctor` | Run environment diagnostic |
 
 </details>
 
 <details>
 <summary><strong>Setup Prerequisites (Detailed)</strong></summary>
+
+### macOS
 
 You need **macOS 13+**. Then install these one at a time — copy each command and paste it into Terminal.
 
@@ -157,6 +191,41 @@ claude
 
 ```bash
 brew install whisper-cli
+```
+
+### Linux
+
+You need a **64-bit Linux distribution** with X11 or Wayland (XWayland is used automatically).
+
+**Step 1.** Install build tools (Debian/Ubuntu example):
+
+```bash
+sudo apt install build-essential pkg-config python3 python3-setuptools
+```
+
+**Step 2.** Install Node.js 18+ via [nvm](https://github.com/nvm-sh/nvm) or your package manager:
+
+```bash
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.0/install.sh | bash
+nvm install --lts
+```
+
+**Step 3.** Install Claude Code CLI:
+
+```bash
+npm install -g @anthropic-ai/claude-code
+```
+
+**Step 4.** Authenticate Claude Code:
+
+```bash
+claude
+```
+
+**Step 5.** (Optional) Install Whisper for voice input:
+
+```bash
+pip install openai-whisper
 ```
 
 > **No API keys or `.env` file required.** Clui CC uses your existing Claude Code CLI authentication (Pro/Team/Enterprise subscription).
@@ -222,6 +291,7 @@ npm run doctor
 | Component | Version |
 |-----------|---------|
 | macOS | 15.x (Sequoia) |
+| Linux | Ubuntu 22.04+, Fedora 39+ |
 | Node.js | 20.x LTS, 22.x |
 | Python | 3.12 (with setuptools installed) |
 | Electron | 33.x |
@@ -229,7 +299,9 @@ npm run doctor
 
 ## Known Limitations
 
-- **macOS only** — transparent overlay, tray icon, and node-pty are macOS-specific. Windows/Linux support is not currently implemented.
+- **macOS and Linux only** — Windows support is not currently implemented.
+- **Linux: X11 fallback** — Wayland is supported via XWayland (`--ozone-platform=x11` is set automatically) to ensure global shortcuts and transparency work. Native Wayland support may come in future Electron releases.
+- **Linux: tiling WMs** — i3, sway, Hyprland users need to add a floating window rule for `clui-cc` (see install instructions above).
 - **Requires Claude Code CLI** — Clui CC is a UI layer, not a standalone AI client. You need an authenticated `claude` CLI.
 - **Permission mode** — uses `--permission-mode default`. The PTY interactive transport is legacy and disabled by default.
 
