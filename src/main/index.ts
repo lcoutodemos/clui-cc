@@ -985,6 +985,17 @@ ipcMain.handle(IPC.GIT_DIFF, (_event, cwd: string, file?: string) => {
 
 // ─── Cost Tracking IPC ───
 
+// ─── Error logging ───
+
+ipcMain.on(IPC.LOG_RENDERER_ERROR, (_event, payload: { error: string; stack?: string; componentStack?: string; activeTabId?: string }) => {
+  log(`[RendererError] ${payload.error}`)
+  if (payload.stack) log(`[RendererError] Stack: ${payload.stack.split('\n').slice(0, 5).join('\n')}`)
+  if (payload.componentStack) log(`[RendererError] Component: ${payload.componentStack.split('\n').slice(0, 3).join('\n')}`)
+  if (payload.activeTabId) log(`[RendererError] ActiveTab: ${payload.activeTabId}`)
+})
+
+// ─── Cost tracking ───
+
 ipcMain.on(IPC.COST_RECORD, (_event, record: CostRecord) => {
   log(`IPC COST_RECORD: session=${record.sessionId} cost=$${record.costUsd.toFixed(4)}`)
   costAppendRecord(record)

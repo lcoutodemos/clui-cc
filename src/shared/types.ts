@@ -531,6 +531,9 @@ export const IPC = {
   GET_NOTIFICATION_PREFS: 'clui:get-notification-prefs',
   SET_NOTIFICATION_PREFS: 'clui:set-notification-prefs',
 
+  // Error logging
+  LOG_RENDERER_ERROR: 'clui:log-renderer-error',
+
   // Legacy (kept for backward compat during migration)
   STREAM_EVENT: 'clui:stream-event',
   RUN_COMPLETE: 'clui:run-complete',
