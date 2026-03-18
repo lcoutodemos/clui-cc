@@ -92,6 +92,7 @@
     "electron": "^33.0.0",
     "electron-builder": "^25.0.0",
     "electron-vite": "^3.0.0",
+    "jsdom": "^29.0.0",
     "postcss": "^8.4.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
