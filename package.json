@@ -29,6 +29,7 @@
     "lint:fix": "eslint src/ tests/ --ext .ts,.tsx --fix",
     "format": "prettier --write src/ tests/",
     "format:check": "prettier --check src/ tests/",
+    "analyze": "ANALYZE=1 electron-vite build",
     "doctor": "bash scripts/doctor.sh",
     "doctor:win": "powershell -ExecutionPolicy Bypass -File scripts/doctor.ps1",
     "postinstall": "node scripts/postinstall.js"
@@ -106,6 +107,7 @@
     "prettier": "^3.8.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "rollup-plugin-visualizer": "^6.0.11",
     "sharp": "^0.34.5",
     "tailwindcss": "^4.2.1",
     "typescript": "^5.7.0",
