@@ -1,6 +1,6 @@
 import React from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { X, FileText, Image, FileCode, File } from '@phosphor-icons/react'
+import { X, FileText, Image, FileCode, File, ArrowsClockwise } from '@phosphor-icons/react'
 import { useColors } from '../theme'
 import type { Attachment } from '../../shared/types'
 
@@ -69,6 +69,19 @@ export function AttachmentChips({
             >
               {a.name}
             </span>
+
+            {a.autoAttached && (
+              <span
+                className="flex-shrink-0 rounded-full p-1"
+                style={{
+                  color: colors.textTertiary,
+                  background: colors.surfaceSecondary,
+                }}
+                title="Auto-attached from project config"
+              >
+                <ArrowsClockwise size={9} />
+              </span>
+            )}
 
             {/* Remove button */}
             <button

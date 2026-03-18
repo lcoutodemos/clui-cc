@@ -5,6 +5,7 @@ import { useSessionStore, AVAILABLE_MODELS } from '../stores/sessionStore'
 import { useComparisonStore } from '../stores/comparisonStore'
 import { useExportStore } from '../stores/exportStore'
 import { useSnippetStore } from '../stores/snippetStore'
+import { useWorkflowStore } from '../stores/workflowStore'
 import { AttachmentChips } from './AttachmentChips'
 import { SlashCommandMenu, getFilteredCommandsWithExtras, type SlashCommand } from './SlashCommandMenu'
 import { useColors } from '../theme'
@@ -315,6 +316,10 @@ export function InputBar() {
         useComparisonStore.getState().openLauncher()
         break
       }
+      case '/workflow': {
+        useWorkflowStore.getState().openManager()
+        break
+      }
       case '/help': {
         const lines = [
           '/clear — Clear conversation history',
@@ -324,6 +329,7 @@ export function InputBar() {
           '/model — Show model info & switch models',
           '/mcp — Show MCP server status',
           '/skills — Show available skills',
+          '/workflow — Open workflow manager',
           '/help — Show this list',
         ]
         addSystemMessage(lines.join('\n'))

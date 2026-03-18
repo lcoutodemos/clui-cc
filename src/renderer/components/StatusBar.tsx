@@ -1,10 +1,11 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Terminal, CaretDown, Check, FolderOpen, Plus, X, ShieldCheck } from '@phosphor-icons/react'
+import { Terminal, CaretDown, Check, FolderOpen, Plus, X, ShieldCheck, ArrowsClockwise } from '@phosphor-icons/react'
 import { useSessionStore, AVAILABLE_MODELS } from '../stores/sessionStore'
 import { usePopoverLayer } from './PopoverLayer'
 import { useColors } from '../theme'
+import type { AutoAttachState } from '../../shared/types'
 
 /* ─── Model Picker (inline — tightly coupled to StatusBar) ─── */
 
@@ -253,7 +254,7 @@ function PermissionModePicker() {
 /** Get a compact display path: basename for deep paths, ~ for home */
 function compactPath(fullPath: string): string {
   if (fullPath === '~') return '~'
-  const parts = fullPath.replace(/\/$/, '').split('/')
+  const parts = fullPath.replace(/[\\/]+$/, '').split(/[\\/]/)
   return parts[parts.length - 1] || fullPath
 }
 
@@ -289,6 +290,8 @@ export function StatusBar() {
   const colors = useColors()
 
   const [dirOpen, setDirOpen] = useState(false)
+  const [autoAttachState, setAutoAttachState] = useState<AutoAttachState | null>(null)
+  const [autoAttachLoading, setAutoAttachLoading] = useState(false)
   const dirRef = useRef<HTMLButtonElement>(null)
   const dirPopRef = useRef<HTMLDivElement>(null)
   const [dirPos, setDirPos] = useState({ bottom: 0, left: 0 })
@@ -306,11 +309,57 @@ export function StatusBar() {
     return () => document.removeEventListener('mousedown', handler)
   }, [dirOpen])
 
+  const applyAutoAttachState = useCallback((tabId: string, state: AutoAttachState) => {
+    useSessionStore.setState((store) => ({
+      tabs: store.tabs.map((currentTab) => {
+        if (currentTab.id !== tabId) return currentTab
+
+        const manualAttachments = currentTab.attachments.filter((attachment) => !attachment.autoAttached)
+        const manualPaths = new Set(manualAttachments.map((attachment) => attachment.path.toLowerCase()))
+        const autoAttachments = state.attachments.filter((attachment) => !manualPaths.has(attachment.path.toLowerCase()))
+
+        return {
+          ...currentTab,
+          attachments: [...manualAttachments, ...autoAttachments],
+        }
+      }),
+    }))
+  }, [])
+
+  const loadAutoAttachState = useCallback(async (tabId: string, projectPath: string) => {
+    setAutoAttachLoading(true)
+    try {
+      const state = await window.clui.getAutoAttachConfig(projectPath)
+      setAutoAttachState(state)
+      applyAutoAttachState(tabId, state)
+    } catch {
+      setAutoAttachState({
+        config: { projectPath, files: [] },
+        attachments: [],
+        warnings: ['Failed to load auto-attach config.'],
+      })
+    } finally {
+      setAutoAttachLoading(false)
+    }
+  }, [applyAutoAttachState])
+
+  useEffect(() => {
+    if (!dirOpen) return
+    if (!tab?.hasChosenDirectory || !tab.workingDirectory) {
+      setAutoAttachState(null)
+      setAutoAttachLoading(false)
+      return
+    }
+    void loadAutoAttachState(tab.id, tab.workingDirectory)
+  }, [dirOpen, tab?.hasChosenDirectory, tab?.id, tab?.workingDirectory, loadAutoAttachState])
+
   if (!tab) return null
 
   const isRunning = tab.status === 'running' || tab.status === 'connecting'
   const isEmpty = tab.messages.length === 0
   const hasExtraDirs = tab.additionalDirs.length > 0
+  const autoAttachFiles = autoAttachState?.config.files || []
+  const hasAutoAttachFiles = autoAttachFiles.length > 0
 
   const handleOpenInTerminal = () => {
     window.clui.openInTerminal(tab.claudeSessionId, tab.workingDirectory)
@@ -332,6 +381,30 @@ export function StatusBar() {
     const dir = await window.clui.selectDirectory()
     if (dir) {
       addDirectory(dir)
+    }
+  }
+
+  const handleAddAutoAttach = async () => {
+    if (!tab.hasChosenDirectory || autoAttachLoading) return
+    setAutoAttachLoading(true)
+    try {
+      const state = await window.clui.addAutoAttachFile(tab.workingDirectory)
+      setAutoAttachState(state)
+      applyAutoAttachState(tab.id, state)
+    } finally {
+      setAutoAttachLoading(false)
+    }
+  }
+
+  const handleRemoveAutoAttach = async (relativePath: string) => {
+    if (!tab.hasChosenDirectory || autoAttachLoading) return
+    setAutoAttachLoading(true)
+    try {
+      const state = await window.clui.removeAutoAttachFile(tab.workingDirectory, relativePath)
+      setAutoAttachState(state)
+      applyAutoAttachState(tab.id, state)
+    } finally {
+      setAutoAttachLoading(false)
     }
   }
 
@@ -379,7 +452,7 @@ export function StatusBar() {
               position: 'fixed',
               bottom: dirPos.bottom,
               left: dirPos.left,
-              width: 220,
+              width: 260,
               pointerEvents: 'auto',
               background: colors.popoverBg,
               backdropFilter: 'blur(20px)',
@@ -428,6 +501,55 @@ export function StatusBar() {
 
               <div className="mx-2 my-1" style={{ height: 1, background: colors.popoverBorder }} />
 
+              <div className="px-2 py-1">
+                <div className="text-[9px] uppercase tracking-wider mb-1" style={{ color: colors.textTertiary }}>
+                  Auto-attach files
+                </div>
+                {!tab.hasChosenDirectory ? (
+                  <div className="text-[11px]" style={{ color: colors.textMuted }}>
+                    Choose a base directory to configure auto-attach.
+                  </div>
+                ) : autoAttachLoading && !autoAttachState ? (
+                  <div className="text-[11px]" style={{ color: colors.textMuted }}>
+                    Loading...
+                  </div>
+                ) : hasAutoAttachFiles ? (
+                  <div className="flex flex-col gap-1">
+                    {autoAttachFiles.map((file) => (
+                      <div key={file} className="flex items-center justify-between gap-2 group">
+                        <span className="text-[11px] truncate min-w-0" style={{ color: colors.textSecondary }} title={file}>
+                          {file}
+                        </span>
+                        <button
+                          onClick={() => void handleRemoveAutoAttach(file)}
+                          className="flex-shrink-0 opacity-50 hover:opacity-100 transition-opacity"
+                          style={{ color: colors.textTertiary }}
+                          title="Remove auto-attach file"
+                        >
+                          <X size={10} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-[11px]" style={{ color: colors.textMuted }}>
+                    No auto-attach files yet.
+                  </div>
+                )}
+                {autoAttachState?.warnings.length ? (
+                  <div
+                    className="mt-1.5 flex items-start gap-1.5 text-[10px]"
+                  style={{ color: colors.textTertiary }}
+                  title={autoAttachState.warnings.join('\n')}
+                >
+                  <ArrowsClockwise size={10} className="flex-shrink-0 mt-[1px]" />
+                  <span>{autoAttachState.warnings[0]}</span>
+                </div>
+                ) : null}
+              </div>
+
+              <div className="mx-2 my-1" style={{ height: 1, background: colors.popoverBorder }} />
+
               {/* Add directory button */}
               <button
                 onClick={handleAddDir}
@@ -436,6 +558,19 @@ export function StatusBar() {
               >
                 <Plus size={10} />
                 Add directory...
+              </button>
+
+              <button
+                onClick={() => void handleAddAutoAttach()}
+                disabled={!tab.hasChosenDirectory || autoAttachLoading}
+                className="w-full flex items-center gap-1.5 px-2 py-1.5 text-[11px] transition-colors rounded-lg"
+                style={{
+                  color: tab.hasChosenDirectory ? colors.accent : colors.textMuted,
+                  cursor: !tab.hasChosenDirectory || autoAttachLoading ? 'not-allowed' : 'pointer',
+                }}
+              >
+                <ArrowsClockwise size={10} />
+                {autoAttachLoading ? 'Updating auto-attach...' : 'Add file to auto-attach...'}
               </button>
             </div>
           </motion.div>,
