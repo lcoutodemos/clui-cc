@@ -59,8 +59,14 @@ function groupMessages(messages: Message[]): GroupedItem[] {
 // ─── Main Component ───
 
 export function ConversationView({ overrideTabId }: { overrideTabId?: string } = {}) {
-  const tabs = useSessionStore((s) => s.tabs)
   const activeTabId = useSessionStore((s) => s.activeTabId)
+  const resolvedTabId = overrideTabId || activeTabId
+
+  // Narrow selector: only re-render when THIS tab changes, not all tabs
+  const tab = useSessionStore(
+    (s) => s.tabs.find((t) => t.id === (overrideTabId || s.activeTabId)),
+    (a, b) => a === b,
+  )
   const sendMessage = useSessionStore((s) => s.sendMessage)
   const staticInfo = useSessionStore((s) => s.staticInfo)
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -68,12 +74,9 @@ export function ConversationView({ overrideTabId }: { overrideTabId?: string } =
   const [hovered, setHovered] = useState(false)
   const [renderOffset, setRenderOffset] = useState(0) // 0 = show from tail
   const isNearBottomRef = useRef(true)
-  const resolvedTabId = overrideTabId || activeTabId
   const prevTabIdRef = useRef(resolvedTabId)
   const colors = useColors()
   const expandedUI = useThemeStore((s) => s.expandedUI)
-
-  const tab = tabs.find((t) => t.id === resolvedTabId)
 
   // Reset render offset and scroll state when switching tabs
   useEffect(() => {
@@ -391,9 +394,9 @@ function InterruptButton({ tabId }: { tabId: string }) {
   )
 }
 
-// ─── User Message ───
+// ─── User Message (memoized — only re-renders when message reference changes) ───
 
-function UserMessage({ message, skipMotion }: { message: Message; skipMotion?: boolean }) {
+const UserMessage = React.memo(function UserMessage({ message, skipMotion }: { message: Message; skipMotion?: boolean }) {
   const colors = useColors()
   const content = (
     <div
@@ -424,7 +427,7 @@ function UserMessage({ message, skipMotion }: { message: Message; skipMotion?: b
       {content}
     </motion.div>
   )
-}
+})
 
 // ─── Queued Message (waiting at bottom until processed) ───
 
@@ -664,7 +667,7 @@ function getToolDescription(name: string, input?: string): string {
   }
 }
 
-function ToolGroup({ tools, skipMotion }: { tools: Message[]; skipMotion?: boolean }) {
+const ToolGroup = React.memo(function ToolGroup({ tools, skipMotion }: { tools: Message[]; skipMotion?: boolean }) {
   const hasRunning = tools.some((t) => t.toolStatus === 'running')
   const [expanded, setExpanded] = useState(false)
   const colors = useColors()
@@ -784,11 +787,11 @@ function ToolGroup({ tools, skipMotion }: { tools: Message[]; skipMotion?: boole
       {inner}
     </motion.div>
   )
-}
+})
 
-// ─── System Message ───
+// ─── System Message (memoized) ───
 
-function SystemMessage({ message, skipMotion }: { message: Message; skipMotion?: boolean }) {
+const SystemMessage = React.memo(function SystemMessage({ message, skipMotion }: { message: Message; skipMotion?: boolean }) {
   const isError = message.content.startsWith('Error:') || message.content.includes('unexpectedly')
   const colors = useColors()
 
@@ -817,7 +820,7 @@ function SystemMessage({ message, skipMotion }: { message: Message; skipMotion?:
       {inner}
     </motion.div>
   )
-}
+})
 
 // ─── Tool Icon mapping ───
 
