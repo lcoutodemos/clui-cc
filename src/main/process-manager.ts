@@ -4,6 +4,7 @@ import { homedir } from 'os'
 import { appendFileSync } from 'fs'
 import { join } from 'path'
 import { StreamParser } from './stream-parser'
+import { getCliEnv } from './cli-env'
 import type { ClaudeEvent, RunOptions } from '../shared/types'
 
 const LOG_FILE = join(homedir(), '.clui-debug.log')
@@ -26,7 +27,6 @@ export interface RunHandle {
 export class ProcessManager extends EventEmitter {
   private activeRuns = new Map<string, RunHandle>()
   private claudeBinary: string
-  private _loginShellPath: string = ''
 
   constructor() {
     super()
@@ -53,12 +53,12 @@ export class ProcessManager extends EventEmitter {
 
     // Fallback: ask a login shell
     try {
-      const result = execSync('/bin/zsh -lc "whence -p claude"', { encoding: 'utf-8' }).trim()
+      const result = execSync('/bin/zsh -ilc "whence -p claude"', { encoding: 'utf-8', env: getCliEnv() }).trim()
       if (result) return result
     } catch {}
 
     try {
-      const result = execSync('/bin/bash -lc "which claude"', { encoding: 'utf-8' }).trim()
+      const result = execSync('/bin/bash -lc "which claude"', { encoding: 'utf-8', env: getCliEnv() }).trim()
       if (result) return result
     } catch {}
 
@@ -104,20 +104,7 @@ export class ProcessManager extends EventEmitter {
 
     // Build environment: merge login shell PATH with Electron's env
     // Electron doesn't source ~/.zshrc so PATH is often incomplete
-    const env = { ...process.env }
-    delete env.CLAUDECODE
-
-    // Get the full login shell PATH so npx, node, etc. are available for MCP servers
-    if (!this._loginShellPath) {
-      try {
-        this._loginShellPath = execSync('/bin/zsh -lc "echo $PATH"', { encoding: 'utf-8' }).trim()
-      } catch {
-        this._loginShellPath = ''
-      }
-    }
-    if (this._loginShellPath) {
-      env.PATH = this._loginShellPath
-    }
+    const env = getCliEnv()
 
     // Ensure our claude binary's directory is in PATH
     const binDir = this.claudeBinary.substring(0, this.claudeBinary.lastIndexOf('/'))

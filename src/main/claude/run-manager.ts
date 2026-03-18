@@ -5,6 +5,7 @@ import { join } from 'path'
 import { StreamParser } from '../stream-parser'
 import { normalize } from './event-normalizer'
 import { log as _log } from '../logger'
+import { getCliEnv } from '../cli-env'
 import type { ClaudeEvent, NormalizedEvent, RunOptions, EnrichedError } from '../../shared/types'
 
 const MAX_RING_LINES = 100
@@ -92,7 +93,6 @@ export class RunManager extends EventEmitter {
   /** Holds recently-finished runs so diagnostics survive past process exit */
   private _finishedRuns = new Map<string, RunHandle>()
   private claudeBinary: string
-  private _loginShellPath = ''
 
   constructor() {
     super()
@@ -115,31 +115,18 @@ export class RunManager extends EventEmitter {
     }
 
     try {
-      return execSync('/bin/zsh -lc "whence -p claude"', { encoding: 'utf-8' }).trim()
+      return execSync('/bin/zsh -ilc "whence -p claude"', { encoding: 'utf-8', env: getCliEnv() }).trim()
     } catch {}
 
     try {
-      return execSync('/bin/bash -lc "which claude"', { encoding: 'utf-8' }).trim()
+      return execSync('/bin/bash -lc "which claude"', { encoding: 'utf-8', env: getCliEnv() }).trim()
     } catch {}
 
     return 'claude'
   }
 
   private _getEnv(): NodeJS.ProcessEnv {
-    const env = { ...process.env }
-    delete env.CLAUDECODE
-
-    if (!this._loginShellPath) {
-      try {
-        this._loginShellPath = execSync('/bin/zsh -lc "echo $PATH"', { encoding: 'utf-8' }).trim()
-      } catch {
-        this._loginShellPath = ''
-      }
-    }
-    if (this._loginShellPath) {
-      env.PATH = this._loginShellPath
-    }
-
+    const env = getCliEnv()
     const binDir = this.claudeBinary.substring(0, this.claudeBinary.lastIndexOf('/'))
     if (env.PATH && !env.PATH.includes(binDir)) {
       env.PATH = `${binDir}:${env.PATH}`

@@ -686,8 +686,37 @@ export const useSessionStore = create<State>((set, get) => ({
             break
           }
 
-          case 'task_update':
+          case 'task_update': {
+            // ── Text fallback ──
+            // text_chunk events (from stream_event deltas) are the primary render path.
+            // If they didn't arrive for this run (timing, partial stream, etc.), the
+            // assembled assistant event still has the full text — extract it here.
+            // "This run" = everything after the last user message.
             if (event.message?.content) {
+              const lastUserIdx = (() => {
+                for (let i = updated.messages.length - 1; i >= 0; i--) {
+                  if (updated.messages[i].role === 'user') return i
+                }
+                return -1
+              })()
+              const hasStreamedText = updated.messages
+                .slice(lastUserIdx + 1)
+                .some((m) => m.role === 'assistant' && !m.toolName)
+
+              if (!hasStreamedText) {
+                const textContent = event.message.content
+                  .filter((b) => b.type === 'text' && b.text)
+                  .map((b) => b.text!)
+                  .join('')
+                if (textContent) {
+                  updated.messages = [
+                    ...updated.messages,
+                    { id: nextMsgId(), role: 'assistant' as const, content: textContent, timestamp: Date.now() },
+                  ]
+                }
+              }
+
+              // ── Tool card deduplication (unchanged) ──
               for (const block of event.message.content) {
                 if (block.type === 'tool_use' && block.name) {
                   const exists = updated.messages.find(
@@ -711,6 +740,7 @@ export const useSessionStore = create<State>((set, get) => ({
               }
             }
             break
+          }
 
           case 'task_complete':
             updated.status = 'completed'
@@ -723,6 +753,26 @@ export const useSessionStore = create<State>((set, get) => ({
               numTurns: event.numTurns,
               usage: event.usage,
               sessionId: event.sessionId,
+            }
+            // ── Final text fallback ──
+            // If neither text_chunks nor task_update text produced an assistant message,
+            // use event.result (the CLI's assembled final output) as last resort.
+            if (event.result) {
+              const lastUserIdx2 = (() => {
+                for (let i = updated.messages.length - 1; i >= 0; i--) {
+                  if (updated.messages[i].role === 'user') return i
+                }
+                return -1
+              })()
+              const hasAnyText = updated.messages
+                .slice(lastUserIdx2 + 1)
+                .some((m) => m.role === 'assistant' && !m.toolName)
+              if (!hasAnyText) {
+                updated.messages = [
+                  ...updated.messages,
+                  { id: nextMsgId(), role: 'assistant' as const, content: event.result, timestamp: Date.now() },
+                ]
+              }
             }
             // Mark as unread unless the user is actively viewing this tab
             // (active tab with card expanded). A collapsed active tab still
