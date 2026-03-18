@@ -5,7 +5,6 @@ import { join } from 'path'
 import { homedir } from 'os'
 import type { CatalogPlugin } from '../../shared/types'
 import { log as _log } from '../logger'
-import { getCliEnv } from '../cli-env'
 
 function log(msg: string): void {
   _log('marketplace', msg)
@@ -247,6 +246,18 @@ export async function installPlugin(
   sourcePath?: string,
   isSkillMd?: boolean
 ): Promise<{ ok: boolean; error?: string }> {
+  // Security: validate plugin name to prevent path traversal
+  if (!pluginName || /[/\\]|\.\./.test(pluginName)) {
+    log(`installPlugin: rejected unsafe plugin name: ${pluginName}`)
+    return { ok: false, error: 'Invalid plugin name' }
+  }
+
+  // Security: validate repo format (org/repo only)
+  if (!repo || !/^[a-zA-Z0-9_-]+\/[a-zA-Z0-9_.-]+$/.test(repo)) {
+    log(`installPlugin: rejected unsafe repo: ${repo}`)
+    return { ok: false, error: 'Invalid repository name' }
+  }
+
   try {
     if (isSkillMd !== false) {
       // Direct SKILL.md install
@@ -294,6 +305,12 @@ export async function installPlugin(
 export async function uninstallPlugin(
   pluginName: string
 ): Promise<{ ok: boolean; error?: string }> {
+  // Security: validate plugin name to prevent path traversal
+  if (!pluginName || /[/\\]|\.\./.test(pluginName)) {
+    log(`uninstallPlugin: rejected unsafe plugin name: ${pluginName}`)
+    return { ok: false, error: 'Invalid plugin name' }
+  }
+
   try {
     const skillsDir = join(homedir(), '.claude', 'skills', pluginName)
     await rm(skillsDir, { recursive: true, force: true })
@@ -393,7 +410,7 @@ function deriveSemanticTags(name: string, description: string, skillPath: string
 
 function execAsync(cmd: string, args: string[], timeout: number): Promise<{ exitCode: number; stdout: string; stderr: string }> {
   return new Promise((resolve) => {
-    execFile(cmd, args, { timeout, env: getCliEnv() }, (err, stdout, stderr) => {
+    execFile(cmd, args, { timeout }, (err, stdout, stderr) => {
       resolve({
         exitCode: err ? 1 : 0,
         stdout: stdout || '',

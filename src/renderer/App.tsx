@@ -1,4 +1,4 @@
-import React, { useEffect, useCallback } from 'react'
+import React, { useEffect, useCallback, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Paperclip, Camera, HeadCircuit } from '@phosphor-icons/react'
 import { TabStrip } from './components/TabStrip'
@@ -13,6 +13,70 @@ import { useSessionStore } from './stores/sessionStore'
 import { useColors, useThemeStore, spacing } from './theme'
 
 const TRANSITION = { duration: 0.26, ease: [0.4, 0, 0.1, 1] as const }
+
+/**
+ * JS-based drag handle. Uses mousedown/mousemove/mouseup to track
+ * screen-level cursor delta and moves the Electron window via IPC.
+ * This bypasses the setIgnoreMouseEvents conflict that breaks CSS -webkit-app-region: drag.
+ */
+function DragHandle({ colors }: { colors: ReturnType<typeof useColors> }) {
+  const dragging = useRef(false)
+  const startMouse = useRef({ screenX: 0, screenY: 0 })
+  const startWin = useRef({ x: 0, y: 0 })
+
+  const onMouseDown = useCallback(async (e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    dragging.current = true
+    startMouse.current = { screenX: e.screenX, screenY: e.screenY }
+    const pos = await window.clui.getWindowPosition()
+    startWin.current = { x: pos.x, y: pos.y }
+
+    const onMouseMove = (ev: MouseEvent) => {
+      if (!dragging.current) return
+      const dx = ev.screenX - startMouse.current.screenX
+      const dy = ev.screenY - startMouse.current.screenY
+      window.clui.moveWindow(startWin.current.x + dx, startWin.current.y + dy)
+    }
+
+    const onMouseUp = () => {
+      dragging.current = false
+      document.removeEventListener('mousemove', onMouseMove)
+      document.removeEventListener('mouseup', onMouseUp)
+    }
+
+    document.addEventListener('mousemove', onMouseMove)
+    document.addEventListener('mouseup', onMouseUp)
+  }, [])
+
+  return (
+    <div
+      data-clui-ui
+      className="no-drag"
+      onMouseDown={onMouseDown}
+      style={{
+        height: 22,
+        cursor: 'grab',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        flexShrink: 0,
+        userSelect: 'none',
+      }}
+    >
+      <div
+        style={{
+          width: 40,
+          height: 5,
+          borderRadius: 3,
+          background: colors.textTertiary,
+          opacity: 0.5,
+          pointerEvents: 'none',
+        }}
+      />
+    </div>
+  )
+}
 
 export default function App() {
   useClaudeEvents()
@@ -114,6 +178,47 @@ export default function App() {
     addAttachments(files)
   }, [addAttachments])
 
+  // ─── Dynamic window resize: observe all rendered content including portaled popovers ───
+  useEffect(() => {
+    if (!window.clui?.resizeHeight) return
+    const root = document.getElementById('root')
+    if (!root) return
+
+    let lastHeight = 0
+    const PADDING = 60 // breathing room for shadows, margins, and popover overflow
+    const MIN_HEIGHT = 160 // minimum so the input bar always shows
+
+    const measure = () => {
+      // Measure the bounding rect of all children, including portaled popovers
+      let maxBottom = 0
+      const children = root.querySelectorAll('[data-clui-ui]')
+      children.forEach((el) => {
+        const rect = el.getBoundingClientRect()
+        if (rect.bottom > maxBottom) maxBottom = rect.bottom
+      })
+      const newHeight = Math.max(MIN_HEIGHT, Math.ceil(maxBottom) + PADDING)
+      if (Math.abs(newHeight - lastHeight) > 5) {
+        lastHeight = newHeight
+        window.clui.resizeHeight(newHeight)
+      }
+    }
+
+    // Observe mutations (new popovers appearing/disappearing) and resizes
+    const resizeObserver = new ResizeObserver(() => measure())
+    resizeObserver.observe(root)
+
+    const mutationObserver = new MutationObserver(() => measure())
+    mutationObserver.observe(root, { childList: true, subtree: true, attributes: true })
+
+    // Initial measurement
+    measure()
+
+    return () => {
+      resizeObserver.disconnect()
+      mutationObserver.disconnect()
+    }
+  }, [])
+
   return (
     <PopoverLayerProvider>
       <div className="flex flex-col justify-end h-full" style={{ background: 'transparent' }}>
@@ -163,7 +268,7 @@ export default function App() {
           */}
           <motion.div
             data-clui-ui
-            className="overflow-hidden flex flex-col drag-region"
+            className="overflow-hidden flex flex-col"
             animate={{
               width: isExpanded ? cardExpandedWidth : cardCollapsedWidth,
               marginBottom: isExpanded ? 10 : -14,
@@ -182,6 +287,9 @@ export default function App() {
               zIndex: isExpanded ? 20 : 10,
             }}
           >
+            {/* Drag handle — JS-based drag (CSS drag-region doesn't work with setIgnoreMouseEvents) */}
+            <DragHandle colors={colors} />
+
             {/* Tab strip — always mounted */}
             <div className="no-drag">
               <TabStrip />
