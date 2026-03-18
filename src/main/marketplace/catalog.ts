@@ -3,7 +3,7 @@ import { execFile } from 'child_process'
 import { readFile, readdir, mkdir, writeFile, rm } from 'fs/promises'
 import { join } from 'path'
 import { homedir } from 'os'
-import type { CatalogPlugin } from '../../shared/types'
+import type { CatalogPlugin, InstalledPluginEntry } from '../../shared/types'
 import { log as _log } from '../logger'
 
 function log(msg: string): void {
@@ -16,6 +16,7 @@ const SOURCES = [
   { repo: 'anthropics/skills', category: 'Agent Skills' },
   { repo: 'anthropics/knowledge-work-plugins', category: 'Knowledge Work' },
   { repo: 'anthropics/financial-services-plugins', category: 'Financial Services' },
+  { repo: 'anthropics/claude-plugins-official', category: 'Official Plugins' },
 ] as const
 
 // ─── TTL Cache ───
@@ -51,10 +52,11 @@ export async function fetchCatalog(forceRefresh?: boolean): Promise<{ plugins: C
         name: string
         plugins: Array<{
           name: string
-          source: string
+          source: string | Record<string, unknown>
           description?: string
           author?: { name: string } | string
           skills?: string[]
+          category?: string
         }>
       }
 
@@ -64,7 +66,7 @@ export async function fetchCatalog(forceRefresh?: boolean): Promise<{ plugins: C
 
       // Flatten: for entries with a skills[] array, expand each skill as its own catalog item.
       // For entries without skills[] (knowledge-work, financial-services), use plugin.json as before.
-      type FetchJob = { installName: string; skillPath: string; entryDescription: string; entryAuthor: string; useSkillMd: boolean }
+      type FetchJob = { installName: string; skillPath: string; entryDescription: string; entryAuthor: string; useSkillMd: boolean; entryCategory?: string; canFetchPluginJson: boolean }
       const jobs: FetchJob[] = []
 
       for (const entry of marketplaceData.plugins) {
@@ -85,17 +87,25 @@ export async function fetchCatalog(forceRefresh?: boolean): Promise<{ plugins: C
               entryDescription: entry.description || '',
               entryAuthor,
               useSkillMd: true,
+              entryCategory: entry.category,
+              canFetchPluginJson: false,
             })
           }
         } else {
-          // Standard plugin: source points to a directory with .claude-plugin/plugin.json
-          const normalizedSource = entry.source.replace(/^\.\//, '').replace(/\/$/, '')
+          // Standard plugin or external plugin
+          // source can be a string path ("./plugins/foo") or an object ({ source: "url", url: "..." })
+          const sourceIsString = typeof entry.source === 'string'
+          const normalizedSource = sourceIsString
+            ? (entry.source as string).replace(/^\.\//, '').replace(/\/$/, '')
+            : entry.name
           jobs.push({
             installName: entry.name,
             skillPath: normalizedSource || entry.name,
             entryDescription: entry.description || '',
             entryAuthor,
             useSkillMd: false,
+            entryCategory: entry.category,
+            canFetchPluginJson: sourceIsString,
           })
         }
       }
@@ -122,8 +132,8 @@ export async function fetchCatalog(forceRefresh?: boolean): Promise<{ plugins: C
             } catch (e) {
               log(`SKILL.md fetch failed for ${job.skillPath}`)
             }
-          } else {
-            // Fetch plugin.json
+          } else if (job.canFetchPluginJson) {
+            // Fetch plugin.json (only for entries with string source paths)
             const pluginUrl = `https://raw.githubusercontent.com/${source.repo}/main/${job.skillPath}/.claude-plugin/plugin.json`
             try {
               const res = await netFetch(pluginUrl)
@@ -138,6 +148,8 @@ export async function fetchCatalog(forceRefresh?: boolean): Promise<{ plugins: C
               log(`plugin.json fetch failed for ${job.skillPath}`)
             }
           }
+          // For entries with object source (external plugins), we skip
+          // plugin.json fetch and use entry metadata from marketplace.json via fallbacks
 
           // Fallbacks
           const dirName = job.skillPath.split('/').pop() || job.installName
@@ -154,7 +166,7 @@ export async function fetchCatalog(forceRefresh?: boolean): Promise<{ plugins: C
             repo: source.repo,
             sourcePath: job.skillPath,
             installName: job.installName,
-            category: source.category,
+            category: job.entryCategory || source.category,
             tags: deriveSemanticTags(name, description, job.skillPath),
             isSkillMd: job.useSkillMd,
           }
@@ -199,9 +211,9 @@ export async function fetchCatalog(forceRefresh?: boolean): Promise<{ plugins: C
 // - Plugins: ~/.claude/plugins/installed_plugins.json (keys are "name@marketplace")
 // - Skills: ~/.claude/skills/ (each subdirectory is an installed skill)
 
-export async function listInstalled(): Promise<string[]> {
+export async function listInstalled(): Promise<InstalledPluginEntry[]> {
   const claudeDir = join(homedir(), '.claude')
-  const names: string[] = []
+  const entries: InstalledPluginEntry[] = []
 
   // 1. Installed plugins from JSON registry
   try {
@@ -211,9 +223,10 @@ export async function listInstalled(): Promise<string[]> {
       for (const key of Object.keys(data.plugins)) {
         // Keys are "name@marketplace" e.g. "design@knowledge-work-plugins"
         const pluginName = key.split('@')[0]
-        if (pluginName) names.push(pluginName)
-        // Also push the full key for exact matching
-        names.push(key)
+        const marketplace = key.includes('@') ? key.split('@').slice(1).join('@') : ''
+        if (pluginName) {
+          entries.push({ name: pluginName, key, marketplace, type: 'plugin' })
+        }
       }
     }
   } catch (e) {
@@ -222,17 +235,23 @@ export async function listInstalled(): Promise<string[]> {
 
   // 2. Installed skills from ~/.claude/skills/
   try {
-    const entries = await readdir(join(claudeDir, 'skills'), { withFileTypes: true })
-    for (const entry of entries) {
-      if (entry.isDirectory()) {
-        names.push(entry.name)
+    const dirEntries = await readdir(join(claudeDir, 'skills'), { withFileTypes: true })
+    for (const dirEntry of dirEntries) {
+      if (dirEntry.isDirectory()) {
+        entries.push({ name: dirEntry.name, key: dirEntry.name, marketplace: '', type: 'skill' })
       }
     }
   } catch (e) {
     log(`listInstalled: no skills dir or read error: ${e}`)
   }
 
-  return [...new Set(names)]
+  // Deduplicate by name (plugins take precedence over skills)
+  const seen = new Set<string>()
+  return entries.filter((e) => {
+    if (seen.has(e.name)) return false
+    seen.add(e.name)
+    return true
+  })
 }
 
 // ─── installPlugin ───
@@ -307,13 +326,21 @@ export async function uninstallPlugin(
 
 // ─── Helpers ───
 
+const FETCH_TIMEOUT_MS = 15000
+
 function netFetch(url: string): Promise<{ ok: boolean; status: number; body: string }> {
   return new Promise((resolve, reject) => {
     const request = net.request(url)
+    const timer = setTimeout(() => {
+      request.abort()
+      reject(new Error(`Timeout after ${FETCH_TIMEOUT_MS}ms: ${url}`))
+    }, FETCH_TIMEOUT_MS)
+
     request.on('response', (response) => {
       let body = ''
       response.on('data', (chunk) => { body += chunk.toString() })
       response.on('end', () => {
+        clearTimeout(timer)
         resolve({
           ok: response.statusCode >= 200 && response.statusCode < 300,
           status: response.statusCode,
@@ -321,7 +348,10 @@ function netFetch(url: string): Promise<{ ok: boolean; status: number; body: str
         })
       })
     })
-    request.on('error', (err) => reject(err))
+    request.on('error', (err) => {
+      clearTimeout(timer)
+      reject(err)
+    })
     request.end()
   })
 }
