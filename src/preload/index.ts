@@ -16,6 +16,7 @@ import type {
   SessionExportResult,
   CostRecord,
   CostSummary,
+  GitStatus,
 } from '../shared/types'
 
 export interface CluiAPI {
@@ -64,6 +65,8 @@ export interface CluiAPI {
   recordCost(record: CostRecord): void
   getCostSummary(from?: number, to?: number): Promise<CostSummary>
   getCostHistory(limit?: number): Promise<CostRecord[]>
+  getGitStatus(cwd: string): Promise<GitStatus>
+  getGitDiff(cwd: string, file?: string): Promise<string>
   sendDesktopNotification(title: string, body: string): Promise<void>
   getTheme(): Promise<{ isDark: boolean }>
   onThemeChange(callback: (isDark: boolean) => void): () => void
@@ -136,6 +139,8 @@ const api: CluiAPI = {
   recordCost: (record) => ipcRenderer.send(IPC.COST_RECORD, record),
   getCostSummary: (from, to) => ipcRenderer.invoke(IPC.COST_SUMMARY, from, to),
   getCostHistory: (limit) => ipcRenderer.invoke(IPC.COST_HISTORY, limit),
+  getGitStatus: (cwd) => ipcRenderer.invoke(IPC.GIT_STATUS, cwd),
+  getGitDiff: (cwd, file) => ipcRenderer.invoke(IPC.GIT_DIFF, cwd, file),
   sendDesktopNotification: (title: string, body: string) => ipcRenderer.invoke(IPC.NOTIFY_DESKTOP, title, body),
   getTheme: () => ipcRenderer.invoke(IPC.GET_THEME),
   onThemeChange: (callback) => {

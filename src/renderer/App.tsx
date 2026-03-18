@@ -14,6 +14,7 @@ import { ExportDialog } from './components/ExportDialog'
 import { ShortcutSettings } from './components/ShortcutSettings'
 import { PermissionWizard } from './components/PermissionWizard'
 import { CommandPalette } from './components/CommandPalette'
+import { GitPanel } from './components/GitPanel'
 import { ToastContainer } from './components/ToastContainer'
 import { PopoverLayerProvider } from './components/PopoverLayer'
 import { useClaudeEvents } from './hooks/useClaudeEvents'
@@ -40,6 +41,14 @@ export default function App() {
   const setSystemTheme = useThemeStore((s) => s.setSystemTheme)
   const expandedUI = useThemeStore((s) => s.expandedUI)
   const [showPermissionWizard, setShowPermissionWizard] = useState(false)
+  const [gitPanelOpen, setGitPanelOpen] = useState(false)
+
+  // ─── Git panel toggle (from command palette) ───
+  useEffect(() => {
+    const handler = () => setGitPanelOpen((v) => !v)
+    window.addEventListener('clui-toggle-git-panel', handler)
+    return () => window.removeEventListener('clui-toggle-git-panel', handler)
+  }, [])
 
   // ─── Permission wizard check (first launch) ───
   useEffect(() => {
@@ -235,6 +244,7 @@ export default function App() {
     <PopoverLayerProvider>
       <CommandPalette />
       <ToastContainer />
+      <GitPanel open={gitPanelOpen} onClose={() => setGitPanelOpen(false)} />
       <div className="flex flex-col justify-end h-full" style={{ background: 'transparent' }}>
 
         {/* ─── 460px content column, centered. Circles overflow left. ─── */}

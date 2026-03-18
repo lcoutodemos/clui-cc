@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { motion } from 'framer-motion'
 import {
   Plus, ClockCounterClockwise, GearSix, HeadCircuit, Lightning, DownloadSimple,
-  Browser, Cpu, Moon, Sun, ArrowsOutSimple, ArrowsInSimple, X,
+  Browser, Cpu, Moon, Sun, ArrowsOutSimple, ArrowsInSimple, X, GitBranch,
 } from '@phosphor-icons/react'
 import { usePopoverLayer } from './PopoverLayer'
 import { useColors } from '../theme'
@@ -30,6 +30,7 @@ const ICON_MAP: Record<string, React.ReactNode> = {
   ArrowsOutSimple: <ArrowsOutSimple size={ICON_SIZE} />,
   ArrowsInSimple: <ArrowsInSimple size={ICON_SIZE} />,
   X: <X size={ICON_SIZE} />,
+  GitBranch: <GitBranch size={ICON_SIZE} />,
 }
 
 function resolveIcon(name: string): React.ReactNode {
@@ -58,6 +59,8 @@ function executeCommand(command: PaletteCommand): void {
     session.toggleMarketplace()
   } else if (id === 'snippets') {
     snippets.openManager()
+  } else if (id === 'git-panel') {
+    window.dispatchEvent(new Event('clui-toggle-git-panel'))
   } else if (id === 'toggle-expanded') {
     session.toggleExpanded()
   } else if (id === 'theme-dark') {
@@ -89,6 +92,7 @@ function buildCommands(): PaletteCommand[] {
     { id: 'history', category: 'action', icon: 'ClockCounterClockwise', label: 'Open History', shortcut: shortcutMap['open-history'] },
     { id: 'marketplace', category: 'action', icon: 'HeadCircuit', label: 'Marketplace', shortcut: shortcutMap['open-marketplace'] },
     { id: 'snippets', category: 'action', icon: 'Lightning', label: 'Manage Snippets' },
+    { id: 'git-panel', category: 'action', icon: 'GitBranch', label: 'Git Context Panel' },
     {
       id: 'toggle-expanded',
       category: 'action',

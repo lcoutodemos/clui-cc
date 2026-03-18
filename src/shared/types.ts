@@ -395,6 +395,19 @@ export interface CatalogPlugin {
   isSkillMd: boolean      // true = individual SKILL.md (direct install), false = CLI plugin (bundle install)
 }
 
+// ─── Git Context ───
+
+export interface GitFileStatus {
+  status: 'M' | 'A' | 'D' | 'R' | '?'
+  path: string
+}
+
+export interface GitStatus {
+  branch: string | null
+  isRepo: boolean
+  files: GitFileStatus[]
+}
+
 // ─── IPC Channel Names ───
 
 export const IPC = {
@@ -479,6 +492,10 @@ export const IPC = {
   COST_RECORD: 'clui:cost-record',
   COST_SUMMARY: 'clui:cost-summary',
   COST_HISTORY: 'clui:cost-history',
+
+  // Git context
+  GIT_STATUS: 'clui:git-status',
+  GIT_DIFF: 'clui:git-diff',
 
   // Notifications
   NOTIFY_DESKTOP: 'clui:notify-desktop',

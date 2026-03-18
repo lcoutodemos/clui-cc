@@ -17,6 +17,7 @@ import { AgentMemory } from './agent-memory'
 import { PinnedSessionStore } from './pinned-sessions'
 import { exportSessionToFile } from './session-export'
 import { appendRecord as costAppendRecord, getSummary as costGetSummary, getHistory as costGetHistory } from './cost-tracker'
+import { GitContextProvider } from './git-context'
 import { IPC } from '../shared/types'
 import type { RunOptions, NormalizedEvent, EnrichedError, ExportOptions, SessionExportData, CostRecord } from '../shared/types'
 
@@ -37,6 +38,7 @@ const INTERACTIVE_PTY = process.env.CLUI_INTERACTIVE_PERMISSIONS_PTY === '1'
 
 const settingsManager = new SettingsManager()
 const pinnedSessions = new PinnedSessionStore()
+const gitContext = new GitContextProvider()
 let agentMemory: AgentMemory | null = null
 
 const controlPlane = new ControlPlane(INTERACTIVE_PTY)
@@ -909,6 +911,18 @@ ipcMain.handle(IPC.PERMISSIONS_NEEDS_SETUP, () => {
 ipcMain.handle(IPC.PERMISSIONS_DISMISS_SETUP, () => {
   settingsManager.dismissSetup()
   return true
+})
+
+// ─── Git Context IPC ───
+
+ipcMain.handle(IPC.GIT_STATUS, (_event, cwd: string) => {
+  log(`IPC GIT_STATUS: ${cwd}`)
+  return gitContext.getStatus(cwd)
+})
+
+ipcMain.handle(IPC.GIT_DIFF, (_event, cwd: string, file?: string) => {
+  log(`IPC GIT_DIFF: ${cwd}${file ? ` file=${file}` : ''}`)
+  return gitContext.getDiff(cwd, file)
 })
 
 // ─── Cost Tracking IPC ───
