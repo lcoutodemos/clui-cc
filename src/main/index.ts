@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, screen, globalShortcut, Tray, Menu, nativeImage, nativeTheme, shell } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, screen, globalShortcut, Tray, Menu, nativeImage, nativeTheme, shell, Notification } from 'electron'
 import { join } from 'path'
 import { existsSync, readdirSync, statSync, createReadStream } from 'fs'
 import { createInterface } from 'readline'
@@ -940,6 +940,19 @@ ipcMain.handle(IPC.GET_THEME, () => {
 
 nativeTheme.on('updated', () => {
   broadcast(IPC.THEME_CHANGED, nativeTheme.shouldUseDarkColors)
+})
+
+// ─── Desktop Notifications ───
+
+ipcMain.handle(IPC.NOTIFY_DESKTOP, (_event, title: string, body: string) => {
+  if (!mainWindow?.isFocused() && Notification.isSupported()) {
+    const notification = new Notification({ title, body })
+    notification.on('click', () => {
+      mainWindow?.show()
+      mainWindow?.focus()
+    })
+    notification.show()
+  }
 })
 
 // ─── App Lifecycle ───

@@ -59,6 +59,7 @@ export interface CluiAPI {
   applyPermissionPreset(preset: string): Promise<boolean>
   needsPermissionSetup(): Promise<boolean>
   dismissPermissionSetup(): Promise<boolean>
+  sendDesktopNotification(title: string, body: string): Promise<void>
   getTheme(): Promise<{ isDark: boolean }>
   onThemeChange(callback: (isDark: boolean) => void): () => void
 
@@ -127,6 +128,7 @@ const api: CluiAPI = {
   applyPermissionPreset: (preset) => ipcRenderer.invoke(IPC.PERMISSIONS_APPLY_PRESET, preset),
   needsPermissionSetup: () => ipcRenderer.invoke(IPC.PERMISSIONS_NEEDS_SETUP),
   dismissPermissionSetup: () => ipcRenderer.invoke(IPC.PERMISSIONS_DISMISS_SETUP),
+  sendDesktopNotification: (title: string, body: string) => ipcRenderer.invoke(IPC.NOTIFY_DESKTOP, title, body),
   getTheme: () => ipcRenderer.invoke(IPC.GET_THEME),
   onThemeChange: (callback) => {
     const handler = (_e: Electron.IpcRendererEvent, isDark: boolean) => callback(isDark)

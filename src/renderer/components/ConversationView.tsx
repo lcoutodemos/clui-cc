@@ -11,6 +11,7 @@ import { useSessionStore } from '../stores/sessionStore'
 import { PermissionCard } from './PermissionCard'
 import { PermissionDeniedCard } from './PermissionDeniedCard'
 import { RetryBanner } from './RetryBanner'
+import { DiffViewer } from './DiffViewer'
 import { useColors, useThemeStore } from '../theme'
 import type { Message } from '../../shared/types'
 
@@ -722,18 +723,8 @@ function ToolGroup({ tools, skipMotion }: { tools: Message[]; skipMotion?: boole
                       {desc}
                     </span>
 
-                    {/* Result badge */}
-                    {!isRunning && (
-                      <span
-                        className="inline-block text-[10px] mt-0.5 px-1.5 py-[1px] rounded"
-                        style={{
-                          background: tool.toolStatus === 'error' ? colors.statusErrorBg : colors.surfaceHover,
-                          color: tool.toolStatus === 'error' ? colors.statusError : colors.textMuted,
-                        }}
-                      >
-                        Result
-                      </span>
-                    )}
+                    {/* Inline diff viewer for Edit/Write tools */}
+                    {!isRunning && <ToolDiffOrBadge tool={tool} />}
 
                     {isRunning && (
                       <span className="text-[10px] mt-0.5 block" style={{ color: colors.textMuted }}>
@@ -844,6 +835,70 @@ function ToolIcon({ name, size = 12 }: { name: string; size?: number }) {
   return (
     <span className="flex items-center" style={{ color: colors.textTertiary }}>
       {ICONS[name] || <Wrench size={size} />}
+    </span>
+  )
+}
+
+// ─── Tool Diff or Badge — shows DiffViewer for Edit/Write, generic badge otherwise ───
+
+/** Try to parse tool input JSON safely */
+function parseToolInput(raw?: string): Record<string, unknown> | null {
+  if (!raw) return null
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>
+    }
+    return null
+  } catch {
+    return null
+  }
+}
+
+function ToolDiffOrBadge({ tool }: { tool: Message }) {
+  const colors = useColors()
+  const toolName = tool.toolName || ''
+  const parsed = useMemo(() => parseToolInput(tool.toolInput), [tool.toolInput])
+
+  // Edit tool: has file_path, old_string, new_string
+  if (toolName === 'Edit' && parsed) {
+    const filePath = typeof parsed.file_path === 'string' ? parsed.file_path : ''
+    const oldString = typeof parsed.old_string === 'string' ? parsed.old_string : ''
+    const newString = typeof parsed.new_string === 'string' ? parsed.new_string : ''
+
+    if (filePath && (oldString || newString)) {
+      return (
+        <div className="mt-1.5">
+          <DiffViewer filePath={filePath} oldString={oldString} newString={newString} />
+        </div>
+      )
+    }
+  }
+
+  // Write tool: has file_path, content (all additions, no old content)
+  if (toolName === 'Write' && parsed) {
+    const filePath = typeof parsed.file_path === 'string' ? parsed.file_path : ''
+    const content = typeof parsed.content === 'string' ? parsed.content : ''
+
+    if (filePath && content) {
+      return (
+        <div className="mt-1.5">
+          <DiffViewer filePath={filePath} oldString="" newString={content} />
+        </div>
+      )
+    }
+  }
+
+  // Fallback: generic result badge
+  return (
+    <span
+      className="inline-block text-[10px] mt-0.5 px-1.5 py-[1px] rounded"
+      style={{
+        background: tool.toolStatus === 'error' ? colors.statusErrorBg : colors.surfaceHover,
+        color: tool.toolStatus === 'error' ? colors.statusError : colors.textMuted,
+      }}
+    >
+      Result
     </span>
   )
 }

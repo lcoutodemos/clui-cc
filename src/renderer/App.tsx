@@ -11,6 +11,7 @@ import { ExportDialog } from './components/ExportDialog'
 import { ShortcutSettings } from './components/ShortcutSettings'
 import { PermissionWizard } from './components/PermissionWizard'
 import { CommandPalette } from './components/CommandPalette'
+import { ToastContainer } from './components/ToastContainer'
 import { PopoverLayerProvider } from './components/PopoverLayer'
 import { useClaudeEvents } from './hooks/useClaudeEvents'
 import { useHealthReconciliation } from './hooks/useHealthReconciliation'
@@ -209,6 +210,7 @@ export default function App() {
   return (
     <PopoverLayerProvider>
       <CommandPalette />
+      <ToastContainer />
       <div className="flex flex-col justify-end h-full" style={{ background: 'transparent' }}>
 
         {/* ─── 460px content column, centered. Circles overflow left. ─── */}

@@ -134,6 +134,13 @@ const darkColors = {
   // Permission denied card
   permissionDeniedBorder: 'rgba(196, 112, 96, 0.3)',
   permissionDeniedHeaderBorder: 'rgba(196, 112, 96, 0.12)',
+
+  // Diff viewer
+  diffAddedBg: 'rgba(34, 197, 94, 0.12)',
+  diffAddedBorder: '#22c55e',
+  diffRemovedBg: 'rgba(239, 68, 68, 0.12)',
+  diffRemovedBorder: '#ef4444',
+  diffHunkHeader: '#76766e',
 } as const
 
 const lightColors = {
@@ -264,6 +271,13 @@ const lightColors = {
   // Permission denied card
   permissionDeniedBorder: 'rgba(196, 112, 96, 0.3)',
   permissionDeniedHeaderBorder: 'rgba(196, 112, 96, 0.12)',
+
+  // Diff viewer
+  diffAddedBg: 'rgba(34, 197, 94, 0.15)',
+  diffAddedBorder: '#16a34a',
+  diffRemovedBg: 'rgba(239, 68, 68, 0.15)',
+  diffRemovedBorder: '#dc2626',
+  diffHunkHeader: '#8a8a80',
 } as const
 
 export type ColorPalette = { [K in keyof typeof darkColors]: string }
