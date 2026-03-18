@@ -31,6 +31,7 @@ import { useSnippetStore } from './stores/snippetStore'
 import { useCommandPaletteStore } from './stores/commandPaletteStore'
 import { orderTabsByTabOrder, reconcileTabOrder, replaceTabOrderId, saveStoredTabOrder } from './stores/tabOrder'
 import { useComparisonStore } from './stores/comparisonStore'
+import { useMarketplaceStore } from './stores/marketplaceStore'
 import { useWorkflowStore } from './stores/workflowStore'
 import { useColors, useThemeStore, spacing } from './theme'
 
@@ -46,7 +47,7 @@ export default function App() {
   const setSystemTheme = useThemeStore((s) => s.setSystemTheme)
   const expandedUI = useThemeStore((s) => s.expandedUI)
   const isExpanded = useSessionStore((s) => s.isExpanded)
-  const marketplaceOpen = useSessionStore((s) => s.marketplaceOpen)
+  const marketplaceOpen = useMarketplaceStore((s) => s.open)
   const costDashboardOpen = useSessionStore((s) => s.costDashboardOpen)
   const snippetManagerOpen = useSnippetStore((s) => s.managerOpen)
   const exportDialogOpen = useExportStore((s) => s.isOpen)

@@ -1,7 +1,7 @@
 import React from 'react'
 import { motion } from 'framer-motion'
 import { ShieldWarning, Terminal, PencilSimple, Globe, Wrench } from '@phosphor-icons/react'
-import { useSessionStore } from '../stores/sessionStore'
+import { usePermissionStore } from '../stores/permissionStore'
 import { useColors } from '../theme'
 import type { PermissionRequest } from '../../shared/types'
 
@@ -45,7 +45,7 @@ function formatInput(input?: Record<string, unknown>): string | null {
 }
 
 export function PermissionCard({ tabId, permission, queueLength = 1 }: Props) {
-  const respondPermission = useSessionStore((s) => s.respondPermission)
+  const respondPermission = usePermissionStore((s) => s.respondPermission)
   const colors = useColors()
   const [responded, setResponded] = React.useState(false)
 

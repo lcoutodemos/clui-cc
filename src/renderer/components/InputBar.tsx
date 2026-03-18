@@ -2,6 +2,7 @@ import React, { useState, useRef, useCallback, useEffect, useLayoutEffect } from
 import { motion, AnimatePresence } from 'framer-motion'
 import { Microphone, ArrowUp, SpinnerGap, X, Check, Sparkle, Lightning } from '@phosphor-icons/react'
 import { useSessionStore, AVAILABLE_MODELS } from '../stores/sessionStore'
+import { useAgentMemoryStore } from '../stores/agentMemoryStore'
 import { useComparisonStore } from '../stores/comparisonStore'
 import { useExportStore } from '../stores/exportStore'
 import { useSnippetStore } from '../stores/snippetStore'
@@ -77,16 +78,16 @@ export function InputBar() {
   const addSystemMessage = useSessionStore((s) => s.addSystemMessage)
   const addAttachments = useSessionStore((s) => s.addAttachments)
   const removeAttachment = useSessionStore((s) => s.removeAttachment)
-  const refreshAgentMemory = useSessionStore((s) => s.refreshAgentMemory)
-  const setAgentFocus = useSessionStore((s) => s.setAgentFocus)
-  const claimAgentWork = useSessionStore((s) => s.claimAgentWork)
-  const markAgentDone = useSessionStore((s) => s.markAgentDone)
-  const releaseAgentWork = useSessionStore((s) => s.releaseAgentWork)
+  const refreshAgentMemory = useAgentMemoryStore((s) => s.refreshAgentMemory)
+  const setAgentFocus = useAgentMemoryStore((s) => s.setAgentFocus)
+  const claimAgentWork = useAgentMemoryStore((s) => s.claimAgentWork)
+  const markAgentDone = useAgentMemoryStore((s) => s.markAgentDone)
+  const releaseAgentWork = useAgentMemoryStore((s) => s.releaseAgentWork)
 
   const setPreferredModel = useSessionStore((s) => s.setPreferredModel)
   const openExportDialog = useExportStore((s) => s.openDialog)
   const staticInfo = useSessionStore((s) => s.staticInfo)
-  const agentMemorySnapshot = useSessionStore((s) => s.agentMemorySnapshot)
+  const agentMemorySnapshot = useAgentMemoryStore((s) => s.snapshot)
   const preferredModel = useSessionStore((s) => s.preferredModel)
   const activeTabId = useSessionStore((s) => s.activeTabId)
   const tab = useSessionStore((s) => s.tabs.find((t) => t.id === s.activeTabId))

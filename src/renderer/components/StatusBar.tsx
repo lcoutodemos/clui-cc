@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Terminal, CaretDown, Check, FolderOpen, Plus, X, ShieldCheck, ArrowsClockwise } from '@phosphor-icons/react'
 import { useSessionStore, AVAILABLE_MODELS } from '../stores/sessionStore'
+import { usePermissionStore } from '../stores/permissionStore'
 import { usePopoverLayer } from './PopoverLayer'
 import { useColors } from '../theme'
 import type { AutoAttachState } from '../../shared/types'
@@ -132,8 +133,8 @@ function ModelPicker() {
 /* ─── Permission Mode Picker (global — affects all tabs) ─── */
 
 function PermissionModePicker() {
-  const permissionMode = useSessionStore((s) => s.permissionMode)
-  const setPermissionMode = useSessionStore((s) => s.setPermissionMode)
+  const permissionMode = usePermissionStore((s) => s.permissionMode)
+  const setPermissionMode = usePermissionStore((s) => s.setPermissionMode)
   const popoverLayer = usePopoverLayer()
   const colors = useColors()
 

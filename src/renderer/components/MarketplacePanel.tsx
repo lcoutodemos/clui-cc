@@ -2,21 +2,22 @@ import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { X, MagnifyingGlass, SpinnerGap, ArrowClockwise, HeadCircuit, Compass, GithubLogo } from '@phosphor-icons/react'
 import { useSessionStore } from '../stores/sessionStore'
+import { useMarketplaceStore } from '../stores/marketplaceStore'
 import { useColors } from '../theme'
 import type { CatalogPlugin, PluginStatus } from '../../shared/types'
 
 export function MarketplacePanel() {
   const colors = useColors()
-  const catalog = useSessionStore((s) => s.marketplaceCatalog)
-  const loading = useSessionStore((s) => s.marketplaceLoading)
-  const error = useSessionStore((s) => s.marketplaceError)
-  const pluginStates = useSessionStore((s) => s.marketplacePluginStates)
-  const search = useSessionStore((s) => s.marketplaceSearch)
-  const filter = useSessionStore((s) => s.marketplaceFilter)
-  const closeMarketplace = useSessionStore((s) => s.closeMarketplace)
-  const setSearch = useSessionStore((s) => s.setMarketplaceSearch)
-  const setFilter = useSessionStore((s) => s.setMarketplaceFilter)
-  const loadMarketplace = useSessionStore((s) => s.loadMarketplace)
+  const catalog = useMarketplaceStore((s) => s.catalog)
+  const loading = useMarketplaceStore((s) => s.loading)
+  const error = useMarketplaceStore((s) => s.error)
+  const pluginStates = useMarketplaceStore((s) => s.pluginStates)
+  const search = useMarketplaceStore((s) => s.search)
+  const filter = useMarketplaceStore((s) => s.filter)
+  const closeMarketplace = useMarketplaceStore((s) => s.closeMarketplace)
+  const setSearch = useMarketplaceStore((s) => s.setMarketplaceSearch)
+  const setFilter = useMarketplaceStore((s) => s.setMarketplaceFilter)
+  const loadMarketplace = useMarketplaceStore((s) => s.loadMarketplace)
   const buildYourOwn = useSessionStore((s) => s.buildYourOwn)
 
   const [expandedId, setExpandedId] = useState<string | null>(null)
@@ -284,8 +285,8 @@ function PluginCard({ plugin, status, colors, expanded, onToggleExpand, scrollCo
   scrollContainerRef: React.RefObject<HTMLDivElement | null>
 }) {
   const [showConfirm, setShowConfirm] = useState(false)
-  const installPlugin = useSessionStore((s) => s.installMarketplacePlugin)
-  const uninstallPlugin = useSessionStore((s) => s.uninstallMarketplacePlugin)
+  const installPlugin = useMarketplaceStore((s) => s.installMarketplacePlugin)
+  const uninstallPlugin = useMarketplaceStore((s) => s.uninstallMarketplacePlugin)
   const cardRef = useRef<HTMLDivElement>(null)
   const needsScrollRef = useRef(false)
 
