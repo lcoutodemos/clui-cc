@@ -3,9 +3,12 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { Paperclip, Camera, HeadCircuit } from '@phosphor-icons/react'
 import { TabStrip } from './components/TabStrip'
 import { ConversationView } from './components/ConversationView'
+import { ComparisonView } from './components/ComparisonView'
+import { ComparisonLauncher } from './components/ComparisonLauncher'
 import { InputBar } from './components/InputBar'
 import { StatusBar } from './components/StatusBar'
 import { MarketplacePanel } from './components/MarketplacePanel'
+import { CostDashboard } from './components/CostDashboard'
 import { SnippetManager } from './components/SnippetManager'
 import { ExportDialog } from './components/ExportDialog'
 import { ShortcutSettings } from './components/ShortcutSettings'
@@ -22,6 +25,7 @@ import { useSessionStore } from './stores/sessionStore'
 import { useSnippetStore } from './stores/snippetStore'
 import { useCommandPaletteStore } from './stores/commandPaletteStore'
 import { orderTabsByTabOrder, reconcileTabOrder, replaceTabOrderId, saveStoredTabOrder } from './stores/tabOrder'
+import { useComparisonStore } from './stores/comparisonStore'
 import { useColors, useThemeStore, spacing } from './theme'
 
 const TRANSITION = { duration: 0.26, ease: [0.4, 0, 0.1, 1] as const }
@@ -68,20 +72,18 @@ export default function App() {
           tabs: s.tabs.map((t, i) => (i === 0 ? { ...t, workingDirectory: homeDir, hasChosenDirectory: false } : t)),
         }))
         window.clui.createTab().then(({ tabId }) => {
-          useSessionStore.setState((s) => ({
-            tabs: orderTabsByTabOrder(
-              s.tabs.map((t, i) => (i === 0 ? { ...t, id: tabId } : t)),
-              reconcileTabOrder(
-                replaceTabOrderId(s.tabOrder, s.tabs[0]?.id || tabId, tabId),
-                s.tabs.map((t, i) => (i === 0 ? { ...t, id: tabId } : t)),
-              ),
-            ),
-            tabOrder: reconcileTabOrder(
+          useSessionStore.setState((s) => {
+            const nextTabs = s.tabs.map((t, i) => (i === 0 ? { ...t, id: tabId } : t))
+            const nextOrder = reconcileTabOrder(
               replaceTabOrderId(s.tabOrder, s.tabs[0]?.id || tabId, tabId),
-              s.tabs.map((t, i) => (i === 0 ? { ...t, id: tabId } : t)),
-            ),
-            activeTabId: tabId,
-          }))
+              nextTabs,
+            )
+            return {
+              tabs: orderTabsByTabOrder(nextTabs, nextOrder),
+              tabOrder: nextOrder,
+              activeTabId: tabId,
+            }
+          })
           saveStoredTabOrder(useSessionStore.getState().tabOrder)
         }).catch(() => {})
       }
@@ -199,19 +201,23 @@ export default function App() {
 
   const isExpanded = useSessionStore((s) => s.isExpanded)
   const marketplaceOpen = useSessionStore((s) => s.marketplaceOpen)
+  const costDashboardOpen = useSessionStore((s) => s.costDashboardOpen)
   const snippetManagerOpen = useSnippetStore((s) => s.managerOpen)
   const exportDialogOpen = useExportStore((s) => s.isOpen)
   const shortcutBindings = useShortcutStore((s) => s.bindings)
   const shortcutSettingsOpen = useShortcutStore((s) => s.settingsOpen)
   const captureTargetId = useShortcutStore((s) => s.captureTargetId)
+  const activeComparison = useComparisonStore((s) => s.activeComparison)
+  const comparisonLauncherOpen = useComparisonStore((s) => s.launcherOpen)
   const isRunning = activeTabStatus === 'running' || activeTabStatus === 'connecting'
 
-  // Layout dimensions — expandedUI widens and heightens the panel
-  const contentWidth = expandedUI ? 700 : spacing.contentWidth
-  const cardExpandedWidth = expandedUI ? 700 : 460
+  // Layout dimensions — expandedUI widens and heightens the panel; comparison mode widens further
+  const isComparing = !!activeComparison
+  const contentWidth = isComparing ? 900 : expandedUI ? 700 : spacing.contentWidth
+  const cardExpandedWidth = isComparing ? 900 : expandedUI ? 700 : 460
   const cardCollapsedWidth = expandedUI ? 670 : 430
   const cardCollapsedMargin = expandedUI ? 15 : 15
-  const bodyMaxHeight = expandedUI ? 520 : 400
+  const bodyMaxHeight = isComparing ? 520 : expandedUI ? 520 : 400
 
   const handleScreenshot = useCallback(async () => {
     const result = await window.clui.takeScreenshot()
@@ -272,6 +278,41 @@ export default function App() {
                     }}
                   >
                     <MarketplacePanel />
+                  </div>
+                </motion.div>
+              </div>
+            )}
+          </AnimatePresence>
+
+          <AnimatePresence initial={false}>
+            {costDashboardOpen && (
+              <div
+                data-clui-ui
+                style={{
+                  width: 720,
+                  maxWidth: 720,
+                  marginLeft: '50%',
+                  transform: 'translateX(-50%)',
+                  marginBottom: 14,
+                  position: 'relative',
+                  zIndex: 30,
+                }}
+              >
+                <motion.div
+                  initial={{ opacity: 0, y: 14, scale: 0.98 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 10, scale: 0.985 }}
+                  transition={TRANSITION}
+                >
+                  <div
+                    data-clui-ui
+                    className="glass-surface overflow-hidden no-drag"
+                    style={{
+                      borderRadius: 24,
+                      maxHeight: 470,
+                    }}
+                  >
+                    <CostDashboard />
                   </div>
                 </motion.div>
               </div>
@@ -425,11 +466,16 @@ export default function App() {
               className="overflow-hidden no-drag"
             >
               <div style={{ maxHeight: bodyMaxHeight }}>
-                <ConversationView />
-                <StatusBar />
+                {isComparing ? <ComparisonView /> : <ConversationView />}
+                {!isComparing && <StatusBar />}
               </div>
             </motion.div>
           </motion.div>
+
+          {/* Comparison launcher modal */}
+          <AnimatePresence>
+            {comparisonLauncherOpen && <ComparisonLauncher />}
+          </AnimatePresence>
 
           {/* ─── Input row — circles float outside left ─── */}
           {/* marginBottom: shadow buffer so the glass-surface drop shadow isn't clipped at the native window edge */}

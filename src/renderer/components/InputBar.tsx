@@ -2,6 +2,7 @@ import React, { useState, useRef, useCallback, useEffect, useLayoutEffect } from
 import { motion, AnimatePresence } from 'framer-motion'
 import { Microphone, ArrowUp, SpinnerGap, X, Check, Sparkle, Lightning } from '@phosphor-icons/react'
 import { useSessionStore, AVAILABLE_MODELS } from '../stores/sessionStore'
+import { useComparisonStore } from '../stores/comparisonStore'
 import { useExportStore } from '../stores/exportStore'
 import { useSnippetStore } from '../stores/snippetStore'
 import { AttachmentChips } from './AttachmentChips'
@@ -310,9 +311,14 @@ export function InputBar() {
         }
         break
       }
+      case '/compare': {
+        useComparisonStore.getState().openLauncher()
+        break
+      }
       case '/help': {
         const lines = [
           '/clear — Clear conversation history',
+          '/compare — Compare two models side-by-side',
           '/export — Export this session to Markdown or JSON',
           '/cost — Show token usage and cost',
           '/model — Show model info & switch models',
@@ -431,7 +437,14 @@ export function InputBar() {
     if (!prompt && attachments.length === 0) return
     if (isConnecting) return
     clearComposer()
-    sendMessage(prompt || 'See attached files')
+
+    // Route through comparison store when a comparison is active
+    const comparison = useComparisonStore.getState().activeComparison
+    if (comparison) {
+      useComparisonStore.getState().sendComparisonPrompt(prompt || 'See attached files')
+    } else {
+      sendMessage(prompt || 'See attached files')
+    }
     // Refocus after React re-renders from the state update
     requestAnimationFrame(() => textareaRef.current?.focus())
   }, [

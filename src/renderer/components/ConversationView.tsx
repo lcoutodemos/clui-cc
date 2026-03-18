@@ -58,7 +58,7 @@ function groupMessages(messages: Message[]): GroupedItem[] {
 
 // ─── Main Component ───
 
-export function ConversationView() {
+export function ConversationView({ overrideTabId }: { overrideTabId?: string } = {}) {
   const tabs = useSessionStore((s) => s.tabs)
   const activeTabId = useSessionStore((s) => s.activeTabId)
   const sendMessage = useSessionStore((s) => s.sendMessage)
@@ -68,20 +68,21 @@ export function ConversationView() {
   const [hovered, setHovered] = useState(false)
   const [renderOffset, setRenderOffset] = useState(0) // 0 = show from tail
   const isNearBottomRef = useRef(true)
-  const prevTabIdRef = useRef(activeTabId)
+  const resolvedTabId = overrideTabId || activeTabId
+  const prevTabIdRef = useRef(resolvedTabId)
   const colors = useColors()
   const expandedUI = useThemeStore((s) => s.expandedUI)
 
-  const tab = tabs.find((t) => t.id === activeTabId)
+  const tab = tabs.find((t) => t.id === resolvedTabId)
 
   // Reset render offset and scroll state when switching tabs
   useEffect(() => {
-    if (activeTabId !== prevTabIdRef.current) {
-      prevTabIdRef.current = activeTabId
+    if (resolvedTabId !== prevTabIdRef.current) {
+      prevTabIdRef.current = resolvedTabId
       setRenderOffset(0)
       isNearBottomRef.current = true
     }
-  }, [activeTabId])
+  }, [resolvedTabId])
 
   // Track whether user is scrolled near the bottom
   const handleScroll = useCallback(() => {

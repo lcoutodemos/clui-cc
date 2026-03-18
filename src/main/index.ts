@@ -16,8 +16,9 @@ import { SettingsManager } from './settings-manager'
 import { AgentMemory } from './agent-memory'
 import { PinnedSessionStore } from './pinned-sessions'
 import { exportSessionToFile } from './session-export'
+import { appendRecord as costAppendRecord, getSummary as costGetSummary, getHistory as costGetHistory } from './cost-tracker'
 import { IPC } from '../shared/types'
-import type { RunOptions, NormalizedEvent, EnrichedError, ExportOptions, SessionExportData } from '../shared/types'
+import type { RunOptions, NormalizedEvent, EnrichedError, ExportOptions, SessionExportData, CostRecord } from '../shared/types'
 
 const DEBUG_MODE = process.env.CLUI_DEBUG === '1'
 const SPACES_DEBUG = DEBUG_MODE || process.env.CLUI_SPACES_DEBUG === '1'
@@ -908,6 +909,23 @@ ipcMain.handle(IPC.PERMISSIONS_NEEDS_SETUP, () => {
 ipcMain.handle(IPC.PERMISSIONS_DISMISS_SETUP, () => {
   settingsManager.dismissSetup()
   return true
+})
+
+// ─── Cost Tracking IPC ───
+
+ipcMain.on(IPC.COST_RECORD, (_event, record: CostRecord) => {
+  log(`IPC COST_RECORD: session=${record.sessionId} cost=$${record.costUsd.toFixed(4)}`)
+  costAppendRecord(record)
+})
+
+ipcMain.handle(IPC.COST_SUMMARY, (_event, from?: number, to?: number) => {
+  log(`IPC COST_SUMMARY${from ? ` from=${from}` : ''}${to ? ` to=${to}` : ''}`)
+  return costGetSummary(from, to)
+})
+
+ipcMain.handle(IPC.COST_HISTORY, (_event, limit?: number) => {
+  log(`IPC COST_HISTORY${limit ? ` limit=${limit}` : ''}`)
+  return costGetHistory(limit)
 })
 
 // ─── Marketplace IPC ───

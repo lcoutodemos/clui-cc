@@ -349,6 +349,33 @@ export interface SessionLoadMessage {
   timestamp: number
 }
 
+// ─── Cost Tracking ───
+
+export interface CostRecord {
+  timestamp: number
+  sessionId: string
+  model: string | null
+  projectPath: string
+  costUsd: number
+  durationMs: number
+  numTurns: number
+  inputTokens: number
+  outputTokens: number
+  cacheReadTokens: number
+  cacheCreationTokens: number
+}
+
+export interface CostSummary {
+  totalCostUsd: number
+  totalInputTokens: number
+  totalOutputTokens: number
+  totalDurationMs: number
+  runCount: number
+  byModel: Record<string, { costUsd: number; runs: number }>
+  byProject: Record<string, { costUsd: number; runs: number }>
+  byDay: Array<{ date: string; costUsd: number; runs: number }>
+}
+
 // ─── Marketplace / Plugin Types ───
 
 export type PluginStatus = 'not_installed' | 'checking' | 'installing' | 'installed' | 'failed'
@@ -447,6 +474,11 @@ export const IPC = {
   PERMISSIONS_APPLY_PRESET: 'clui:permissions-apply-preset',
   PERMISSIONS_NEEDS_SETUP: 'clui:permissions-needs-setup',
   PERMISSIONS_DISMISS_SETUP: 'clui:permissions-dismiss-setup',
+
+  // Cost tracking
+  COST_RECORD: 'clui:cost-record',
+  COST_SUMMARY: 'clui:cost-summary',
+  COST_HISTORY: 'clui:cost-history',
 
   // Notifications
   NOTIFY_DESKTOP: 'clui:notify-desktop',
