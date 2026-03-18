@@ -6,6 +6,7 @@ import { ConversationView } from './components/ConversationView'
 import { InputBar } from './components/InputBar'
 import { StatusBar } from './components/StatusBar'
 import { MarketplacePanel } from './components/MarketplacePanel'
+import { CostDashboard } from './components/CostDashboard'
 import { SnippetManager } from './components/SnippetManager'
 import { ExportDialog } from './components/ExportDialog'
 import { ShortcutSettings } from './components/ShortcutSettings'
@@ -181,6 +182,7 @@ export default function App() {
 
   const isExpanded = useSessionStore((s) => s.isExpanded)
   const marketplaceOpen = useSessionStore((s) => s.marketplaceOpen)
+  const costDashboardOpen = useSessionStore((s) => s.costDashboardOpen)
   const snippetManagerOpen = useSnippetStore((s) => s.managerOpen)
   const exportDialogOpen = useExportStore((s) => s.isOpen)
   const shortcutBindings = useShortcutStore((s) => s.bindings)
@@ -254,6 +256,41 @@ export default function App() {
                     }}
                   >
                     <MarketplacePanel />
+                  </div>
+                </motion.div>
+              </div>
+            )}
+          </AnimatePresence>
+
+          <AnimatePresence initial={false}>
+            {costDashboardOpen && (
+              <div
+                data-clui-ui
+                style={{
+                  width: 720,
+                  maxWidth: 720,
+                  marginLeft: '50%',
+                  transform: 'translateX(-50%)',
+                  marginBottom: 14,
+                  position: 'relative',
+                  zIndex: 30,
+                }}
+              >
+                <motion.div
+                  initial={{ opacity: 0, y: 14, scale: 0.98 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 10, scale: 0.985 }}
+                  transition={TRANSITION}
+                >
+                  <div
+                    data-clui-ui
+                    className="glass-surface overflow-hidden no-drag"
+                    style={{
+                      borderRadius: 24,
+                      maxHeight: 470,
+                    }}
+                  >
+                    <CostDashboard />
                   </div>
                 </motion.div>
               </div>

@@ -59,6 +59,9 @@ interface State {
   marketplaceSearch: string
   marketplaceFilter: string
 
+  // Cost dashboard state
+  costDashboardOpen: boolean
+
   // Actions
   initStaticInfo: () => Promise<void>
   setPreferredModel: (model: string | null) => void
@@ -70,6 +73,8 @@ interface State {
   toggleExpanded: () => void
   toggleMarketplace: () => void
   closeMarketplace: () => void
+  toggleCostDashboard: () => void
+  closeCostDashboard: () => void
   loadMarketplace: (forceRefresh?: boolean) => Promise<void>
   setMarketplaceSearch: (query: string) => void
   setMarketplaceFilter: (filter: string) => void
@@ -221,6 +226,9 @@ export const useSessionStore = create<State>((set, get) => ({
   marketplaceSearch: '',
   marketplaceFilter: 'All',
 
+  // Cost dashboard
+  costDashboardOpen: false,
+
   initStaticInfo: async () => {
     try {
       const result = await window.clui.start()
@@ -283,6 +291,7 @@ export const useSessionStore = create<State>((set, get) => ({
       set((prev) => ({
         isExpanded: willExpand,
         marketplaceOpen: false,
+        costDashboardOpen: false,
         // Expanding = reading: clear unread flag
         tabs: willExpand
           ? prev.tabs.map((t) => t.id === tabId ? { ...t, hasUnread: false } : t)
@@ -294,6 +303,7 @@ export const useSessionStore = create<State>((set, get) => ({
       set((prev) => ({
         activeTabId: tabId,
         marketplaceOpen: false,
+        costDashboardOpen: false,
         tabs: prev.tabs.map((t) =>
           t.id === tabId ? { ...t, hasUnread: false } : t
         ),
@@ -308,6 +318,7 @@ export const useSessionStore = create<State>((set, get) => ({
     set((s) => ({
       isExpanded: willExpand,
       marketplaceOpen: false,
+      costDashboardOpen: false,
       // Expanding = reading: clear unread flag for the active tab
       tabs: willExpand
         ? s.tabs.map((t) => t.id === activeTabId ? { ...t, hasUnread: false } : t)
@@ -320,13 +331,26 @@ export const useSessionStore = create<State>((set, get) => ({
     if (s.marketplaceOpen) {
       set({ marketplaceOpen: false })
     } else {
-      set({ isExpanded: false, marketplaceOpen: true })
+      set({ isExpanded: false, marketplaceOpen: true, costDashboardOpen: false })
       get().loadMarketplace()
     }
   },
 
   closeMarketplace: () => {
     set({ marketplaceOpen: false })
+  },
+
+  toggleCostDashboard: () => {
+    const s = get()
+    if (s.costDashboardOpen) {
+      set({ costDashboardOpen: false })
+    } else {
+      set({ isExpanded: false, costDashboardOpen: true, marketplaceOpen: false })
+    }
+  },
+
+  closeCostDashboard: () => {
+    set({ costDashboardOpen: false })
   },
 
   loadMarketplace: async (forceRefresh) => {
@@ -416,7 +440,7 @@ export const useSessionStore = create<State>((set, get) => ({
   },
 
   buildYourOwn: () => {
-    set({ marketplaceOpen: false, isExpanded: true })
+    set({ marketplaceOpen: false, costDashboardOpen: false, isExpanded: true })
     // Small delay to let the UI transition
     setTimeout(() => {
       get().sendMessage('Help me create a new Claude Code skill')
@@ -1031,6 +1055,24 @@ export const useSessionStore = create<State>((set, get) => ({
               updated.permissionDenied = { tools: event.permissionDenials }
             } else {
               updated.permissionDenied = null
+            }
+            // Record cost to persistent history
+            try {
+              window.clui.recordCost({
+                timestamp: Date.now(),
+                sessionId: event.sessionId,
+                model: updated.sessionModel,
+                projectPath: updated.workingDirectory,
+                costUsd: event.costUsd,
+                durationMs: event.durationMs,
+                numTurns: event.numTurns,
+                inputTokens: event.usage.input_tokens ?? 0,
+                outputTokens: event.usage.output_tokens ?? 0,
+                cacheReadTokens: event.usage.cache_read_input_tokens ?? 0,
+                cacheCreationTokens: event.usage.cache_creation_input_tokens ?? 0,
+              })
+            } catch {
+              // Cost recording failure is non-fatal
             }
             // Play notification sound if window is hidden
             playNotificationIfHidden()

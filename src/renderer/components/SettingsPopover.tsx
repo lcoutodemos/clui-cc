@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { motion } from 'framer-motion'
-import { DotsThree, Bell, BellRinging, ChatText, ArrowsOutSimple, Moon, ShieldCheck, NotePencil, Keyboard } from '@phosphor-icons/react'
+import { DotsThree, Bell, BellRinging, ChatText, ArrowsOutSimple, Moon, ShieldCheck, NotePencil, Keyboard, ChartBar } from '@phosphor-icons/react'
 import { useThemeStore } from '../theme'
 import { useSessionStore } from '../stores/sessionStore'
 import { useShortcutStore } from '../stores/shortcutStore'
@@ -346,6 +346,24 @@ export function SettingsPopover() {
                 <NotePencil size={14} style={{ color: colors.textTertiary }} />
                 <div className="text-[12px] font-medium" style={{ color: colors.textPrimary }}>
                   Snippets
+                </div>
+              </button>
+            </div>
+
+            <div style={{ height: 1, background: colors.popoverBorder }} />
+
+            <div>
+              <button
+                onClick={() => {
+                  useSessionStore.getState().toggleCostDashboard()
+                  setOpen(false)
+                }}
+                className="flex items-center gap-2 w-full text-left cursor-pointer rounded-md px-0 py-0 transition-colors"
+                style={{ background: 'transparent' }}
+              >
+                <ChartBar size={14} style={{ color: colors.textTertiary }} />
+                <div className="text-[12px] font-medium" style={{ color: colors.textPrimary }}>
+                  Usage
                 </div>
               </button>
             </div>
