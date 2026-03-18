@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react'
+import React, { useState, useMemo, useCallback, useRef, useEffect, type CSSProperties } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { X, MagnifyingGlass, SpinnerGap, ArrowClockwise, HeadCircuit, Compass, GithubLogo } from '@phosphor-icons/react'
 import { useSessionStore } from '../stores/sessionStore'
@@ -21,6 +21,13 @@ export function MarketplacePanel() {
 
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
+  const [scrollTop, setScrollTop] = useState(0)
+
+  const handleScroll = useCallback(() => {
+    if (scrollContainerRef.current) {
+      setScrollTop(scrollContainerRef.current.scrollTop)
+    }
+  }, [])
 
   // Derive filter chips dynamically from catalog semantic tags, sorted by frequency
   const filters = useMemo(() => {
@@ -235,8 +242,8 @@ export function MarketplacePanel() {
         ))}
       </div>
 
-      {/* Body */}
-      <div ref={scrollContainerRef} style={{ flex: 1, overflowY: 'auto', padding: '0 18px', scrollbarWidth: 'thin' }}>
+      {/* Body — windowed rendering for large catalogs */}
+      <div ref={scrollContainerRef} onScroll={handleScroll} style={{ flex: 1, overflowY: 'auto', padding: '0 18px', scrollbarWidth: 'thin' }}>
         {loading ? (
           <LoadingState colors={colors} />
         ) : error ? (
@@ -244,31 +251,97 @@ export function MarketplacePanel() {
         ) : filtered.length === 0 ? (
           <EmptyState colors={colors} />
         ) : (
-          <div
-            style={{
-              display: 'flex',
-              flexWrap: 'wrap',
-              gap: 10,
-              paddingBottom: 6,
-            }}
-          >
-            {displayOrder.map((plugin) => (
-              <PluginCard
-                key={plugin.id}
-                plugin={plugin}
-                status={pluginStates[plugin.id] || 'not_installed'}
-                colors={colors}
-                expanded={expandedId === plugin.id}
-                scrollContainerRef={scrollContainerRef}
-                onToggleExpand={() => {
-                  setExpandedId(expandedId === plugin.id ? null : plugin.id)
-                }}
-              />
-            ))}
-          </div>
+          <WindowedPluginGrid
+            plugins={displayOrder}
+            pluginStates={pluginStates}
+            colors={colors}
+            expandedId={expandedId}
+            scrollContainerRef={scrollContainerRef}
+            scrollTop={scrollTop}
+            onToggleExpand={(id) => setExpandedId(expandedId === id ? null : id)}
+          />
         )}
       </div>
 
+    </div>
+  )
+}
+
+// ─── Windowed Plugin Grid ───
+// Only renders cards near the viewport. Cards outside get lightweight placeholders.
+// This keeps DOM node count low for large catalogs (100+ plugins).
+
+const CARD_ROW_HEIGHT = 88 // approximate collapsed card height + gap
+const CONTAINER_HEIGHT = 350 // approximate visible scroll area
+const OVERSCAN = 6 // extra rows to render above/below viewport
+
+function WindowedPluginGrid({
+  plugins,
+  pluginStates,
+  colors,
+  expandedId,
+  scrollContainerRef,
+  scrollTop,
+  onToggleExpand,
+}: {
+  plugins: CatalogPlugin[]
+  pluginStates: Record<string, PluginStatus>
+  colors: ReturnType<typeof useColors>
+  expandedId: string | null
+  scrollContainerRef: React.RefObject<HTMLDivElement | null>
+  scrollTop: number
+  onToggleExpand: (id: string) => void
+}) {
+  // For small lists, render everything (no windowing overhead)
+  if (plugins.length <= 20) {
+    return (
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, paddingBottom: 6 }}>
+        {plugins.map((plugin) => (
+          <PluginCard
+            key={plugin.id}
+            plugin={plugin}
+            status={pluginStates[plugin.id] || 'not_installed'}
+            colors={colors}
+            expanded={expandedId === plugin.id}
+            scrollContainerRef={scrollContainerRef}
+            onToggleExpand={() => onToggleExpand(plugin.id)}
+          />
+        ))}
+      </div>
+    )
+  }
+
+  // 2-column grid: each row has 2 cards
+  const rowCount = Math.ceil(plugins.length / 2)
+  const startRow = Math.max(0, Math.floor(scrollTop / CARD_ROW_HEIGHT) - OVERSCAN)
+  const visibleRows = Math.ceil(CONTAINER_HEIGHT / CARD_ROW_HEIGHT) + OVERSCAN * 2
+  const endRow = Math.min(rowCount, startRow + visibleRows)
+
+  const startIdx = startRow * 2
+  const endIdx = Math.min(plugins.length, endRow * 2)
+
+  // Top spacer for items above the window
+  const topPad = startRow * CARD_ROW_HEIGHT
+  // Bottom spacer for items below the window
+  const bottomPad = Math.max(0, (rowCount - endRow) * CARD_ROW_HEIGHT)
+
+  return (
+    <div style={{ paddingBottom: 6 }}>
+      {topPad > 0 && <div style={{ height: topPad }} />}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+        {plugins.slice(startIdx, endIdx).map((plugin) => (
+          <PluginCard
+            key={plugin.id}
+            plugin={plugin}
+            status={pluginStates[plugin.id] || 'not_installed'}
+            colors={colors}
+            expanded={expandedId === plugin.id}
+            scrollContainerRef={scrollContainerRef}
+            onToggleExpand={() => onToggleExpand(plugin.id)}
+          />
+        ))}
+      </div>
+      {bottomPad > 0 && <div style={{ height: bottomPad }} />}
     </div>
   )
 }
