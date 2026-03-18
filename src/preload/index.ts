@@ -42,6 +42,10 @@ export interface CluiAPI {
   isVisible(): Promise<boolean>
   /** OS-level click-through for transparent window regions */
   setIgnoreMouseEvents(ignore: boolean, options?: { forward?: boolean }): void
+  /** Get current window position for JS-based drag */
+  getWindowPosition(): Promise<{ x: number; y: number }>
+  /** Move window to absolute position (JS-based drag) */
+  moveWindow(x: number, y: number): void
 
   // ─── Event listeners (main → renderer) ───
   onEvent(callback: (tabId: string, event: NormalizedEvent) => void): () => void
@@ -99,6 +103,8 @@ const api: CluiAPI = {
   setIgnoreMouseEvents: (ignore, options) =>
     ipcRenderer.send(IPC.SET_IGNORE_MOUSE_EVENTS, ignore, options || {}),
   setWindowWidth: (width) => ipcRenderer.send(IPC.SET_WINDOW_WIDTH, width),
+  getWindowPosition: () => ipcRenderer.invoke(IPC.GET_WINDOW_POSITION),
+  moveWindow: (x: number, y: number) => ipcRenderer.send(IPC.MOVE_WINDOW, x, y),
 
   // ─── Event listeners ───
   onEvent: (callback) => {

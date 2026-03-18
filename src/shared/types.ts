@@ -341,6 +341,8 @@ export const IPC = {
   WINDOW_SHOWN: 'clui:window-shown',
   SET_IGNORE_MOUSE_EVENTS: 'clui:set-ignore-mouse-events',
   IS_VISIBLE: 'clui:is-visible',
+  MOVE_WINDOW: 'clui:move-window',
+  GET_WINDOW_POSITION: 'clui:get-window-position',
 
   // Skill provisioning (main → renderer)
   SKILL_STATUS: 'clui:skill-status',

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, screen, globalShortcut, Tray, Menu, nativeImage, nativeTheme, shell, systemPreferences } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, screen, globalShortcut, Tray, Menu, nativeImage, nativeTheme, shell } from 'electron'
 import { join } from 'path'
 import { existsSync, readdirSync, statSync, createReadStream } from 'fs'
 import { createInterface } from 'readline'
@@ -7,9 +7,9 @@ import { ControlPlane } from './claude/control-plane'
 import { ensureSkills, type SkillStatus } from './skills/installer'
 import { fetchCatalog, listInstalled, installPlugin, uninstallPlugin } from './marketplace/catalog'
 import { log as _log, LOG_FILE, flushLogs } from './logger'
-import { getCliEnv } from './cli-env'
 import { IPC } from '../shared/types'
 import type { RunOptions, NormalizedEvent, EnrichedError } from '../shared/types'
+import { isValidSessionId, validateProjectPath, verifyBinary, escapeAppleScript, isValidHttpUrl } from './security'
 
 const DEBUG_MODE = process.env.CLUI_DEBUG === '1'
 const SPACES_DEBUG = DEBUG_MODE || process.env.CLUI_SPACES_DEBUG === '1'
@@ -31,7 +31,7 @@ const controlPlane = new ControlPlane(INTERACTIVE_PTY)
 // Keep native width fixed to avoid renderer animation vs setBounds race.
 // The UI itself still launches in compact mode; extra width is transparent/click-through.
 const BAR_WIDTH = 1040
-const PILL_HEIGHT = 720  // Fixed native window height — extra room for expanded UI + shadow buffers
+const PILL_HEIGHT = 720  // Full height — UI anchored to top, overflow extends downward
 const PILL_BOTTOM_MARGIN = 24
 
 // ─── Broadcast to renderer ───
@@ -99,7 +99,7 @@ function createWindow(): void {
   const { x: dx, y: dy } = display.workArea
 
   const x = dx + Math.round((screenWidth - BAR_WIDTH) / 2)
-  const y = dy + screenHeight - PILL_HEIGHT - PILL_BOTTOM_MARGIN
+  const y = dy + 40  // Start near top of screen — UI renders top-down, overflow extends below
 
   mainWindow = new BrowserWindow({
     width: BAR_WIDTH,
@@ -157,39 +157,6 @@ function createWindow(): void {
   }
 }
 
-function showWindow(source = 'unknown'): void {
-  if (!mainWindow) return
-  const toggleId = ++toggleSequence
-
-  // Position on the display where the cursor currently is (not always primary)
-  const cursor = screen.getCursorScreenPoint()
-  const display = screen.getDisplayNearestPoint(cursor)
-  const { width: sw, height: sh } = display.workAreaSize
-  const { x: dx, y: dy } = display.workArea
-  mainWindow.setBounds({
-    x: dx + Math.round((sw - BAR_WIDTH) / 2),
-    y: dy + sh - PILL_HEIGHT - PILL_BOTTOM_MARGIN,
-    width: BAR_WIDTH,
-    height: PILL_HEIGHT,
-  })
-
-  // Always re-assert space membership — the flag can be lost after hide/show cycles
-  // and must be set before show() so the window joins the active Space, not its
-  // last-known Space.
-  mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
-
-  if (SPACES_DEBUG) {
-    log(`[spaces] showWindow#${toggleId} source=${source} move-to-display id=${display.id}`)
-    snapshotWindowState(`showWindow#${toggleId} pre-show`)
-  }
-  // As an accessory app (app.dock.hide), show() + focus gives keyboard
-  // without deactivating the active app — hover preserved everywhere.
-  mainWindow.show()
-  mainWindow.webContents.focus()
-  broadcast(IPC.WINDOW_SHOWN)
-  if (SPACES_DEBUG) scheduleToggleSnapshots(toggleId, 'show')
-}
-
 function toggleWindow(source = 'unknown'): void {
   if (!mainWindow) return
   const toggleId = ++toggleSequence
@@ -198,11 +165,22 @@ function toggleWindow(source = 'unknown'): void {
     snapshotWindowState(`toggle#${toggleId} pre`)
   }
 
+  // Pure toggle: visible → hide, not visible → show. No focus-based branching.
   if (mainWindow.isVisible()) {
     mainWindow.hide()
     if (SPACES_DEBUG) scheduleToggleSnapshots(toggleId, 'hide')
   } else {
-    showWindow(source)
+    // Show window where it was last positioned (user controls placement via drag).
+    // Only reposition if this is the first show (window at default position).
+    if (SPACES_DEBUG) {
+      snapshotWindowState(`toggle#${toggleId} pre-show`)
+    }
+    // As an accessory app (app.dock.hide), show() + focus gives keyboard
+    // without deactivating the active app — hover preserved everywhere.
+    mainWindow.show()
+    mainWindow.webContents.focus()
+    broadcast(IPC.WINDOW_SHOWN)
+    if (SPACES_DEBUG) scheduleToggleSnapshots(toggleId, 'show')
   }
 }
 
@@ -239,6 +217,19 @@ ipcMain.on(IPC.SET_IGNORE_MOUSE_EVENTS, (event, ignore: boolean, options?: { for
   }
 })
 
+// ─── JS-based window drag (bypasses setIgnoreMouseEvents conflict) ───
+
+ipcMain.handle(IPC.GET_WINDOW_POSITION, () => {
+  if (!mainWindow || mainWindow.isDestroyed()) return { x: 0, y: 0 }
+  const [x, y] = mainWindow.getPosition()
+  return { x, y }
+})
+
+ipcMain.on(IPC.MOVE_WINDOW, (_event, x: number, y: number) => {
+  if (!mainWindow || mainWindow.isDestroyed()) return
+  mainWindow.setPosition(Math.round(x), Math.round(y))
+})
+
 // ─── IPC Handlers (typed, strict) ───
 
 ipcMain.handle(IPC.START, async () => {
@@ -247,18 +238,18 @@ ipcMain.handle(IPC.START, async () => {
 
   let version = 'unknown'
   try {
-    version = execSync('claude -v', { encoding: 'utf-8', timeout: 5000, env: getCliEnv() }).trim()
+    version = execSync('claude -v', { encoding: 'utf-8', timeout: 5000 }).trim()
   } catch {}
 
   let auth: { email?: string; subscriptionType?: string; authMethod?: string } = {}
   try {
-    const raw = execSync('claude auth status', { encoding: 'utf-8', timeout: 5000, env: getCliEnv() }).trim()
+    const raw = execSync('claude auth status', { encoding: 'utf-8', timeout: 5000 }).trim()
     auth = JSON.parse(raw)
   } catch {}
 
   let mcpServers: string[] = []
   try {
-    const raw = execSync('claude mcp list', { encoding: 'utf-8', timeout: 5000, env: getCliEnv() }).trim()
+    const raw = execSync('claude mcp list', { encoding: 'utf-8', timeout: 5000 }).trim()
     if (raw) mcpServers = raw.split('\n').filter(Boolean)
   } catch {}
 
@@ -349,7 +340,8 @@ ipcMain.handle(IPC.RESPOND_PERMISSION, (_event, { tabId, questionId, optionId }:
 ipcMain.handle(IPC.LIST_SESSIONS, async (_e, projectPath?: string) => {
   log(`IPC LIST_SESSIONS ${projectPath ? `(path=${projectPath})` : ''}`)
   try {
-    const cwd = projectPath || process.cwd()
+    const rawCwd = projectPath || process.cwd()
+    const cwd = validateProjectPath(rawCwd) || process.cwd()
     // Claude stores project sessions at ~/.claude/projects/<encoded-path>/
     // Path encoding: replace all '/' with '-' (leading '/' becomes leading '-')
     const encodedPath = cwd.replace(/\//g, '-')
@@ -430,8 +422,16 @@ ipcMain.handle(IPC.LOAD_SESSION, async (_e, arg: { sessionId: string; projectPat
   const sessionId = typeof arg === 'string' ? arg : arg.sessionId
   const projectPath = typeof arg === 'string' ? undefined : arg.projectPath
   log(`IPC LOAD_SESSION ${sessionId}${projectPath ? ` (path=${projectPath})` : ''}`)
+
+  // Security: validate sessionId format
+  if (!isValidSessionId(sessionId)) {
+    log(`LOAD_SESSION: rejected invalid sessionId: ${sessionId}`)
+    return []
+  }
+
   try {
-    const cwd = projectPath || process.cwd()
+    const rawCwd = projectPath || process.cwd()
+    const cwd = validateProjectPath(rawCwd) || process.cwd()
     const encodedPath = cwd.replace(/\//g, '-')
     const filePath = join(homedir(), '.claude', 'projects', encodedPath, `${sessionId}.jsonl`)
     if (!existsSync(filePath)) return []
@@ -490,7 +490,7 @@ ipcMain.handle(IPC.SELECT_DIRECTORY, async () => {
   // Unparented avoids modal dimming on the transparent overlay.
   // Activation is fine here — user is actively interacting with CLUI.
   if (process.platform === 'darwin') app.focus()
-  const options = { properties: ['openDirectory'] as const }
+  const options: Electron.OpenDialogOptions = { properties: ['openDirectory'] }
   const result = process.platform === 'darwin'
     ? await dialog.showOpenDialog(options)
     : await dialog.showOpenDialog(mainWindow, options)
@@ -499,8 +499,11 @@ ipcMain.handle(IPC.SELECT_DIRECTORY, async () => {
 
 ipcMain.handle(IPC.OPEN_EXTERNAL, async (_event, url: string) => {
   try {
-    // Only allow http(s) links from markdown content.
-    if (!/^https?:\/\//i.test(url)) return false
+    // Security: validate URL using centralized validator
+    if (!isValidHttpUrl(url)) {
+      log(`OPEN_EXTERNAL: rejected non-HTTP URL: ${url}`)
+      return false
+    }
     await shell.openExternal(url)
     return true
   } catch {
@@ -512,7 +515,7 @@ ipcMain.handle(IPC.ATTACH_FILES, async () => {
   if (!mainWindow) return null
   // macOS: activate app so unparented dialog appears on top
   if (process.platform === 'darwin') app.focus()
-  const options = {
+  const options: Electron.OpenDialogOptions = {
     properties: ['openFile', 'multiSelections'],
     filters: [
       { name: 'All Files', extensions: ['*'] },
@@ -688,6 +691,16 @@ ipcMain.handle(IPC.TRANSCRIBE_AUDIO, async (_event, audioBase64: string) => {
       }
     }
 
+    // Security: verify the whisper binary is in a trusted location and not tampered
+    const binCheck = verifyBinary(whisperBin)
+    if (!binCheck.trusted) {
+      log(`Whisper binary rejected: ${whisperBin} — ${binCheck.reason}`)
+      return {
+        error: `Whisper binary at ${whisperBin} failed verification: ${binCheck.reason}. Reinstall with: brew install whisper-cli`,
+        transcript: null,
+      }
+    }
+
     const isWhisperCpp = whisperBin.includes('whisper-cli')
 
     // Find model file — prefer multilingual (auto-detect language) over .en (English-only)
@@ -810,13 +823,26 @@ ipcMain.handle(IPC.OPEN_IN_TERMINAL, (_event, arg: string | null | { sessionId?:
     projectPath = arg.projectPath && arg.projectPath !== '~' ? arg.projectPath : process.cwd()
   }
 
-  // Escape for AppleScript: double quotes → backslash-escaped, backslashes doubled
-  const projectDir = projectPath.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+  // Security: validate sessionId format (must be UUID v4 if provided)
+  if (sessionId && !isValidSessionId(sessionId)) {
+    log(`OPEN_IN_TERMINAL: rejected invalid sessionId format: ${sessionId}`)
+    return false
+  }
+
+  // Security: validate and sanitize project path
+  const validatedPath = validateProjectPath(projectPath)
+  if (!validatedPath) {
+    log(`OPEN_IN_TERMINAL: rejected invalid project path: ${projectPath}`)
+    return false
+  }
+
+  // Security: use escapeAppleScript to prevent injection via osascript
+  const escapedPath = escapeAppleScript(validatedPath)
   let cmd: string
   if (sessionId) {
-    cmd = `cd \\"${projectDir}\\" && ${claudeBin} --resume ${sessionId}`
+    cmd = `cd \\"${escapedPath}\\" && ${claudeBin} --resume ${sessionId}`
   } else {
-    cmd = `cd \\"${projectDir}\\" && ${claudeBin}`
+    cmd = `cd \\"${escapedPath}\\" && ${claudeBin}`
   }
 
   const script = `tell application "Terminal"
@@ -868,42 +894,15 @@ nativeTheme.on('updated', () => {
   broadcast(IPC.THEME_CHANGED, nativeTheme.shouldUseDarkColors)
 })
 
-// ─── Permission Preflight ───
-// Request all required macOS permissions upfront on first launch so the user
-// is never interrupted mid-session by a permission prompt.
-
-async function requestPermissions(): Promise<void> {
-  if (process.platform !== 'darwin') return
-
-  // ── Microphone (for voice input via Whisper) ──
-  try {
-    const micStatus = systemPreferences.getMediaAccessStatus('microphone')
-    if (micStatus === 'not-determined') {
-      await systemPreferences.askForMediaAccess('microphone')
-    }
-  } catch (err: any) {
-    log(`Permission preflight: microphone check failed — ${err.message}`)
-  }
-
-  // ── Accessibility (for global ⌥+Space shortcut) ──
-  // globalShortcut works without it on modern macOS; Cmd+Shift+K is always the fallback.
-  // Screen Recording: not requested upfront — macOS 15 Sequoia shows an alarming
-  // "bypass private window picker" dialog. Let the OS prompt naturally if/when
-  // the screenshot feature is actually used.
-}
-
 // ─── App Lifecycle ───
 
-app.whenReady().then(async () => {
+app.whenReady().then(() => {
   // macOS: become an accessory app. Accessory apps can have key windows (keyboard works)
   // without deactivating the currently active app (hover preserved in browsers).
   // This is how Spotlight, Alfred, Raycast work.
   if (process.platform === 'darwin' && app.dock) {
     app.dock.hide()
   }
-
-  // Request permissions upfront so the user is never interrupted mid-session.
-  await requestPermissions()
 
   // Skill provisioning — non-blocking, streams status to renderer
   ensureSkills((status: SkillStatus) => {
@@ -956,16 +955,12 @@ app.whenReady().then(async () => {
   tray.on('click', () => toggleWindow('tray click'))
   tray.setContextMenu(
     Menu.buildFromTemplate([
-      { label: 'Show Clui CC', click: () => showWindow('tray menu') },
+      { label: 'Show Clui CC', click: () => toggleWindow('tray menu Show Clui CC') },
       { label: 'Quit', click: () => { app.quit() } },
     ])
   )
 
-  // app 'activate' fires when macOS brings the app to the foreground (e.g. after
-  // webContents.focus() triggers applicationDidBecomeActive on some macOS versions).
-  // Using showWindow here instead of toggleWindow prevents the re-entry race where
-  // a summon immediately hides itself because activate fires mid-show.
-  app.on('activate', () => showWindow('app activate'))
+  app.on('activate', () => toggleWindow('app activate'))
 })
 
 app.on('will-quit', () => {

@@ -5,7 +5,7 @@ import { Clock, ChatCircle } from '@phosphor-icons/react'
 import { useSessionStore } from '../stores/sessionStore'
 import { usePopoverLayer } from './PopoverLayer'
 import { useColors } from '../theme'
-import type { SessionMeta } from '../../shared/types'
+import type { SessionMeta, TabState } from '../../shared/types'
 
 function formatTimeAgo(isoDate: string): string {
   const diff = Date.now() - new Date(isoDate).getTime()
@@ -28,10 +28,7 @@ function formatSize(bytes: number): string {
 export function HistoryPicker() {
   const resumeSession = useSessionStore((s) => s.resumeSession)
   const isExpanded = useSessionStore((s) => s.isExpanded)
-  const activeTab = useSessionStore(
-    (s) => s.tabs.find((t) => t.id === s.activeTabId),
-    (a, b) => a === b || (!!a && !!b && a.hasChosenDirectory === b.hasChosenDirectory && a.workingDirectory === b.workingDirectory),
-  )
+  const activeTab = useSessionStore((s) => s.tabs.find((t) => t.id === s.activeTabId) as TabState | undefined)
   const staticInfo = useSessionStore((s) => s.staticInfo)
   const popoverLayer = usePopoverLayer()
   const colors = useColors()

@@ -5,16 +5,14 @@ import { Terminal, CaretDown, Check, FolderOpen, Plus, X, ShieldCheck } from '@p
 import { useSessionStore, AVAILABLE_MODELS } from '../stores/sessionStore'
 import { usePopoverLayer } from './PopoverLayer'
 import { useColors } from '../theme'
+import type { TabState } from '../../shared/types'
 
 /* ─── Model Picker (inline — tightly coupled to StatusBar) ─── */
 
 function ModelPicker() {
   const preferredModel = useSessionStore((s) => s.preferredModel)
   const setPreferredModel = useSessionStore((s) => s.setPreferredModel)
-  const tab = useSessionStore(
-    (s) => s.tabs.find((t) => t.id === s.activeTabId),
-    (a, b) => a === b || (!!a && !!b && a.status === b.status && a.sessionModel === b.sessionModel),
-  )
+  const tab = useSessionStore((s) => s.tabs.find((t) => t.id === s.activeTabId) as TabState | undefined)
   const popoverLayer = usePopoverLayer()
   const colors = useColors()
 
@@ -258,16 +256,7 @@ function compactPath(fullPath: string): string {
 }
 
 export function StatusBar() {
-  const tab = useSessionStore(
-    (s) => s.tabs.find((t) => t.id === s.activeTabId),
-    (a, b) => a === b || (!!a && !!b
-      && a.status === b.status
-      && a.additionalDirs === b.additionalDirs
-      && a.hasChosenDirectory === b.hasChosenDirectory
-      && a.workingDirectory === b.workingDirectory
-      && a.claudeSessionId === b.claudeSessionId
-    ),
-  )
+  const tab = useSessionStore((s) => s.tabs.find((t) => t.id === s.activeTabId) as TabState | undefined)
   const addDirectory = useSessionStore((s) => s.addDirectory)
   const removeDirectory = useSessionStore((s) => s.removeDirectory)
   const popoverLayer = usePopoverLayer()
@@ -392,7 +381,7 @@ export function StatusBar() {
                     <div className="text-[9px] uppercase tracking-wider mb-1" style={{ color: colors.textTertiary }}>
                       Added directories
                     </div>
-                    {tab.additionalDirs.map((dir) => (
+                    {tab.additionalDirs.map((dir: string) => (
                       <div key={dir} className="flex items-center justify-between py-0.5 group">
                         <span className="text-[11px] truncate mr-2" style={{ color: colors.textSecondary }} title={dir}>
                           {compactPath(dir)}
