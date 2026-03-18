@@ -14,6 +14,7 @@ import { buildTerminalCommand } from './terminal-launch'
 import { buildScreenshotCommand, getScreenshotTempPath } from './screenshot'
 import { SettingsManager } from './settings-manager'
 import { AgentMemory } from './agent-memory'
+import { PinnedSessionStore } from './pinned-sessions'
 import { IPC } from '../shared/types'
 import type { RunOptions, NormalizedEvent, EnrichedError } from '../shared/types'
 
@@ -33,6 +34,7 @@ let toggleSequence = 0
 const INTERACTIVE_PTY = process.env.CLUI_INTERACTIVE_PERMISSIONS_PTY === '1'
 
 const settingsManager = new SettingsManager()
+const pinnedSessions = new PinnedSessionStore()
 let agentMemory: AgentMemory | null = null
 
 const controlPlane = new ControlPlane(INTERACTIVE_PTY)
@@ -409,23 +411,42 @@ ipcMain.handle(IPC.LIST_SESSIONS, async (_e, projectPath?: string) => {
       })
 
       if (meta.validated) {
+        const pinnedAt = pinnedSessions.getPinnedAt(fileSessionId, cwd)
         sessions.push({
           sessionId: fileSessionId,
           slug: meta.slug,
           firstMessage: meta.firstMessage,
           lastTimestamp: meta.lastTimestamp || stat.mtime.toISOString(),
           size: stat.size,
+          pinned: pinnedAt !== null,
         })
       }
     }
 
-    // Sort by last timestamp, most recent first
-    sessions.sort((a, b) => new Date(b.lastTimestamp).getTime() - new Date(a.lastTimestamp).getTime())
+    sessions.sort((a, b) => {
+      if (a.pinned !== b.pinned) return a.pinned ? -1 : 1
+      const aPinnedAt = pinnedSessions.getPinnedAt(a.sessionId, cwd) || 0
+      const bPinnedAt = pinnedSessions.getPinnedAt(b.sessionId, cwd) || 0
+      if (a.pinned && b.pinned && aPinnedAt !== bPinnedAt) return bPinnedAt - aPinnedAt
+      return new Date(b.lastTimestamp).getTime() - new Date(a.lastTimestamp).getTime()
+    })
     return sessions.slice(0, 20) // Return top 20
   } catch (err) {
     log(`LIST_SESSIONS error: ${err}`)
     return []
   }
+})
+
+ipcMain.handle(IPC.PIN_SESSION, (_event, { sessionId, projectPath }: { sessionId: string; projectPath: string }) => {
+  log(`IPC PIN_SESSION: ${sessionId}`)
+  pinnedSessions.pin(sessionId, projectPath)
+  return true
+})
+
+ipcMain.handle(IPC.UNPIN_SESSION, (_event, sessionId: string) => {
+  log(`IPC UNPIN_SESSION: ${sessionId}`)
+  pinnedSessions.unpin(sessionId)
+  return true
 })
 
 // Load conversation history from a session's JSONL file

@@ -37,6 +37,8 @@ export interface CluiAPI {
   resetTabSession(tabId: string): void
   listSessions(projectPath?: string): Promise<SessionMeta[]>
   loadSession(sessionId: string, projectPath?: string): Promise<SessionLoadMessage[]>
+  pinSession(sessionId: string, projectPath: string): Promise<boolean>
+  unpinSession(sessionId: string): Promise<boolean>
   agentMemoryGet(projectPath: string): Promise<AgentMemorySnapshot>
   agentMemoryFocus(tabId: string, projectPath: string, agentLabel: string, summary: string): Promise<{ snapshot: AgentMemorySnapshot }>
   agentMemoryClaim(tabId: string, projectPath: string, agentLabel: string, workKey: string, summary: string): Promise<AgentMemoryClaimResult>
@@ -98,6 +100,8 @@ const api: CluiAPI = {
   resetTabSession: (tabId) => ipcRenderer.send(IPC.RESET_TAB_SESSION, tabId),
   listSessions: (projectPath?: string) => ipcRenderer.invoke(IPC.LIST_SESSIONS, projectPath),
   loadSession: (sessionId: string, projectPath?: string) => ipcRenderer.invoke(IPC.LOAD_SESSION, { sessionId, projectPath }),
+  pinSession: (sessionId, projectPath) => ipcRenderer.invoke(IPC.PIN_SESSION, { sessionId, projectPath }),
+  unpinSession: (sessionId) => ipcRenderer.invoke(IPC.UNPIN_SESSION, sessionId),
   agentMemoryGet: (projectPath) => ipcRenderer.invoke(IPC.AGENT_MEMORY_GET, projectPath),
   agentMemoryFocus: (tabId, projectPath, agentLabel, summary) =>
     ipcRenderer.invoke(IPC.AGENT_MEMORY_FOCUS, { tabId, projectPath, agentLabel, summary }),

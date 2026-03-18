@@ -303,6 +303,7 @@ export interface SessionMeta {
   firstMessage: string | null
   lastTimestamp: string
   size: number
+  pinned: boolean
 }
 
 export interface SessionLoadMessage {
@@ -363,6 +364,8 @@ export const IPC = {
   AGENT_MEMORY_CLAIM: 'clui:agent-memory-claim',
   AGENT_MEMORY_DONE: 'clui:agent-memory-done',
   AGENT_MEMORY_RELEASE: 'clui:agent-memory-release',
+  PIN_SESSION: 'clui:pin-session',
+  UNPIN_SESSION: 'clui:unpin-session',
 
   // One-way events (main → renderer)
   TEXT_CHUNK: 'clui:text-chunk',

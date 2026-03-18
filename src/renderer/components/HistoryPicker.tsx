@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { motion } from 'framer-motion'
-import { Clock, ChatCircle } from '@phosphor-icons/react'
+import { Clock, ChatCircle, PushPin } from '@phosphor-icons/react'
 import { useSessionStore } from '../stores/sessionStore'
 import { usePopoverLayer } from './PopoverLayer'
 import { useColors } from '../theme'
@@ -103,6 +103,21 @@ export function HistoryPicker() {
     void resumeSession(session.sessionId, title, effectiveProjectPath)
   }
 
+  const handleTogglePin = async (session: SessionMeta, event: React.MouseEvent) => {
+    event.stopPropagation()
+    try {
+      if (session.pinned) {
+        await window.clui.unpinSession(session.sessionId)
+      } else {
+        await window.clui.pinSession(session.sessionId, effectiveProjectPath)
+      }
+      await loadSessions()
+    } catch {}
+  }
+
+  const pinnedSessions = sessions.filter((session) => session.pinned)
+  const recentSessions = sessions.filter((session) => !session.pinned)
+
   return (
     <>
       <button
@@ -143,7 +158,7 @@ export function HistoryPicker() {
           }}
         >
           <div className="px-3 py-2 text-[11px] font-medium flex-shrink-0" style={{ color: colors.textTertiary, borderBottom: `1px solid ${colors.popoverBorder}` }}>
-            Recent Sessions
+            Session History
           </div>
 
           <div className="overflow-y-auto py-1" style={{ maxHeight: pos.maxHeight != null ? undefined : 180 }}>
@@ -159,25 +174,91 @@ export function HistoryPicker() {
               </div>
             )}
 
-            {!loading && sessions.map((session) => (
-              <button
-                key={session.sessionId}
-                onClick={() => handleSelect(session)}
-                className="w-full flex items-start gap-2.5 px-3 py-2 text-left transition-colors"
-              >
-                <ChatCircle size={13} className="flex-shrink-0 mt-0.5" style={{ color: colors.textTertiary }} />
-                <div className="min-w-0 flex-1">
-                  <div className="text-[11px] truncate" style={{ color: colors.textPrimary }}>
-                    {session.firstMessage || session.slug || session.sessionId.substring(0, 8)}
-                  </div>
-                  <div className="flex items-center gap-2 text-[10px] mt-0.5" style={{ color: colors.textTertiary }}>
-                    <span>{formatTimeAgo(session.lastTimestamp)}</span>
-                    <span>{formatSize(session.size)}</span>
-                    {session.slug && <span className="truncate">{session.slug}</span>}
-                  </div>
+            {!loading && pinnedSessions.length > 0 && (
+              <>
+                <div
+                  className="px-3 pt-2 pb-1 text-[10px] uppercase tracking-wider"
+                  style={{ color: colors.textTertiary }}
+                >
+                  Pinned ({pinnedSessions.length})
                 </div>
-              </button>
-            ))}
+                {pinnedSessions.map((session) => (
+                  <div
+                    key={session.sessionId}
+                    className="flex items-start gap-2.5 px-3 py-2"
+                    style={{ borderLeft: `2px solid ${colors.accent}` }}
+                  >
+                    <button
+                      onClick={() => handleSelect(session)}
+                      className="min-w-0 flex-1 flex items-start gap-2.5 text-left transition-colors"
+                    >
+                      <ChatCircle size={13} className="flex-shrink-0 mt-0.5" style={{ color: colors.accent }} />
+                      <div className="min-w-0 flex-1">
+                        <div className="text-[11px] truncate" style={{ color: colors.textPrimary }}>
+                          {session.firstMessage || session.slug || session.sessionId.substring(0, 8)}
+                        </div>
+                        <div className="flex items-center gap-2 text-[10px] mt-0.5" style={{ color: colors.textTertiary }}>
+                          <span>{formatTimeAgo(session.lastTimestamp)}</span>
+                          <span>{formatSize(session.size)}</span>
+                          {session.slug && <span className="truncate">{session.slug}</span>}
+                        </div>
+                      </div>
+                    </button>
+                    <button
+                      onClick={(event) => void handleTogglePin(session, event)}
+                      className="flex-shrink-0 mt-0.5"
+                      style={{ color: colors.accent }}
+                      title="Unpin session"
+                    >
+                      <PushPin size={13} weight="fill" />
+                    </button>
+                  </div>
+                ))}
+                <div className="mx-3 my-1" style={{ height: 1, background: colors.popoverBorder }} />
+              </>
+            )}
+
+            {!loading && recentSessions.length > 0 && (
+              <>
+                <div
+                  className="px-3 pt-2 pb-1 text-[10px] uppercase tracking-wider"
+                  style={{ color: colors.textTertiary }}
+                >
+                  Recent
+                </div>
+                {recentSessions.map((session) => (
+                  <div
+                    key={session.sessionId}
+                    className="flex items-start gap-2.5 px-3 py-2"
+                  >
+                    <button
+                      onClick={() => handleSelect(session)}
+                      className="min-w-0 flex-1 flex items-start gap-2.5 text-left transition-colors"
+                    >
+                      <ChatCircle size={13} className="flex-shrink-0 mt-0.5" style={{ color: colors.textTertiary }} />
+                      <div className="min-w-0 flex-1">
+                        <div className="text-[11px] truncate" style={{ color: colors.textPrimary }}>
+                          {session.firstMessage || session.slug || session.sessionId.substring(0, 8)}
+                        </div>
+                        <div className="flex items-center gap-2 text-[10px] mt-0.5" style={{ color: colors.textTertiary }}>
+                          <span>{formatTimeAgo(session.lastTimestamp)}</span>
+                          <span>{formatSize(session.size)}</span>
+                          {session.slug && <span className="truncate">{session.slug}</span>}
+                        </div>
+                      </div>
+                    </button>
+                    <button
+                      onClick={(event) => void handleTogglePin(session, event)}
+                      className="flex-shrink-0 mt-0.5"
+                      style={{ color: colors.textTertiary }}
+                      title="Pin session"
+                    >
+                      <PushPin size={13} />
+                    </button>
+                  </div>
+                ))}
+              </>
+            )}
           </div>
         </motion.div>,
         popoverLayer,
