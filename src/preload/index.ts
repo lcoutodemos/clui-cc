@@ -92,6 +92,7 @@ export interface CluiAPI {
   onTabStatusChange(callback: (tabId: string, newStatus: string, oldStatus: string) => void): () => void
   onError(callback: (tabId: string, error: EnrichedError) => void): () => void
   onSkillStatus(callback: (status: { name: string; state: string; error?: string; reason?: string }) => void): () => void
+  onWhisperStatus(callback: (status: { stage: string; progress?: number; error?: string }) => void): () => void
   onWindowShown(callback: () => void): () => void
 }
 
@@ -202,6 +203,12 @@ const api: CluiAPI = {
     const handler = (_e: Electron.IpcRendererEvent, status: any) => callback(status)
     ipcRenderer.on(IPC.SKILL_STATUS, handler)
     return () => ipcRenderer.removeListener(IPC.SKILL_STATUS, handler)
+  },
+
+  onWhisperStatus: (callback) => {
+    const handler = (_e: Electron.IpcRendererEvent, status: any) => callback(status)
+    ipcRenderer.on(IPC.WHISPER_STATUS, handler)
+    return () => ipcRenderer.removeListener(IPC.WHISPER_STATUS, handler)
   },
 
   onWindowShown: (callback) => {

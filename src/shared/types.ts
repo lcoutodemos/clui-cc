@@ -543,6 +543,9 @@ export const IPC = {
   TAB_STATUS_CHANGE: 'clui:tab-status-change',
   ENRICHED_ERROR: 'clui:enriched-error',
 
+  // Whisper provisioning
+  WHISPER_STATUS: 'clui:whisper-status',
+
   // Error logging
   LOG_RENDERER_ERROR: 'clui:log-renderer-error',
 

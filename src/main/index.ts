@@ -1116,7 +1116,7 @@ app.whenReady().then(() => {
     // Whisper provisioning — auto-download binary + model on first boot
     ensureWhisper((status: WhisperProvisionStatus) => {
       log(`[WhisperProvisioner] ${status.stage}${status.progress != null ? ` ${status.progress}%` : ''}${status.error ? ` — ${status.error}` : ''}`)
-      broadcast('clui:whisper-status', status)
+      broadcast(IPC.WHISPER_STATUS, status)
     }).catch((err: Error) => log(`Whisper provisioning error: ${err.message}`))
   }
 

@@ -61,11 +61,26 @@ export function useClaudeEvents() {
       }
     })
 
+    let whisperToastShown = false
+    const unsubWhisper = window.clui.onWhisperStatus((status) => {
+      const { useNotificationStore } = require('../stores/notificationStore')
+      const addToast = useNotificationStore.getState().addToast
+      if (status.stage === 'downloading-binary' && !whisperToastShown) {
+        whisperToastShown = true
+        addToast({ type: 'info', title: 'Downloading voice engine...', duration: 8000 })
+      } else if (status.stage === 'ready' && whisperToastShown) {
+        addToast({ type: 'success', title: 'Voice input ready' })
+      } else if (status.stage === 'error') {
+        addToast({ type: 'warning', title: 'Voice download failed', message: status.error || 'Retry on next launch' })
+      }
+    })
+
     return () => {
       unsubEvent()
       unsubStatus()
       unsubError()
       unsubSkill()
+      unsubWhisper()
       if (rafIdRef.current) cancelAnimationFrame(rafIdRef.current)
       chunkBufferRef.current.clear()
     }
