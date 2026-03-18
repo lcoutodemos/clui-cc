@@ -257,6 +257,18 @@ function compactPath(fullPath: string): string {
   return parts[parts.length - 1] || fullPath
 }
 
+function compactAssignmentLabel(assignment: NonNullable<ReturnType<typeof useSessionStore.getState>['tabs'][number]['agentAssignment']>): string {
+  const base = assignment.workKey
+    ? `${assignment.workKey}: ${assignment.summary}`
+    : assignment.summary
+
+  if (base.length <= 44) {
+    return base
+  }
+
+  return `${base.slice(0, 43).trimEnd()}…`
+}
+
 export function StatusBar() {
   const tab = useSessionStore(
     (s) => s.tabs.find((t) => t.id === s.activeTabId),
@@ -266,6 +278,9 @@ export function StatusBar() {
       && a.hasChosenDirectory === b.hasChosenDirectory
       && a.workingDirectory === b.workingDirectory
       && a.claudeSessionId === b.claudeSessionId
+      && a.agentAssignment?.updatedAt === b.agentAssignment?.updatedAt
+      && a.agentAssignment?.summary === b.agentAssignment?.summary
+      && a.agentAssignment?.workKey === b.agentAssignment?.workKey
     ),
   )
   const addDirectory = useSessionStore((s) => s.addDirectory)
@@ -434,6 +449,25 @@ export function StatusBar() {
         <span style={{ color: colors.textMuted, fontSize: 10 }}>|</span>
 
         <PermissionModePicker />
+
+        {tab.agentAssignment && (
+          <>
+            <span style={{ color: colors.textMuted, fontSize: 10 }}>|</span>
+            <span
+              className="max-w-[220px] truncate rounded-full px-1.5 py-0.5 text-[10px]"
+              style={{
+                color: colors.textSecondary,
+                background: colors.accentLight,
+                border: `1px solid ${colors.accentBorder}`,
+              }}
+              title={tab.agentAssignment.workKey
+                ? `${tab.agentAssignment.workKey}\n${tab.agentAssignment.summary}`
+                : tab.agentAssignment.summary}
+            >
+              {compactAssignmentLabel(tab.agentAssignment)}
+            </span>
+          </>
+        )}
       </div>
 
       {/* Right — Open in CLI */}

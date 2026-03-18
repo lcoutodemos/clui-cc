@@ -139,6 +139,29 @@ export interface RetryState {
   stopped?: boolean
 }
 
+export interface AgentAssignment {
+  tabId: string
+  agentLabel: string
+  projectPath: string
+  workKey?: string
+  summary: string
+  status: 'active' | 'done'
+  startedAt: string
+  updatedAt: string
+  doneAt?: string
+  note?: string
+}
+
+export interface AgentMemorySnapshot {
+  projectPath: string
+  active: AgentAssignment[]
+  recentDone: AgentAssignment[]
+}
+
+export type AgentMemoryClaimResult =
+  | { ok: true; snapshot: AgentMemorySnapshot; assignment: AgentAssignment }
+  | { ok: false; snapshot: AgentMemorySnapshot; conflict: AgentAssignment }
+
 export interface Attachment {
   id: string
   type: 'image' | 'file'
@@ -162,6 +185,7 @@ export interface TabState {
   /** Fallback card when tools were denied and no interactive permission is available */
   permissionDenied: { tools: Array<{ toolName: string; toolUseId: string }> } | null
   retryState: RetryState | null
+  agentAssignment: AgentAssignment | null
   lastRunOptions: RunOptions | null
   queuedRunOptions: RunOptions[]
   attachments: Attachment[]
@@ -334,6 +358,11 @@ export const IPC = {
   ANIMATE_HEIGHT: 'clui:animate-height',
   LIST_SESSIONS: 'clui:list-sessions',
   LOAD_SESSION: 'clui:load-session',
+  AGENT_MEMORY_GET: 'clui:agent-memory-get',
+  AGENT_MEMORY_FOCUS: 'clui:agent-memory-focus',
+  AGENT_MEMORY_CLAIM: 'clui:agent-memory-claim',
+  AGENT_MEMORY_DONE: 'clui:agent-memory-done',
+  AGENT_MEMORY_RELEASE: 'clui:agent-memory-release',
 
   // One-way events (main → renderer)
   TEXT_CHUNK: 'clui:text-chunk',

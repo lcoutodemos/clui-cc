@@ -13,6 +13,7 @@ import { loadShortcutConfig, saveShortcutConfig, getSafeAlternatives } from './s
 import { buildTerminalCommand } from './terminal-launch'
 import { buildScreenshotCommand, getScreenshotTempPath } from './screenshot'
 import { SettingsManager } from './settings-manager'
+import { AgentMemory } from './agent-memory'
 import { IPC } from '../shared/types'
 import type { RunOptions, NormalizedEvent, EnrichedError } from '../shared/types'
 
@@ -32,6 +33,7 @@ let toggleSequence = 0
 const INTERACTIVE_PTY = process.env.CLUI_INTERACTIVE_PERMISSIONS_PTY === '1'
 
 const settingsManager = new SettingsManager()
+let agentMemory: AgentMemory | null = null
 
 const controlPlane = new ControlPlane(INTERACTIVE_PTY)
 
@@ -485,6 +487,48 @@ ipcMain.handle(IPC.LOAD_SESSION, async (_e, arg: { sessionId: string; projectPat
   }
 })
 
+ipcMain.handle(IPC.AGENT_MEMORY_GET, (_event, projectPath: string) => {
+  log(`IPC AGENT_MEMORY_GET: ${projectPath}`)
+  return controlPlane.getAgentMemorySnapshot(projectPath)
+})
+
+ipcMain.handle(
+  IPC.AGENT_MEMORY_FOCUS,
+  (_event, { tabId, projectPath, agentLabel, summary }: {
+    tabId: string
+    projectPath: string
+    agentLabel: string
+    summary: string
+  }) => {
+    log(`IPC AGENT_MEMORY_FOCUS: tab=${tabId} project=${projectPath}`)
+    return controlPlane.setAgentFocus(tabId, projectPath, agentLabel, summary)
+  }
+)
+
+ipcMain.handle(
+  IPC.AGENT_MEMORY_CLAIM,
+  (_event, { tabId, projectPath, agentLabel, workKey, summary }: {
+    tabId: string
+    projectPath: string
+    agentLabel: string
+    workKey: string
+    summary: string
+  }) => {
+    log(`IPC AGENT_MEMORY_CLAIM: tab=${tabId} key=${workKey}`)
+    return controlPlane.claimAgentWork(tabId, projectPath, agentLabel, workKey, summary)
+  }
+)
+
+ipcMain.handle(IPC.AGENT_MEMORY_DONE, (_event, { tabId, note }: { tabId: string; note?: string }) => {
+  log(`IPC AGENT_MEMORY_DONE: tab=${tabId}`)
+  return controlPlane.markAgentDone(tabId, note)
+})
+
+ipcMain.handle(IPC.AGENT_MEMORY_RELEASE, (_event, tabId: string) => {
+  log(`IPC AGENT_MEMORY_RELEASE: tab=${tabId}`)
+  return controlPlane.releaseAgentWork(tabId)
+})
+
 ipcMain.handle(IPC.SELECT_DIRECTORY, async () => {
   if (!mainWindow) return null
   // macOS: activate app so unparented dialog appears on top (not behind other apps).
@@ -871,6 +915,9 @@ nativeTheme.on('updated', () => {
 // ─── App Lifecycle ───
 
 app.whenReady().then(() => {
+  agentMemory = new AgentMemory(join(app.getPath('userData'), 'agent-memory.json'))
+  controlPlane.setAgentMemory(agentMemory)
+
   // macOS: become an accessory app. Accessory apps can have key windows (keyboard works)
   // without deactivating the currently active app (hover preserved in browsers).
   // This is how Spotlight, Alfred, Raycast work.

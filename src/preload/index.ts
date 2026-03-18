@@ -9,6 +9,8 @@ import type {
   SessionMeta,
   CatalogPlugin,
   SessionLoadMessage,
+  AgentMemorySnapshot,
+  AgentMemoryClaimResult,
 } from '../shared/types'
 
 export interface CluiAPI {
@@ -35,6 +37,11 @@ export interface CluiAPI {
   resetTabSession(tabId: string): void
   listSessions(projectPath?: string): Promise<SessionMeta[]>
   loadSession(sessionId: string, projectPath?: string): Promise<SessionLoadMessage[]>
+  agentMemoryGet(projectPath: string): Promise<AgentMemorySnapshot>
+  agentMemoryFocus(tabId: string, projectPath: string, agentLabel: string, summary: string): Promise<{ snapshot: AgentMemorySnapshot }>
+  agentMemoryClaim(tabId: string, projectPath: string, agentLabel: string, workKey: string, summary: string): Promise<AgentMemoryClaimResult>
+  agentMemoryDone(tabId: string, note?: string): Promise<{ ok: boolean; snapshot: AgentMemorySnapshot | null }>
+  agentMemoryRelease(tabId: string): Promise<{ ok: boolean; snapshots: AgentMemorySnapshot[] }>
   fetchMarketplace(forceRefresh?: boolean): Promise<{ plugins: CatalogPlugin[]; error: string | null }>
   listInstalledPlugins(): Promise<string[]>
   installPlugin(repo: string, pluginName: string, marketplace: string, sourcePath?: string, isSkillMd?: boolean): Promise<{ ok: boolean; error?: string }>
@@ -91,6 +98,13 @@ const api: CluiAPI = {
   resetTabSession: (tabId) => ipcRenderer.send(IPC.RESET_TAB_SESSION, tabId),
   listSessions: (projectPath?: string) => ipcRenderer.invoke(IPC.LIST_SESSIONS, projectPath),
   loadSession: (sessionId: string, projectPath?: string) => ipcRenderer.invoke(IPC.LOAD_SESSION, { sessionId, projectPath }),
+  agentMemoryGet: (projectPath) => ipcRenderer.invoke(IPC.AGENT_MEMORY_GET, projectPath),
+  agentMemoryFocus: (tabId, projectPath, agentLabel, summary) =>
+    ipcRenderer.invoke(IPC.AGENT_MEMORY_FOCUS, { tabId, projectPath, agentLabel, summary }),
+  agentMemoryClaim: (tabId, projectPath, agentLabel, workKey, summary) =>
+    ipcRenderer.invoke(IPC.AGENT_MEMORY_CLAIM, { tabId, projectPath, agentLabel, workKey, summary }),
+  agentMemoryDone: (tabId, note) => ipcRenderer.invoke(IPC.AGENT_MEMORY_DONE, { tabId, note }),
+  agentMemoryRelease: (tabId) => ipcRenderer.invoke(IPC.AGENT_MEMORY_RELEASE, tabId),
   fetchMarketplace: (forceRefresh) => ipcRenderer.invoke(IPC.MARKETPLACE_FETCH, { forceRefresh }),
   listInstalledPlugins: () => ipcRenderer.invoke(IPC.MARKETPLACE_INSTALLED),
   installPlugin: (repo, pluginName, marketplace, sourcePath, isSkillMd) =>

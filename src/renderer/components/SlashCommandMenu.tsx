@@ -11,10 +11,16 @@ export interface SlashCommand {
   command: string
   description: string
   icon: React.ReactNode
+  insertOnly?: boolean
 }
 
 export const SLASH_COMMANDS: SlashCommand[] = [
   { command: '/clear', description: 'Clear conversation history', icon: <Trash size={13} /> },
+  { command: '/focus', description: 'Set the current work focus', icon: <Sparkle size={13} />, insertOnly: true },
+  { command: '/claim', description: 'Claim a work item by key', icon: <HardDrives size={13} />, insertOnly: true },
+  { command: '/done', description: 'Mark the current work as done', icon: <Question size={13} />, insertOnly: true },
+  { command: '/release', description: 'Release the current claim', icon: <Trash size={13} />, insertOnly: true },
+  { command: '/memory', description: 'Show active and recent shared work', icon: <HardDrives size={13} /> },
   { command: '/cost', description: 'Show token usage and cost', icon: <CurrencyDollar size={13} /> },
   { command: '/model', description: 'Show current model info', icon: <Cpu size={13} /> },
   { command: '/mcp', description: 'Show MCP server status', icon: <HardDrives size={13} /> },

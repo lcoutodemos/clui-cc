@@ -1,5 +1,18 @@
 import { create } from 'zustand'
-import type { TabStatus, NormalizedEvent, EnrichedError, Message, TabState, Attachment, CatalogPlugin, PluginStatus, RunOptions } from '../../shared/types'
+import type {
+  TabStatus,
+  NormalizedEvent,
+  EnrichedError,
+  Message,
+  TabState,
+  Attachment,
+  CatalogPlugin,
+  PluginStatus,
+  RunOptions,
+  AgentAssignment,
+  AgentMemorySnapshot,
+  AgentMemoryClaimResult,
+} from '../../shared/types'
 import { canScheduleAutoResume, DEFAULT_AUTO_RESUME_MAX_RETRIES, getAutoResumeDelayMs } from '../../shared/retry-policy'
 import { useThemeStore } from '../theme'
 import notificationSrc from '../../../resources/notification.mp3'
@@ -29,6 +42,7 @@ interface State {
   isExpanded: boolean
   /** Global info fetched on startup (not per-session) */
   staticInfo: StaticInfo | null
+  agentMemorySnapshot: AgentMemorySnapshot | null
   /** User's preferred model override (null = use default) */
   preferredModel: string | null
   /** Global permission mode: 'ask' shows cards, 'auto' auto-approves all tool calls */
@@ -71,6 +85,11 @@ interface State {
   addAttachments: (attachments: Attachment[]) => void
   removeAttachment: (attachmentId: string) => void
   clearAttachments: () => void
+  refreshAgentMemory: (projectPath?: string) => Promise<AgentMemorySnapshot | null>
+  setAgentFocus: (summary: string) => Promise<AgentAssignment | null>
+  claimAgentWork: (workKey: string, summary: string) => Promise<AgentMemoryClaimResult | null>
+  markAgentDone: (note?: string) => Promise<boolean>
+  releaseAgentWork: () => Promise<boolean>
   retryTab: (tabId: string) => void
   stopRetrying: (tabId: string) => void
   handleNormalizedEvent: (tabId: string, event: NormalizedEvent) => void
@@ -88,6 +107,51 @@ function clearRetryTimer(tabId: string) {
     clearTimeout(timer)
     retryTimers.delete(tabId)
   }
+}
+
+function getResolvedProjectPath(tab: TabState | undefined, staticInfo: StaticInfo | null): string {
+  if (!tab) {
+    return staticInfo?.homePath || '~'
+  }
+
+  return tab.hasChosenDirectory
+    ? tab.workingDirectory
+    : (staticInfo?.homePath || tab.workingDirectory || '~')
+}
+
+function getAgentLabel(tabId: string, tabs: TabState[]): string {
+  const index = tabs.findIndex((tab) => tab.id === tabId)
+  return index === -1 ? `Tab ${tabId.slice(0, 8)}` : `Tab ${index + 1}`
+}
+
+function inferFocusSummary(prompt: string): string {
+  const normalized = prompt.replace(/\s+/g, ' ').trim()
+  if (normalized.length <= 120) {
+    return normalized
+  }
+  return `${normalized.slice(0, 119).trimEnd()}…`
+}
+
+function applyAgentMemorySnapshotToTabs(
+  tabs: TabState[],
+  snapshot: AgentMemorySnapshot | null,
+  staticInfo: StaticInfo | null,
+): TabState[] {
+  if (!snapshot) {
+    return tabs
+  }
+
+  return tabs.map((tab) => {
+    const tabProjectPath = getResolvedProjectPath(tab, staticInfo)
+    if (tabProjectPath !== snapshot.projectPath) {
+      return tab
+    }
+
+    return {
+      ...tab,
+      agentAssignment: snapshot.active.find((assignment) => assignment.tabId === tab.id) || null,
+    }
+  })
 }
 
 // ─── Notification sound (plays when task completes while window is hidden) ───
@@ -116,6 +180,7 @@ function makeLocalTab(): TabState {
     permissionQueue: [],
     permissionDenied: null,
     retryState: null,
+    agentAssignment: null,
     lastRunOptions: null,
     queuedRunOptions: [],
     attachments: [],
@@ -141,6 +206,7 @@ export const useSessionStore = create<State>((set, get) => ({
   activeTabId: initialTab.id,
   isExpanded: false,
   staticInfo: null,
+  agentMemorySnapshot: null,
   preferredModel: null,
   permissionMode: 'ask',
 
@@ -166,6 +232,7 @@ export const useSessionStore = create<State>((set, get) => ({
           homePath: result.homePath || '~',
         },
       })
+      void get().refreshAgentMemory(result.projectPath || result.homePath || '~')
     } catch {}
   },
 
@@ -180,6 +247,7 @@ export const useSessionStore = create<State>((set, get) => ({
 
   createTab: async () => {
     const homeDir = get().staticInfo?.homePath || '~'
+    const defaultDir = homeDir
     try {
       const { tabId } = await window.clui.createTab()
       const tab: TabState = {
@@ -191,6 +259,8 @@ export const useSessionStore = create<State>((set, get) => ({
         tabs: [...s.tabs, tab],
         activeTabId: tab.id,
       }))
+      void get().refreshAgentMemory(homeDir)
+      void get().refreshAgentMemory(defaultDir)
       return tabId
     } catch {
       const tab = makeLocalTab()
@@ -199,6 +269,7 @@ export const useSessionStore = create<State>((set, get) => ({
         tabs: [...s.tabs, tab],
         activeTabId: tab.id,
       }))
+      void get().refreshAgentMemory(homeDir)
       return tab.id
     }
   },
@@ -216,6 +287,7 @@ export const useSessionStore = create<State>((set, get) => ({
           ? prev.tabs.map((t) => t.id === tabId ? { ...t, hasUnread: false } : t)
           : prev.tabs,
       }))
+      void get().refreshAgentMemory(getResolvedProjectPath(get().tabs.find((t) => t.id === tabId), get().staticInfo))
     } else {
       // Switching to a different tab: mark as read
       set((prev) => ({
@@ -225,6 +297,7 @@ export const useSessionStore = create<State>((set, get) => ({
           t.id === tabId ? { ...t, hasUnread: false } : t
         ),
       }))
+      void get().refreshAgentMemory(getResolvedProjectPath(get().tabs.find((t) => t.id === tabId), get().staticInfo))
     }
   },
 
@@ -345,13 +418,16 @@ export const useSessionStore = create<State>((set, get) => ({
       if (remaining.length === 0) {
         const newTab = makeLocalTab()
         set({ tabs: [newTab], activeTabId: newTab.id })
+        void get().refreshAgentMemory(getResolvedProjectPath(newTab, get().staticInfo))
         return
       }
       const closedIndex = s.tabs.findIndex((t) => t.id === tabId)
       const newActive = remaining[Math.min(closedIndex, remaining.length - 1)]
       set({ tabs: remaining, activeTabId: newActive.id })
+      void get().refreshAgentMemory(getResolvedProjectPath(newActive, get().staticInfo))
     } else {
       set({ tabs: remaining })
+      void get().refreshAgentMemory(getResolvedProjectPath(get().tabs.find((t) => t.id === s.activeTabId), get().staticInfo))
     }
   },
 
@@ -411,6 +487,8 @@ export const useSessionStore = create<State>((set, get) => ({
         isExpanded: true,
       }))
       return tab.id
+    } finally {
+      void get().refreshAgentMemory(defaultDir)
     }
   },
 
@@ -498,6 +576,7 @@ export const useSessionStore = create<State>((set, get) => ({
           : t
       ),
     }))
+    void get().refreshAgentMemory(dir)
   },
 
   // ─── Attachment management ───
@@ -531,6 +610,108 @@ export const useSessionStore = create<State>((set, get) => ({
         t.id === activeTabId ? { ...t, attachments: [] } : t
       ),
     }))
+  },
+
+  refreshAgentMemory: async (projectPath) => {
+    const { activeTabId, tabs, staticInfo } = get()
+    const activeTab = tabs.find((tab) => tab.id === activeTabId)
+    const resolvedProjectPath = projectPath || getResolvedProjectPath(activeTab, staticInfo)
+
+    try {
+      const snapshot = await window.clui.agentMemoryGet(resolvedProjectPath)
+      set((s) => ({
+        agentMemorySnapshot: snapshot,
+        tabs: applyAgentMemorySnapshotToTabs(s.tabs, snapshot, s.staticInfo),
+      }))
+      return snapshot
+    } catch {
+      return null
+    }
+  },
+
+  setAgentFocus: async (summary) => {
+    const { activeTabId, tabs, staticInfo } = get()
+    const tab = tabs.find((item) => item.id === activeTabId)
+    if (!tab) {
+      return null
+    }
+
+    const projectPath = getResolvedProjectPath(tab, staticInfo)
+    const result = await window.clui.agentMemoryFocus(
+      activeTabId,
+      projectPath,
+      getAgentLabel(activeTabId, tabs),
+      summary,
+    )
+
+    set((s) => ({
+      agentMemorySnapshot: result.snapshot,
+      tabs: applyAgentMemorySnapshotToTabs(s.tabs, result.snapshot, s.staticInfo),
+    }))
+
+    return result.snapshot.active.find((assignment) => assignment.tabId === activeTabId) || null
+  },
+
+  claimAgentWork: async (workKey, summary) => {
+    const { activeTabId, tabs, staticInfo } = get()
+    const tab = tabs.find((item) => item.id === activeTabId)
+    if (!tab) {
+      return null
+    }
+
+    const projectPath = getResolvedProjectPath(tab, staticInfo)
+    const result = await window.clui.agentMemoryClaim(
+      activeTabId,
+      projectPath,
+      getAgentLabel(activeTabId, tabs),
+      workKey,
+      summary,
+    )
+
+    set((s) => ({
+      agentMemorySnapshot: result.snapshot,
+      tabs: applyAgentMemorySnapshotToTabs(s.tabs, result.snapshot, s.staticInfo),
+    }))
+
+    return result
+  },
+
+  markAgentDone: async (note) => {
+    const { activeTabId } = get()
+    const result = await window.clui.agentMemoryDone(activeTabId, note)
+
+    set((s) => ({
+      agentMemorySnapshot: result.snapshot ?? s.agentMemorySnapshot,
+      tabs: result.snapshot
+        ? applyAgentMemorySnapshotToTabs(s.tabs, result.snapshot, s.staticInfo)
+        : s.tabs.map((tab) => tab.id === activeTabId ? { ...tab, agentAssignment: null } : tab),
+    }))
+
+    return result.ok
+  },
+
+  releaseAgentWork: async () => {
+    const { activeTabId } = get()
+    const result = await window.clui.agentMemoryRelease(activeTabId)
+
+    set((s) => {
+      let nextTabs = s.tabs.map((tab) => tab.id === activeTabId ? { ...tab, agentAssignment: null } : tab)
+      let nextSnapshot = s.agentMemorySnapshot
+
+      for (const snapshot of result.snapshots) {
+        nextTabs = applyAgentMemorySnapshotToTabs(nextTabs, snapshot, s.staticInfo)
+        if (s.agentMemorySnapshot?.projectPath === snapshot.projectPath) {
+          nextSnapshot = snapshot
+        }
+      }
+
+      return {
+        agentMemorySnapshot: nextSnapshot,
+        tabs: nextTabs,
+      }
+    })
+
+    return result.ok
   },
 
   stopRetrying: (tabId) => {
@@ -602,15 +783,16 @@ export const useSessionStore = create<State>((set, get) => ({
   sendMessage: (prompt, projectPath) => {
     const { activeTabId, tabs, staticInfo } = get()
     const tab = tabs.find((t) => t.id === activeTabId)
-    // Use explicitly chosen directory, otherwise fall back to user home
-    const resolvedPath = projectPath || (tab?.hasChosenDirectory ? tab.workingDirectory : (staticInfo?.homePath || tab?.workingDirectory || '~'))
     if (!tab) return
+    // Use explicitly chosen directory, otherwise fall back to user home
+    const resolvedPath = projectPath || getResolvedProjectPath(tab, staticInfo)
 
     // Guard: don't send while connecting (warmup in progress)
     if (tab.status === 'connecting') return
 
     const isBusy = tab.status === 'running'
     const requestId = crypto.randomUUID()
+    const shouldInferFocus = !tab.agentAssignment && prompt.trim().length > 0
 
     // Build full prompt with attachment context
     let fullPrompt = prompt
@@ -686,6 +868,10 @@ export const useSessionStore = create<State>((set, get) => ({
         toolCallCount: 0,
       })
     })
+
+    if (shouldInferFocus) {
+      void get().setAgentFocus(inferFocusSummary(prompt))
+    }
   },
 
   // ─── Event handlers ───

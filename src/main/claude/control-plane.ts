@@ -2,6 +2,7 @@ import { EventEmitter } from 'events'
 import { RunManager } from './run-manager'
 import { PtyRunManager } from './pty-run-manager'
 import { PermissionServer, maskSensitiveFields } from '../hooks/permission-server'
+import { AgentMemory } from '../agent-memory'
 import type { HookToolRequest, PermissionOption } from '../hooks/permission-server'
 import { log as _log } from '../logger'
 import type {
@@ -11,6 +12,8 @@ import type {
   NormalizedEvent,
   RunOptions,
   EnrichedError,
+  AgentMemorySnapshot,
+  AgentMemoryClaimResult,
 } from '../../shared/types'
 
 const MAX_QUEUE_DEPTH = 32
@@ -75,6 +78,8 @@ export class ControlPlane extends EventEmitter {
   private permissionMode: 'ask' | 'auto' = 'ask'
   /** Resolves when the permission server is ready (or failed). Dispatch awaits this. */
   private hookServerReady: Promise<void>
+  /** Optional persisted coordination memory shared across tabs/agents. */
+  private agentMemory: AgentMemory | null = null
 
   constructor(interactivePty = false) {
     super()
@@ -289,6 +294,11 @@ export class ControlPlane extends EventEmitter {
         this.inflightRequests.delete(requestId)
       }
     })
+  }
+
+  setAgentMemory(agentMemory: AgentMemory): void {
+    this.agentMemory = agentMemory
+    this.agentMemory.pruneStaleTabs(this.tabs.keys())
   }
 
   /**
@@ -528,7 +538,72 @@ export class ControlPlane extends EventEmitter {
     })
 
     this.tabs.delete(tabId)
+    this.agentMemory?.pruneStaleTabs(this.tabs.keys())
     log(`Tab closed: ${tabId}`)
+  }
+
+  getAgentMemorySnapshot(projectPath: string): AgentMemorySnapshot {
+    this.agentMemory?.pruneStaleTabs(this.tabs.keys())
+    return this.agentMemory?.getSnapshot(projectPath) ?? {
+      projectPath,
+      active: [],
+      recentDone: [],
+    }
+  }
+
+  setAgentFocus(tabId: string, projectPath: string, agentLabel: string, summary: string): {
+    snapshot: AgentMemorySnapshot
+    assignment?: AgentMemorySnapshot['active'][number]
+  } {
+    this.agentMemory?.pruneStaleTabs(this.tabs.keys())
+    if (!this.agentMemory) {
+      return { snapshot: { projectPath, active: [], recentDone: [] } }
+    }
+    return this.agentMemory.setFocus({ tabId, projectPath, agentLabel, summary })
+  }
+
+  claimAgentWork(
+    tabId: string,
+    projectPath: string,
+    agentLabel: string,
+    workKey: string,
+    summary: string,
+  ): AgentMemoryClaimResult {
+    this.agentMemory?.pruneStaleTabs(this.tabs.keys())
+    if (!this.agentMemory) {
+      return {
+        ok: true,
+        snapshot: { projectPath, active: [], recentDone: [] },
+        assignment: {
+          tabId,
+          agentLabel,
+          projectPath,
+          workKey,
+          summary,
+          status: 'active',
+          startedAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+      }
+    }
+    return this.agentMemory.claim({ tabId, projectPath, agentLabel, workKey, summary })
+  }
+
+  markAgentDone(tabId: string, note?: string): { ok: boolean; snapshot: AgentMemorySnapshot | null } {
+    this.agentMemory?.pruneStaleTabs(this.tabs.keys())
+    if (!this.agentMemory) {
+      return { ok: false, snapshot: null }
+    }
+    const result = this.agentMemory.markDone(tabId, note)
+    return { ok: result.ok, snapshot: result.snapshot }
+  }
+
+  releaseAgentWork(tabId: string): { ok: boolean; snapshots: AgentMemorySnapshot[] } {
+    this.agentMemory?.pruneStaleTabs(this.tabs.keys())
+    if (!this.agentMemory) {
+      return { ok: false, snapshots: [] }
+    }
+    return this.agentMemory.release(tabId)
   }
 
   // ─── Submit Prompt ───
@@ -607,6 +682,17 @@ export class ControlPlane extends EventEmitter {
     // Use stored session ID for resume if available and not overridden
     if (tab.claudeSessionId && !options.sessionId) {
       options = { ...options, sessionId: tab.claudeSessionId }
+    }
+
+    if (this.agentMemory) {
+      this.agentMemory.pruneStaleTabs(this.tabs.keys())
+      const agentMemoryPrompt = this.agentMemory.buildPromptContext(options.projectPath, tabId)
+      if (agentMemoryPrompt) {
+        options = {
+          ...options,
+          systemPrompt: [options.systemPrompt, agentMemoryPrompt].filter(Boolean).join('\n\n'),
+        }
+      }
     }
 
     // Per-run token lifecycle: register run, generate per-run settings file

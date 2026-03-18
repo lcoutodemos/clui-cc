@@ -5,6 +5,7 @@ import { useSessionStore, AVAILABLE_MODELS } from '../stores/sessionStore'
 import { AttachmentChips } from './AttachmentChips'
 import { SlashCommandMenu, getFilteredCommandsWithExtras, type SlashCommand } from './SlashCommandMenu'
 import { useColors } from '../theme'
+import type { AgentAssignment, AgentMemorySnapshot } from '../../shared/types'
 
 const INPUT_MIN_HEIGHT = 20
 const INPUT_MAX_HEIGHT = 140
@@ -13,6 +14,42 @@ const MULTILINE_EXIT_HEIGHT = 50
 const INLINE_CONTROLS_RESERVED_WIDTH = 104
 
 type VoiceState = 'idle' | 'recording' | 'transcribing'
+
+function formatAssignmentLine(assignment: AgentAssignment): string {
+  const prefix = assignment.workKey ? `${assignment.workKey} -> ${assignment.agentLabel}` : assignment.agentLabel
+  return `${prefix}: ${assignment.summary}`
+}
+
+function formatMemorySnapshot(snapshot: AgentMemorySnapshot | null, activeTabId: string): string {
+  if (!snapshot || (snapshot.active.length === 0 && snapshot.recentDone.length === 0)) {
+    return 'No shared agent memory for this project yet.'
+  }
+
+  const lines: string[] = []
+  const current = snapshot.active.find((assignment) => assignment.tabId === activeTabId)
+  const otherActive = snapshot.active.filter((assignment) => assignment.tabId !== activeTabId)
+
+  if (current) {
+    lines.push(`Current: ${formatAssignmentLine(current)}`)
+  }
+
+  if (otherActive.length > 0) {
+    lines.push('Active:')
+    for (const assignment of otherActive) {
+      lines.push(`- ${formatAssignmentLine(assignment)}`)
+    }
+  }
+
+  if (snapshot.recentDone.length > 0) {
+    lines.push('Recent done:')
+    for (const assignment of snapshot.recentDone) {
+      const line = formatAssignmentLine(assignment)
+      lines.push(`- ${assignment.note ? `${line} (${assignment.note})` : line}`)
+    }
+  }
+
+  return lines.join('\n')
+}
 
 /**
  * InputBar renders inside a glass-surface rounded-full pill provided by App.tsx.
@@ -36,9 +73,15 @@ export function InputBar() {
   const addSystemMessage = useSessionStore((s) => s.addSystemMessage)
   const addAttachments = useSessionStore((s) => s.addAttachments)
   const removeAttachment = useSessionStore((s) => s.removeAttachment)
+  const refreshAgentMemory = useSessionStore((s) => s.refreshAgentMemory)
+  const setAgentFocus = useSessionStore((s) => s.setAgentFocus)
+  const claimAgentWork = useSessionStore((s) => s.claimAgentWork)
+  const markAgentDone = useSessionStore((s) => s.markAgentDone)
+  const releaseAgentWork = useSessionStore((s) => s.releaseAgentWork)
 
   const setPreferredModel = useSessionStore((s) => s.setPreferredModel)
   const staticInfo = useSessionStore((s) => s.staticInfo)
+  const agentMemorySnapshot = useSessionStore((s) => s.agentMemorySnapshot)
   const preferredModel = useSessionStore((s) => s.preferredModel)
   const activeTabId = useSessionStore((s) => s.activeTabId)
   const tab = useSessionStore((s) => s.tabs.find((t) => t.id === s.activeTabId))
@@ -164,6 +207,11 @@ export function InputBar() {
         clearTab()
         addSystemMessage('Conversation cleared.')
         break
+      case '/memory':
+        void refreshAgentMemory().then((snapshot) => {
+          addSystemMessage(formatMemorySnapshot(snapshot || agentMemorySnapshot, activeTabId))
+        })
+        break
       case '/cost': {
         if (tab?.lastResult) {
           const r = tab.lastResult
@@ -227,11 +275,11 @@ export function InputBar() {
         break
       }
     }
-  }, [tab, clearTab, addSystemMessage, staticInfo, preferredModel])
+  }, [tab, clearTab, addSystemMessage, staticInfo, preferredModel, refreshAgentMemory, agentMemorySnapshot, activeTabId])
 
   const handleSlashSelect = useCallback((cmd: SlashCommand) => {
     const isSkillCommand = !!tab?.sessionSkills?.includes(cmd.command.replace(/^\//, ''))
-    if (isSkillCommand) {
+    if (isSkillCommand || cmd.insertOnly) {
       setInput(`${cmd.command} `)
       setSlashFilter(null)
       requestAnimationFrame(() => textareaRef.current?.focus())
@@ -243,7 +291,7 @@ export function InputBar() {
   }, [executeCommand, tab?.sessionSkills])
 
   // ─── Send ───
-  const handleSend = useCallback(() => {
+  const handleSend = useCallback(async () => {
     if (showSlashMenu) {
       const filtered = getFilteredCommandsWithExtras(slashFilter!, skillCommands)
       if (filtered.length > 0) {
@@ -252,6 +300,63 @@ export function InputBar() {
       }
     }
     const prompt = input.trim()
+    const clearComposer = () => {
+      setInput('')
+      setSlashFilter(null)
+      if (textareaRef.current) {
+        textareaRef.current.style.height = `${INPUT_MIN_HEIGHT}px`
+      }
+    }
+
+    const focusMatch = prompt.match(/^\/focus\s+(.+)/i)
+    if (focusMatch) {
+      clearComposer()
+      const assignment = await setAgentFocus(focusMatch[1].trim()).catch(() => null)
+      addSystemMessage(assignment ? `Focus set: ${formatAssignmentLine(assignment)}` : 'Failed to update shared memory focus.')
+      requestAnimationFrame(() => textareaRef.current?.focus())
+      return
+    }
+
+    const claimMatch = prompt.match(/^\/claim\s+(\S+)\s+(.+)/i)
+    if (claimMatch) {
+      clearComposer()
+      const result = await claimAgentWork(claimMatch[1], claimMatch[2].trim()).catch(() => null)
+      if (!result) {
+        addSystemMessage('Failed to claim shared work item.')
+      } else if (result.ok) {
+        addSystemMessage(`Claimed: ${formatAssignmentLine(result.assignment)}`)
+      } else {
+        addSystemMessage(`Claim conflict: ${formatAssignmentLine(result.conflict)}`)
+      }
+      requestAnimationFrame(() => textareaRef.current?.focus())
+      return
+    }
+
+    const doneMatch = prompt.match(/^\/done(?:\s+(.+))?$/i)
+    if (doneMatch) {
+      clearComposer()
+      const ok = await markAgentDone(doneMatch[1]?.trim()).catch(() => false)
+      addSystemMessage(ok ? 'Marked current work as done.' : 'No active work assignment to mark as done.')
+      requestAnimationFrame(() => textareaRef.current?.focus())
+      return
+    }
+
+    if (/^\/release$/i.test(prompt)) {
+      clearComposer()
+      const ok = await releaseAgentWork().catch(() => false)
+      addSystemMessage(ok ? 'Released current work assignment.' : 'No active work assignment to release.')
+      requestAnimationFrame(() => textareaRef.current?.focus())
+      return
+    }
+
+    if (/^\/memory$/i.test(prompt)) {
+      clearComposer()
+      const snapshot = await refreshAgentMemory().catch(() => null)
+      addSystemMessage(formatMemorySnapshot(snapshot || agentMemorySnapshot, activeTabId))
+      requestAnimationFrame(() => textareaRef.current?.focus())
+      return
+    }
+
     const modelMatch = prompt.match(/^\/model\s+(\S+)/i)
     if (modelMatch) {
       const query = modelMatch[1].toLowerCase()
@@ -260,27 +365,39 @@ export function InputBar() {
       )
       if (match) {
         setPreferredModel(match.id)
-        setInput('')
-        setSlashFilter(null)
+        clearComposer()
         addSystemMessage(`Model switched to ${match.label} (${match.id})`)
       } else {
-        setInput('')
-        setSlashFilter(null)
+        clearComposer()
         addSystemMessage(`Unknown model "${modelMatch[1]}". Available: opus, sonnet, haiku`)
       }
       return
     }
     if (!prompt && attachments.length === 0) return
     if (isConnecting) return
-    setInput('')
-    setSlashFilter(null)
-    if (textareaRef.current) {
-      textareaRef.current.style.height = `${INPUT_MIN_HEIGHT}px`
-    }
+    clearComposer()
     sendMessage(prompt || 'See attached files')
     // Refocus after React re-renders from the state update
     requestAnimationFrame(() => textareaRef.current?.focus())
-  }, [input, isBusy, sendMessage, attachments.length, showSlashMenu, slashFilter, slashIndex, handleSlashSelect])
+  }, [
+    input,
+    sendMessage,
+    attachments.length,
+    showSlashMenu,
+    slashFilter,
+    slashIndex,
+    handleSlashSelect,
+    isConnecting,
+    setPreferredModel,
+    setAgentFocus,
+    claimAgentWork,
+    markAgentDone,
+    releaseAgentWork,
+    refreshAgentMemory,
+    agentMemorySnapshot,
+    activeTabId,
+    addSystemMessage,
+  ])
 
   // ─── Keyboard ───
   const handleKeyDown = (e: React.KeyboardEvent) => {
