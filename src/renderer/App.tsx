@@ -8,13 +8,16 @@ import { StatusBar } from './components/StatusBar'
 import { MarketplacePanel } from './components/MarketplacePanel'
 import { SnippetManager } from './components/SnippetManager'
 import { ExportDialog } from './components/ExportDialog'
+import { ShortcutSettings } from './components/ShortcutSettings'
 import { PermissionWizard } from './components/PermissionWizard'
 import { CommandPalette } from './components/CommandPalette'
 import { ToastContainer } from './components/ToastContainer'
 import { PopoverLayerProvider } from './components/PopoverLayer'
 import { useClaudeEvents } from './hooks/useClaudeEvents'
 import { useHealthReconciliation } from './hooks/useHealthReconciliation'
+import { keyboardEventToShortcut } from '../shared/keyboard-shortcuts'
 import { useExportStore } from './stores/exportStore'
+import { useShortcutStore } from './stores/shortcutStore'
 import { useSessionStore } from './stores/sessionStore'
 import { useSnippetStore } from './stores/snippetStore'
 import { useCommandPaletteStore } from './stores/commandPaletteStore'
@@ -73,17 +76,74 @@ export default function App() {
     })
   }, [])
 
-  // ─── Command palette shortcut (Ctrl+K / Cmd+K) ───
+  // ─── Internal keyboard shortcuts ───
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
-        e.preventDefault()
-        useCommandPaletteStore.getState().toggle()
+      if (captureTargetId) return
+
+      const combo = keyboardEventToShortcut(e)
+      if (!combo) return
+
+      const binding = shortcutBindings.find((item) => item.currentKeys === combo)
+      if (!binding) return
+
+      const session = useSessionStore.getState()
+      e.preventDefault()
+
+      switch (binding.id) {
+        case 'next-tab': {
+          if (session.tabs.length < 2) return
+          const currentIndex = session.tabs.findIndex((tab) => tab.id === session.activeTabId)
+          const nextIndex = (currentIndex + 1) % session.tabs.length
+          session.selectTab(session.tabs[nextIndex].id)
+          break
+        }
+        case 'previous-tab': {
+          if (session.tabs.length < 2) return
+          const currentIndex = session.tabs.findIndex((tab) => tab.id === session.activeTabId)
+          const nextIndex = (currentIndex - 1 + session.tabs.length) % session.tabs.length
+          session.selectTab(session.tabs[nextIndex].id)
+          break
+        }
+        case 'new-tab':
+          void session.createTab()
+          break
+        case 'close-tab':
+          if (session.tabs.length > 1) {
+            session.closeTab(session.activeTabId)
+          }
+          break
+        case 'toggle-expand':
+          session.toggleExpanded()
+          break
+        case 'focus-input':
+          if (!session.isExpanded) {
+            session.toggleExpanded()
+          }
+          window.dispatchEvent(new Event('clui-focus-input'))
+          break
+        case 'command-palette':
+          useCommandPaletteStore.getState().toggle()
+          break
+        case 'open-history':
+          if (!session.isExpanded) {
+            session.toggleExpanded()
+          }
+          window.dispatchEvent(new Event('clui-open-history'))
+          break
+        case 'open-marketplace':
+          session.toggleMarketplace()
+          break
+        case 'toggle-theme': {
+          const theme = useThemeStore.getState()
+          theme.setThemeMode(theme.themeMode === 'dark' ? 'light' : 'dark')
+          break
+        }
       }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [])
+  }, [shortcutBindings, captureTargetId])
 
   // OS-level click-through (RAF-throttled to avoid per-pixel IPC)
   useEffect(() => {
@@ -123,6 +183,9 @@ export default function App() {
   const marketplaceOpen = useSessionStore((s) => s.marketplaceOpen)
   const snippetManagerOpen = useSnippetStore((s) => s.managerOpen)
   const exportDialogOpen = useExportStore((s) => s.isOpen)
+  const shortcutBindings = useShortcutStore((s) => s.bindings)
+  const shortcutSettingsOpen = useShortcutStore((s) => s.settingsOpen)
+  const captureTargetId = useShortcutStore((s) => s.captureTargetId)
   const isRunning = activeTabStatus === 'running' || activeTabStatus === 'connecting'
 
   // Layout dimensions — expandedUI widens and heightens the panel
@@ -226,6 +289,41 @@ export default function App() {
                     }}
                   >
                     <SnippetManager />
+                  </div>
+                </motion.div>
+              </div>
+            )}
+          </AnimatePresence>
+
+          <AnimatePresence initial={false}>
+            {shortcutSettingsOpen && (
+              <div
+                data-clui-ui
+                style={{
+                  width: 720,
+                  maxWidth: 720,
+                  marginLeft: '50%',
+                  transform: 'translateX(-50%)',
+                  marginBottom: 14,
+                  position: 'relative',
+                  zIndex: 30,
+                }}
+              >
+                <motion.div
+                  initial={{ opacity: 0, y: 14, scale: 0.98 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 10, scale: 0.985 }}
+                  transition={TRANSITION}
+                >
+                  <div
+                    data-clui-ui
+                    className="glass-surface overflow-hidden no-drag"
+                    style={{
+                      borderRadius: 24,
+                      maxHeight: 500,
+                    }}
+                  >
+                    <ShortcutSettings />
                   </div>
                 </motion.div>
               </div>

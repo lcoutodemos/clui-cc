@@ -253,6 +253,16 @@ export interface SessionExportResult {
   error?: string
 }
 
+export interface ShortcutBinding {
+  id: string
+  label: string
+  category: 'navigation' | 'view' | 'actions'
+  defaultKeys: string
+  currentKeys: string
+}
+
+export type ShortcutMap = Record<string, string>
+
 // ─── Canonical Events (normalized from raw stream) ───
 
 export type NormalizedEvent =

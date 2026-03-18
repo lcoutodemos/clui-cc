@@ -10,6 +10,7 @@ import { useColors } from '../theme'
 import { useThemeStore } from '../theme'
 import { useCommandPaletteStore } from '../stores/commandPaletteStore'
 import { useSessionStore, AVAILABLE_MODELS } from '../stores/sessionStore'
+import { useShortcutStore } from '../stores/shortcutStore'
 import { useSnippetStore } from '../stores/snippetStore'
 import type { PaletteCommand } from '../../shared/command-palette'
 
@@ -51,8 +52,8 @@ function executeCommand(command: PaletteCommand): void {
   } else if (id === 'clear-tab') {
     session.clearTab()
   } else if (id === 'history') {
-    // History picker is inline in TabStrip — expand + trigger click
     if (!session.isExpanded) session.toggleExpanded()
+    window.dispatchEvent(new Event('clui-open-history'))
   } else if (id === 'marketplace') {
     session.toggleMarketplace()
   } else if (id === 'snippets') {
@@ -78,22 +79,22 @@ function executeCommand(command: PaletteCommand): void {
 function buildCommands(): PaletteCommand[] {
   const { tabs, activeTabId, isExpanded, preferredModel } = useSessionStore.getState()
   const { themeMode } = useThemeStore.getState()
-  const isMac = navigator.platform.toLowerCase().includes('mac')
-  const mod = isMac ? 'Cmd' : 'Ctrl'
+  const shortcutMap = useShortcutStore.getState().getShortcutMap()
 
   const commands: PaletteCommand[] = [
     // Actions
-    { id: 'new-tab', category: 'action', icon: 'Plus', label: 'New Tab', shortcut: `${mod}+T` },
-    { id: 'close-tab', category: 'action', icon: 'X', label: 'Close Tab', shortcut: `${mod}+W` },
+    { id: 'new-tab', category: 'action', icon: 'Plus', label: 'New Tab', shortcut: shortcutMap['new-tab'] },
+    { id: 'close-tab', category: 'action', icon: 'X', label: 'Close Tab', shortcut: shortcutMap['close-tab'] },
     { id: 'clear-tab', category: 'action', icon: 'X', label: 'Clear Conversation' },
-    { id: 'history', category: 'action', icon: 'ClockCounterClockwise', label: 'Open History', shortcut: `${mod}+H` },
-    { id: 'marketplace', category: 'action', icon: 'HeadCircuit', label: 'Marketplace' },
+    { id: 'history', category: 'action', icon: 'ClockCounterClockwise', label: 'Open History', shortcut: shortcutMap['open-history'] },
+    { id: 'marketplace', category: 'action', icon: 'HeadCircuit', label: 'Marketplace', shortcut: shortcutMap['open-marketplace'] },
     { id: 'snippets', category: 'action', icon: 'Lightning', label: 'Manage Snippets' },
     {
       id: 'toggle-expanded',
       category: 'action',
       icon: isExpanded ? 'ArrowsInSimple' : 'ArrowsOutSimple',
       label: isExpanded ? 'Collapse Panel' : 'Expand Panel',
+      shortcut: shortcutMap['toggle-expand'],
     },
   ]
 

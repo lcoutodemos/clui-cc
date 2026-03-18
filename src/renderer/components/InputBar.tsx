@@ -121,6 +121,14 @@ export function InputBar() {
     return unsub
   }, [])
 
+  useEffect(() => {
+    const onFocusInput = () => {
+      textareaRef.current?.focus()
+    }
+    window.addEventListener('clui-focus-input', onFocusInput as EventListener)
+    return () => window.removeEventListener('clui-focus-input', onFocusInput as EventListener)
+  }, [])
+
   const buildCurrentExportData = useCallback((): SessionExportData | null => {
     if (!tab || tab.messages.length === 0) {
       return null
