@@ -106,6 +106,7 @@ interface State {
   claimAgentWork: (workKey: string, summary: string) => Promise<AgentMemoryClaimResult | null>
   markAgentDone: (note?: string) => Promise<boolean>
   releaseAgentWork: () => Promise<boolean>
+  setTabGroup: (tabId: string, groupId: string | undefined) => void
   retryTab: (tabId: string) => void
   stopRetrying: (tabId: string) => void
   handleNormalizedEvent: (tabId: string, event: NormalizedEvent) => void
@@ -830,6 +831,12 @@ export const useSessionStore = create<State>((set, get) => ({
     if (tab?.activeRequestId && (tab.status === 'connecting' || tab.status === 'running')) {
       void window.clui.stopTab(tabId).catch(() => {})
     }
+  },
+
+  setTabGroup: (tabId, groupId) => {
+    set((s) => ({
+      tabs: s.tabs.map((t) => (t.id === tabId ? { ...t, groupId } : t)),
+    }))
   },
 
   retryTab: (tabId) => {
