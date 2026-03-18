@@ -23,7 +23,7 @@ export function getScreenshotTempPath(): string {
  * Build the platform-appropriate screenshot capture command.
  *
  * - macOS: uses `/usr/sbin/screencapture -i` (interactive region select)
- * - Windows: uses PowerShell with System.Drawing (full screen capture)
+ * - Windows: uses SnippingTool.exe /clip (interactive region select → clipboard → file)
  * - Linux: returns null (not supported)
  */
 export function buildScreenshotCommand(outputPath: string): ScreenshotCommand | null {
@@ -35,17 +35,17 @@ export function buildScreenshotCommand(outputPath: string): ScreenshotCommand | 
   }
 
   if (process.platform === 'win32') {
-    const escapedPath = outputPath.replace(/\\/g, '\\\\')
+    const escapedPath = outputPath.replace(/'/g, "''")
+    // Launch Snipping Tool for interactive region select, then save clipboard to file.
+    // If user cancels the snip, clipboard won't have an image → file won't be created.
     const psScript = [
       'Add-Type -AssemblyName System.Windows.Forms;',
       'Add-Type -AssemblyName System.Drawing;',
-      '$bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds;',
-      '$bmp = New-Object System.Drawing.Bitmap($bounds.Width, $bounds.Height);',
-      '$gfx = [System.Drawing.Graphics]::FromImage($bmp);',
-      '$gfx.CopyFromScreen($bounds.Location, [System.Drawing.Point]::Empty, $bounds.Size);',
-      `$bmp.Save('${escapedPath}', [System.Drawing.Imaging.ImageFormat]::Png);`,
-      '$gfx.Dispose();',
-      '$bmp.Dispose();',
+      '[System.Windows.Forms.Clipboard]::Clear();',
+      '$p = Start-Process -FilePath "SnippingTool.exe" -ArgumentList "/clip" -PassThru;',
+      '$p.WaitForExit();',
+      '$img = [System.Windows.Forms.Clipboard]::GetImage();',
+      `if ($img) { $img.Save('${escapedPath}', [System.Drawing.Imaging.ImageFormat]::Png); $img.Dispose() }`,
     ].join(' ')
 
     return {
