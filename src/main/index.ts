@@ -1059,6 +1059,16 @@ ipcMain.handle(IPC.NOTIFY_DESKTOP, (_event, title: string, body: string) => {
   }
 })
 
+// ─── Global error handlers ───
+
+process.on('unhandledRejection', (reason) => {
+  log(`[FATAL] Unhandled rejection: ${reason instanceof Error ? `${reason.message}\n${reason.stack}` : String(reason)}`)
+})
+
+process.on('uncaughtException', (error) => {
+  log(`[FATAL] Uncaught exception: ${error.message}\n${error.stack}`)
+})
+
 // ─── App Lifecycle ───
 
 app.whenReady().then(() => {
