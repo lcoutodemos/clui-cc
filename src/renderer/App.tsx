@@ -10,6 +10,7 @@ import { StatusBar } from './components/StatusBar'
 import { MarketplacePanel } from './components/MarketplacePanel'
 import { CostDashboard } from './components/CostDashboard'
 import { SnippetManager } from './components/SnippetManager'
+import { ErrorBoundary } from './components/ErrorBoundary'
 import { ExportDialog } from './components/ExportDialog'
 import { ShortcutSettings } from './components/ShortcutSettings'
 import { PermissionWizard } from './components/PermissionWizard'
@@ -248,10 +249,11 @@ export default function App() {
 
   return (
     <PopoverLayerProvider>
-      <CommandPalette />
-      <ToastContainer />
-      <GitPanel open={gitPanelOpen} onClose={() => setGitPanelOpen(false)} />
-      <div data-testid="app-root" className="flex flex-col justify-end h-full" style={{ background: 'transparent' }}>
+      <ErrorBoundary>
+        <CommandPalette />
+        <ToastContainer />
+        <GitPanel open={gitPanelOpen} onClose={() => setGitPanelOpen(false)} />
+        <div data-testid="app-root" className="flex flex-col justify-end h-full" style={{ background: 'transparent' }}>
 
         {/* ─── 460px content column, centered. Circles overflow left. ─── */}
         <div style={{ width: contentWidth, position: 'relative', margin: '0 auto', transition: 'width 0.26s cubic-bezier(0.4, 0, 0.1, 1)' }}>
@@ -613,7 +615,8 @@ export default function App() {
             </div>
           </div>
         </div>
-      </div>
+        </div>
+      </ErrorBoundary>
     </PopoverLayerProvider>
   )
 }
