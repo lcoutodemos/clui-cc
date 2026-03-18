@@ -14,6 +14,8 @@ import type {
   ExportOptions,
   SessionExportData,
   SessionExportResult,
+  CostRecord,
+  CostSummary,
 } from '../shared/types'
 
 export interface CluiAPI {
@@ -59,6 +61,9 @@ export interface CluiAPI {
   applyPermissionPreset(preset: string): Promise<boolean>
   needsPermissionSetup(): Promise<boolean>
   dismissPermissionSetup(): Promise<boolean>
+  recordCost(record: CostRecord): void
+  getCostSummary(from?: number, to?: number): Promise<CostSummary>
+  getCostHistory(limit?: number): Promise<CostRecord[]>
   sendDesktopNotification(title: string, body: string): Promise<void>
   getTheme(): Promise<{ isDark: boolean }>
   onThemeChange(callback: (isDark: boolean) => void): () => void
@@ -128,6 +133,9 @@ const api: CluiAPI = {
   applyPermissionPreset: (preset) => ipcRenderer.invoke(IPC.PERMISSIONS_APPLY_PRESET, preset),
   needsPermissionSetup: () => ipcRenderer.invoke(IPC.PERMISSIONS_NEEDS_SETUP),
   dismissPermissionSetup: () => ipcRenderer.invoke(IPC.PERMISSIONS_DISMISS_SETUP),
+  recordCost: (record) => ipcRenderer.send(IPC.COST_RECORD, record),
+  getCostSummary: (from, to) => ipcRenderer.invoke(IPC.COST_SUMMARY, from, to),
+  getCostHistory: (limit) => ipcRenderer.invoke(IPC.COST_HISTORY, limit),
   sendDesktopNotification: (title: string, body: string) => ipcRenderer.invoke(IPC.NOTIFY_DESKTOP, title, body),
   getTheme: () => ipcRenderer.invoke(IPC.GET_THEME),
   onThemeChange: (callback) => {
