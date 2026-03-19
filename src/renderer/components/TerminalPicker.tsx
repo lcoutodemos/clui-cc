@@ -89,7 +89,7 @@ export function TerminalPicker({ sessionId, projectPath }: TerminalPickerProps) 
         ref={triggerRef}
         onClick={handleToggle}
         className="flex items-center gap-0.5 text-[10px] rounded-full px-1 py-0.5 transition-colors"
-        style={{ color: colors.textTertiary }}
+        style={{ color: colors.textTertiary, cursor: 'pointer' }}
         title="Change default terminal"
       >
         <CaretDown size={10} style={{ opacity: 0.6 }} />
