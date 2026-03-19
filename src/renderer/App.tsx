@@ -272,6 +272,19 @@ export default function App() {
 
   return (
     <PopoverLayerProvider>
+      {/* Skip to main input — visually hidden, shown on focus for keyboard users */}
+      <a
+        href="#clui-main-input"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:px-3 focus:py-1 focus:rounded focus:text-[12px]"
+        style={{ background: colors.accent, color: '#fff' }}
+        onClick={(e) => {
+          e.preventDefault()
+          const input = document.getElementById('clui-main-input')
+          if (input) { input.focus(); input.scrollIntoView() }
+        }}
+      >
+        Skip to input
+      </a>
       <ErrorBoundary>
         <CommandPalette />
         <ToastContainer />
@@ -611,6 +624,7 @@ export default function App() {
                   <button
                     className="stack-btn stack-btn-1 glass-surface"
                     title="Attach file"
+                    aria-label="Attach file"
                     onClick={handleAttachFile}
                     disabled={isRunning}
                   >
@@ -620,6 +634,7 @@ export default function App() {
                   <button
                     className="stack-btn stack-btn-2 glass-surface"
                     title="Take screenshot"
+                    aria-label="Take screenshot"
                     onClick={handleScreenshot}
                     disabled={isRunning}
                   >
@@ -629,6 +644,7 @@ export default function App() {
                   <button
                     className="stack-btn stack-btn-3 glass-surface"
                     title="Skills & Plugins"
+                    aria-label="Skills & Plugins"
                     onClick={() => useSessionStore.getState().toggleMarketplace()}
                     disabled={isRunning}
                   >

@@ -596,8 +596,10 @@ export function InputBar() {
         {isMultiLine ? (
           <div className="w-full">
             <textarea
+              id="clui-main-input"
               ref={textareaRef}
               data-testid="composer-input"
+              aria-label="Message Claude"
               value={input}
               onChange={handleInputChange}
               onKeyDown={handleKeyDown}
@@ -656,8 +658,10 @@ export function InputBar() {
         ) : (
           <div className="flex items-center w-full" style={{ minHeight: 50 }}>
             <textarea
+              id="clui-main-input"
               ref={textareaRef}
               data-testid="composer-input"
+              aria-label="Message Claude"
               value={input}
               onChange={handleInputChange}
               onKeyDown={handleKeyDown}

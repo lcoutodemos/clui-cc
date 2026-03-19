@@ -77,6 +77,8 @@ export function Toast({ toast }: ToastProps) {
 
   return (
     <motion.div
+      role="alert"
+      aria-live="polite"
       layout
       initial={{ opacity: 0, x: 280 }}
       animate={{ opacity: 1, x: 0 }}
