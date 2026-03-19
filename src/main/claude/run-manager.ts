@@ -5,7 +5,7 @@ import { join } from 'path'
 import { StreamParser } from '../stream-parser'
 import { normalize } from './event-normalizer'
 import { log as _log } from '../logger'
-import { getCliEnv } from '../cli-env'
+import { extractAbsoluteShellPath, getCliEnv } from '../cli-env'
 import type { ClaudeEvent, NormalizedEvent, RunOptions, EnrichedError } from '../../shared/types'
 
 const MAX_RING_LINES = 100
@@ -102,6 +102,7 @@ export class RunManager extends EventEmitter {
 
   private _findClaudeBinary(): string {
     const candidates = [
+      join(homedir(), '.local/bin/claude'),
       '/usr/local/bin/claude',
       '/opt/homebrew/bin/claude',
       join(homedir(), '.npm-global/bin/claude'),
@@ -114,12 +115,17 @@ export class RunManager extends EventEmitter {
       } catch {}
     }
 
+    // Non-interactive login shell to avoid shell integration escape sequences
     try {
-      return execSync('/bin/zsh -ilc "whence -p claude"', { encoding: 'utf-8', env: getCliEnv() }).trim()
+      const raw = execSync('/bin/zsh -lc "whence -p claude"', { encoding: 'utf-8', env: getCliEnv(), timeout: 3000 })
+      const result = extractAbsoluteShellPath(raw)
+      if (result) return result
     } catch {}
 
     try {
-      return execSync('/bin/bash -lc "which claude"', { encoding: 'utf-8', env: getCliEnv() }).trim()
+      const raw = execSync('/bin/bash -lc "which claude"', { encoding: 'utf-8', env: getCliEnv(), timeout: 3000 })
+      const result = extractAbsoluteShellPath(raw)
+      if (result) return result
     } catch {}
 
     return 'claude'

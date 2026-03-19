@@ -21,7 +21,7 @@ import { join } from 'path'
 import { execSync } from 'child_process'
 import { appendFileSync, chmodSync, existsSync, statSync } from 'fs'
 import type { NormalizedEvent, RunOptions, EnrichedError } from '../../shared/types'
-import { getCliEnv } from '../cli-env'
+import { extractAbsoluteShellPath, getCliEnv } from '../cli-env'
 
 // node-pty is a native module — require at runtime to avoid Vite bundling issues
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -312,6 +312,7 @@ export class PtyRunManager extends EventEmitter {
 
   private _findClaudeBinary(): string {
     const candidates = [
+      join(homedir(), '.local/bin/claude'),
       '/usr/local/bin/claude',
       '/opt/homebrew/bin/claude',
       join(homedir(), '.npm-global/bin/claude'),
@@ -324,12 +325,17 @@ export class PtyRunManager extends EventEmitter {
       } catch {}
     }
 
+    // Non-interactive login shell to avoid shell integration escape sequences
     try {
-      return execSync('/bin/zsh -ilc "whence -p claude"', { encoding: 'utf-8', env: getCliEnv() }).trim()
+      const raw = execSync('/bin/zsh -lc "whence -p claude"', { encoding: 'utf-8', env: getCliEnv(), timeout: 3000 })
+      const result = extractAbsoluteShellPath(raw)
+      if (result) return result
     } catch {}
 
     try {
-      return execSync('/bin/bash -lc "which claude"', { encoding: 'utf-8', env: getCliEnv() }).trim()
+      const raw = execSync('/bin/bash -lc "which claude"', { encoding: 'utf-8', env: getCliEnv(), timeout: 3000 })
+      const result = extractAbsoluteShellPath(raw)
+      if (result) return result
     } catch {}
 
     return 'claude'

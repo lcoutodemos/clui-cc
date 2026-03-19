@@ -4,7 +4,7 @@ import { homedir } from 'os'
 import { appendFileSync } from 'fs'
 import { join } from 'path'
 import { StreamParser } from './stream-parser'
-import { getCliEnv } from './cli-env'
+import { extractAbsoluteShellPath, getCliEnv } from './cli-env'
 import type { ClaudeEvent, RunOptions } from '../shared/types'
 
 const LOG_FILE = join(homedir(), '.clui-debug.log')
@@ -38,6 +38,7 @@ export class ProcessManager extends EventEmitter {
   private findClaudeBinary(): string {
     // Try common locations
     const candidates = [
+      join(homedir(), '.local/bin/claude'),
       '/usr/local/bin/claude',
       '/opt/homebrew/bin/claude',
       join(homedir(), '.npm-global/bin/claude'),
@@ -51,14 +52,16 @@ export class ProcessManager extends EventEmitter {
       } catch {}
     }
 
-    // Fallback: ask a login shell
+    // Non-interactive login shell to avoid shell integration escape sequences
     try {
-      const result = execSync('/bin/zsh -ilc "whence -p claude"', { encoding: 'utf-8', env: getCliEnv() }).trim()
+      const raw = execSync('/bin/zsh -lc "whence -p claude"', { encoding: 'utf-8', env: getCliEnv(), timeout: 3000 })
+      const result = extractAbsoluteShellPath(raw)
       if (result) return result
     } catch {}
 
     try {
-      const result = execSync('/bin/bash -lc "which claude"', { encoding: 'utf-8', env: getCliEnv() }).trim()
+      const raw = execSync('/bin/bash -lc "which claude"', { encoding: 'utf-8', env: getCliEnv(), timeout: 3000 })
+      const result = extractAbsoluteShellPath(raw)
       if (result) return result
     } catch {}
 
