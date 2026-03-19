@@ -617,7 +617,7 @@ export default function App() {
                 data-clui-ui
                 className="circles-out"
               >
-                <div className="btn-stack">
+                <div className="btn-stack" data-compact={expandedUI ? '' : undefined}>
                   {/* btn-0: Terminal toggle */}
                   <ModeToggle />
                   {/* btn-1: Attach (front, rightmost) */}

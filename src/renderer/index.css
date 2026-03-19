@@ -164,7 +164,7 @@ input::placeholder {
 
 .btn-stack {
   position: relative;
-  width: 160px;
+  width: 200px;
   height: 46px;
   overflow: visible;
 }
@@ -187,14 +187,21 @@ input::placeholder {
 .stack-btn:disabled { color: var(--clui-btn-disabled); cursor: default; }
 
 /* Collapsed: stacked on the right, overlapping */
+.stack-btn-0 { right: 84px; z-index: 4; }
 .stack-btn-1 { right: 0;    z-index: 3; }
 .stack-btn-2 { right: 28px; z-index: 2; }
 .stack-btn-3 { right: 56px; z-index: 1; }
 
 /* Expanded on hover: spread evenly */
+.btn-stack:hover .stack-btn-0 { right: 168px; }
 .btn-stack:hover .stack-btn-1 { right: 0; }
 .btn-stack:hover .stack-btn-2 { right: 56px; }
 .btn-stack:hover .stack-btn-3 { right: 112px; }
+
+/* Compact mode (expandedUI): tighter spread to stay within window bounds */
+.btn-stack[data-compact]:hover .stack-btn-0 { right: 120px; }
+.btn-stack[data-compact]:hover .stack-btn-2 { right: 44px; }
+.btn-stack[data-compact]:hover .stack-btn-3 { right: 88px; }
 
 /* ─── Drag region for frameless window ─── */
 .drag-region {
