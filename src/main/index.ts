@@ -30,7 +30,7 @@ const controlPlane = new ControlPlane(INTERACTIVE_PTY)
 
 // Keep native width fixed to avoid renderer animation vs setBounds race.
 // The UI itself still launches in compact mode; extra width is transparent/click-through.
-const BAR_WIDTH = 1040
+const BAR_WIDTH = 1100
 const PILL_HEIGHT = 720  // Fixed native window height — extra room for expanded UI + shadow buffers
 const PILL_BOTTOM_MARGIN = 24
 
@@ -141,6 +141,33 @@ function createWindow(): void {
     }
   })
 
+  // Intercept zoom shortcuts before Chromium sees them so we fully own the zoom
+  // factor and window size. zoom-changed is not used because event.preventDefault()
+  // on it is unreliable — Chromium may still apply its own preset step (1.0→1.25
+  // etc.) on top of ours, making the actual zoom factor exceed what the window was
+  // sized for and shrinking the CSS viewport below BAR_WIDTH, which clips content.
+  mainWindow.webContents.on('before-input-event', (event, input) => {
+    if (!input.meta) return
+    if (input.key === '=' || input.key === '+') {
+      // zoom in
+      event.preventDefault()
+      const next = Math.min(+(( mainWindow?.webContents.getZoomFactor() ?? 1) + 0.1).toFixed(1), 3.0)
+      mainWindow?.webContents.setZoomFactor(next)
+      applyZoom(next)
+    } else if (input.key === '-') {
+      // zoom out
+      event.preventDefault()
+      const next = Math.max(+((mainWindow?.webContents.getZoomFactor() ?? 1) - 0.1).toFixed(1), 0.5)
+      mainWindow?.webContents.setZoomFactor(next)
+      applyZoom(next)
+    } else if (input.key === '0') {
+      // reset zoom
+      event.preventDefault()
+      mainWindow?.webContents.setZoomFactor(1)
+      applyZoom(1)
+    }
+  })
+
   let forceQuit = false
   app.on('before-quit', () => { forceQuit = true })
   mainWindow.on('close', (e) => {
@@ -157,6 +184,27 @@ function createWindow(): void {
   }
 }
 
+/** Resize and reposition the window for a given zoom factor. */
+function applyZoom(zoom: number): void {
+  if (!mainWindow || mainWindow.isDestroyed()) return
+  const bounds = mainWindow.getBounds()
+  const display = screen.getDisplayMatching(bounds)
+  const { x: dx, y: dy } = display.workArea
+  const { width: sw, height: sh } = display.workAreaSize
+  const w = Math.round(BAR_WIDTH * zoom)
+  const h = Math.round(PILL_HEIGHT * zoom)
+  // Clamp left edge to screen boundary — at high zoom the window can be wider
+  // than the screen, and macOS clips panel windows that start off-screen left.
+  // Overflow on the right is fine since that area is transparent.
+  const x = Math.max(dx, dx + Math.round((sw - w) / 2))
+  mainWindow.setBounds({
+    x,
+    y: dy + sh - h - PILL_BOTTOM_MARGIN,
+    width: w,
+    height: h,
+  })
+}
+
 function showWindow(source = 'unknown'): void {
   if (!mainWindow) return
   const toggleId = ++toggleSequence
@@ -166,11 +214,15 @@ function showWindow(source = 'unknown'): void {
   const display = screen.getDisplayNearestPoint(cursor)
   const { width: sw, height: sh } = display.workAreaSize
   const { x: dx, y: dy } = display.workArea
+  // Preserve the user's zoom level when repositioning
+  const zoom = mainWindow.webContents.getZoomFactor()
+  const w = Math.round(BAR_WIDTH * zoom)
+  const h = Math.round(PILL_HEIGHT * zoom)
   mainWindow.setBounds({
-    x: dx + Math.round((sw - BAR_WIDTH) / 2),
-    y: dy + sh - PILL_HEIGHT - PILL_BOTTOM_MARGIN,
-    width: BAR_WIDTH,
-    height: PILL_HEIGHT,
+    x: dx + Math.round((sw - w) / 2),
+    y: dy + sh - h - PILL_BOTTOM_MARGIN,
+    width: w,
+    height: h,
   })
 
   // Always re-assert space membership — the flag can be lost after hide/show cycles

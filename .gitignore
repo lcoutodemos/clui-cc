@@ -18,6 +18,7 @@ Desktop.ini
 *.swp
 *.swo
 *~
+.zed
 
 # Claude Code project-scoped local settings
 .claude/settings.local.json
