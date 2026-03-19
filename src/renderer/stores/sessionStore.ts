@@ -1,5 +1,15 @@
 import { create } from 'zustand'
-import type { TabStatus, NormalizedEvent, EnrichedError, Message, TabState, Attachment, CatalogPlugin, PluginStatus } from '../../shared/types'
+import type {
+  TabStatus,
+  NormalizedEvent,
+  EnrichedError,
+  Message,
+  TabState,
+  Attachment,
+  CatalogPlugin,
+  PluginStatus,
+  ShortcutSettings,
+} from '../../shared/types'
 import { useThemeStore } from '../theme'
 import notificationSrc from '../../../resources/notification.mp3'
 
@@ -32,6 +42,9 @@ interface State {
   preferredModel: string | null
   /** Global permission mode: 'ask' shows cards, 'auto' auto-approves all tool calls */
   permissionMode: 'ask' | 'auto'
+  shortcutSettings: ShortcutSettings | null
+  shortcutSettingsSaving: boolean
+  shortcutSettingsError: string | null
 
   // Marketplace state
   marketplaceOpen: boolean
@@ -45,6 +58,8 @@ interface State {
 
   // Actions
   initStaticInfo: () => Promise<void>
+  loadShortcutSettings: () => Promise<void>
+  saveShortcutSettings: (settings: ShortcutSettings) => Promise<boolean>
   setPreferredModel: (model: string | null) => void
   setPermissionMode: (mode: 'ask' | 'auto') => void
   createTab: () => Promise<string>
@@ -128,6 +143,9 @@ export const useSessionStore = create<State>((set, get) => ({
   staticInfo: null,
   preferredModel: null,
   permissionMode: 'ask',
+  shortcutSettings: null,
+  shortcutSettingsSaving: false,
+  shortcutSettingsError: null,
 
   // Marketplace
   marketplaceOpen: false,
@@ -152,6 +170,34 @@ export const useSessionStore = create<State>((set, get) => ({
         },
       })
     } catch {}
+  },
+
+  loadShortcutSettings: async () => {
+    try {
+      const settings = await window.clui.getShortcutSettings()
+      set({ shortcutSettings: settings, shortcutSettingsError: null })
+    } catch (err) {
+      set({ shortcutSettingsError: err instanceof Error ? err.message : String(err) })
+    }
+  },
+
+  saveShortcutSettings: async (settings) => {
+    set({ shortcutSettingsSaving: true, shortcutSettingsError: null })
+    try {
+      const result = await window.clui.setShortcutSettings(settings)
+      set({
+        shortcutSettingsSaving: false,
+        shortcutSettingsError: result.ok ? null : (result.error || 'Failed to update shortcuts'),
+        shortcutSettings: result.settings,
+      })
+      return result.ok
+    } catch (err) {
+      set({
+        shortcutSettingsSaving: false,
+        shortcutSettingsError: err instanceof Error ? err.message : String(err),
+      })
+      return false
+    }
   },
 
   setPreferredModel: (model) => {
