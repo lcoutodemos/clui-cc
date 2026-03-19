@@ -133,8 +133,12 @@ export function loadShortcutSettings(): ShortcutSettings {
 
     const raw = JSON.parse(readFileSync(filePath, 'utf-8')) as Partial<ShortcutSettings>
     return normalizeShortcutSettings({
-      primaryShortcut: raw.primaryShortcut ?? DEFAULT_SHORTCUT_SETTINGS.primaryShortcut,
-      secondaryShortcut: raw.secondaryShortcut ?? DEFAULT_SHORTCUT_SETTINGS.secondaryShortcut,
+      primaryShortcut: raw.primaryShortcut === undefined
+        ? DEFAULT_SHORTCUT_SETTINGS.primaryShortcut
+        : raw.primaryShortcut,
+      secondaryShortcut: raw.secondaryShortcut === undefined
+        ? DEFAULT_SHORTCUT_SETTINGS.secondaryShortcut
+        : raw.secondaryShortcut,
     })
   } catch {
     return DEFAULT_SHORTCUT_SETTINGS
