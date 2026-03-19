@@ -9,7 +9,9 @@ import { fetchCatalog, listInstalled, installPlugin, uninstallPlugin } from './m
 import { log as _log, LOG_FILE, flushLogs } from './logger'
 import { getCliEnv } from './cli-env'
 import { IPC } from '../shared/types'
-import type { RunOptions, NormalizedEvent, EnrichedError } from '../shared/types'
+import type { RunOptions, NormalizedEvent, EnrichedError, DetectedTerminal } from '../shared/types'
+import { detectTerminals, isValidExecutable } from './terminal-detector'
+import { launchTerminal } from './terminal-launcher'
 
 const DEBUG_MODE = process.env.CLUI_DEBUG === '1'
 const SPACES_DEBUG = DEBUG_MODE || process.env.CLUI_SPACES_DEBUG === '1'
@@ -796,44 +798,82 @@ ipcMain.handle(IPC.GET_DIAGNOSTICS, () => {
   }
 })
 
-ipcMain.handle(IPC.OPEN_IN_TERMINAL, (_event, arg: string | null | { sessionId?: string | null; projectPath?: string }) => {
-  const { execFile } = require('child_process')
-  const claudeBin = 'claude'
-
-  // Support both old (string) and new ({ sessionId, projectPath }) calling convention
+ipcMain.handle(IPC.OPEN_IN_TERMINAL, async (_event, arg: string | null | { sessionId?: string | null; projectPath?: string; terminalName?: string }) => {
   let sessionId: string | null = null
   let projectPath: string = process.cwd()
+  let terminalName: string | undefined
+
+  // Support old calling convention (string = sessionId) and new object form
   if (typeof arg === 'string') {
     sessionId = arg
   } else if (arg && typeof arg === 'object') {
     sessionId = arg.sessionId ?? null
     projectPath = arg.projectPath && arg.projectPath !== '~' ? arg.projectPath : process.cwd()
+    terminalName = arg.terminalName
   }
-
-  // Escape for AppleScript: double quotes → backslash-escaped, backslashes doubled
-  const projectDir = projectPath.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
-  let cmd: string
-  if (sessionId) {
-    cmd = `cd \\"${projectDir}\\" && ${claudeBin} --resume ${sessionId}`
-  } else {
-    cmd = `cd \\"${projectDir}\\" && ${claudeBin}`
-  }
-
-  const script = `tell application "Terminal"
-  activate
-  do script "${cmd}"
-end tell`
 
   try {
-    execFile('/usr/bin/osascript', ['-e', script], (err: Error | null) => {
-      if (err) log(`Failed to open terminal: ${err.message}`)
-      else log(`Opened terminal with: ${cmd}`)
-    })
+    let terminal: DetectedTerminal | undefined
+
+    if (terminalName && terminalName.startsWith('/')) {
+      // Full path — custom executable chosen via file picker
+      terminal = {
+        name: 'custom',
+        displayName: terminalName.split('/').pop() ?? 'Custom Terminal',
+        path: terminalName,
+        method: terminalName.endsWith('.app') ? 'applescript' : 'cli',
+      }
+    } else if (terminalName) {
+      const detected = detectTerminals()
+      terminal = detected.find((t) => t.name === terminalName)
+    }
+
+    if (!terminal) {
+      // Fall back to first detected terminal, then hard-coded Terminal.app
+      const detected = detectTerminals()
+      terminal = detected[0] ?? {
+        name: 'Terminal',
+        displayName: 'macOS Terminal',
+        path: '/Applications/Utilities/Terminal.app',
+        method: 'applescript' as const,
+      }
+    }
+
+    await launchTerminal({ terminal, projectPath, sessionId })
+    log(`Opened ${terminal.displayName}${sessionId ? ` (resume ${sessionId})` : ''}`)
     return true
   } catch (err: unknown) {
-    log(`Failed to open terminal: ${err}`)
+    log(`Failed to open terminal: ${err instanceof Error ? err.message : String(err)}`)
     return false
   }
+})
+
+ipcMain.handle(IPC.DETECT_TERMINALS, () => {
+  log('IPC DETECT_TERMINALS')
+  try {
+    return { terminals: detectTerminals(), error: null }
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    log(`DETECT_TERMINALS error: ${msg}`)
+    return { terminals: [], error: msg }
+  }
+})
+
+ipcMain.handle(IPC.SELECT_CUSTOM_TERMINAL, async () => {
+  log('IPC SELECT_CUSTOM_TERMINAL')
+  if (!mainWindow) return null
+  if (process.platform === 'darwin') app.focus()
+  const options = { properties: ['openFile'] as const }
+  const result = process.platform === 'darwin'
+    ? await dialog.showOpenDialog(options)
+    : await dialog.showOpenDialog(mainWindow, options)
+  if (result.canceled || result.filePaths.length === 0) return null
+  const selectedPath = result.filePaths[0]
+  if (!isValidExecutable(selectedPath)) {
+    log(`SELECT_CUSTOM_TERMINAL: not executable: ${selectedPath}`)
+    return null
+  }
+  return selectedPath
 })
 
 // ─── Marketplace IPC ───

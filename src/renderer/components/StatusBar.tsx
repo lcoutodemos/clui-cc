@@ -1,10 +1,11 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Terminal, CaretDown, Check, FolderOpen, Plus, X, ShieldCheck } from '@phosphor-icons/react'
+import { CaretDown, Check, FolderOpen, Plus, X, ShieldCheck } from '@phosphor-icons/react'
 import { useSessionStore, AVAILABLE_MODELS } from '../stores/sessionStore'
 import { usePopoverLayer } from './PopoverLayer'
 import { useColors } from '../theme'
+import { TerminalPicker } from './TerminalPicker'
 
 /* ─── Model Picker (inline — tightly coupled to StatusBar) ─── */
 
@@ -297,10 +298,6 @@ export function StatusBar() {
   const isEmpty = tab.messages.length === 0
   const hasExtraDirs = tab.additionalDirs.length > 0
 
-  const handleOpenInTerminal = () => {
-    window.clui.openInTerminal(tab.claudeSessionId, tab.workingDirectory)
-  }
-
   const handleDirClick = () => {
     if (isRunning) return
     if (!dirOpen && dirRef.current) {
@@ -436,17 +433,9 @@ export function StatusBar() {
         <PermissionModePicker />
       </div>
 
-      {/* Right — Open in CLI */}
-      <div className="flex items-center gap-1.5 flex-shrink-0">
-        <button
-          onClick={handleOpenInTerminal}
-          className="flex items-center gap-1 text-[11px] rounded-full px-2 py-0.5 transition-colors"
-          style={{ color: colors.textTertiary }}
-          title="Open this session in Terminal"
-        >
-          Open in CLI
-          <Terminal size={11} />
-        </button>
+      {/* Right — Open in CLI + terminal picker */}
+      <div className="flex items-center flex-shrink-0">
+        <TerminalPicker sessionId={tab.claudeSessionId} projectPath={tab.workingDirectory} />
       </div>
     </div>
   )
