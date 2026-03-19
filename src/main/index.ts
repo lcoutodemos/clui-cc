@@ -7,7 +7,7 @@ import { ControlPlane } from './claude/control-plane'
 import { ensureSkills, type SkillStatus } from './skills/installer'
 import { fetchCatalog, listInstalled, installPlugin, uninstallPlugin } from './marketplace/catalog'
 import { log as _log, LOG_FILE, flushLogs } from './logger'
-import { getCliEnv } from './cli-env'
+import { extractAbsoluteShellPath, getCliEnv } from './cli-env'
 import { IPC } from '../shared/types'
 import type { RunOptions, NormalizedEvent, EnrichedError } from '../shared/types'
 
@@ -672,12 +672,14 @@ ipcMain.handle(IPC.TRANSCRIBE_AUDIO, async (_event, audioBase64: string) => {
 
     if (!whisperBin) {
       try {
-        whisperBin = execSync('/bin/zsh -lc "whence -p whisper-cli"', { encoding: 'utf-8' }).trim()
+        const raw = execSync('/bin/zsh -lc "whence -p whisper-cli"', { encoding: 'utf-8', env: getCliEnv(), timeout: 3000 })
+        whisperBin = extractAbsoluteShellPath(raw) || ''
       } catch {}
     }
     if (!whisperBin) {
       try {
-        whisperBin = execSync('/bin/zsh -lc "whence -p whisper"', { encoding: 'utf-8' }).trim()
+        const raw = execSync('/bin/zsh -lc "whence -p whisper"', { encoding: 'utf-8', env: getCliEnv(), timeout: 3000 })
+        whisperBin = extractAbsoluteShellPath(raw) || ''
       } catch {}
     }
 
