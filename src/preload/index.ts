@@ -94,6 +94,7 @@ export interface CluiAPI {
   onSkillStatus(callback: (status: { name: string; state: string; error?: string; reason?: string }) => void): () => void
   onWhisperStatus(callback: (status: { stage: string; progress?: number; error?: string }) => void): () => void
   onWindowShown(callback: () => void): () => void
+  onShortcutRegistered(callback: (shortcut: string) => void): () => void
 
   // Terminal
   terminalAvailable(): Promise<boolean>
@@ -232,6 +233,11 @@ const api: CluiAPI = {
     const handler = () => callback()
     ipcRenderer.on(IPC.WINDOW_SHOWN, handler)
     return () => ipcRenderer.removeListener(IPC.WINDOW_SHOWN, handler)
+  },
+  onShortcutRegistered: (callback) => {
+    const handler = (_: unknown, shortcut: string) => callback(shortcut)
+    ipcRenderer.on(IPC.SHORTCUT_REGISTERED, handler)
+    return () => ipcRenderer.removeListener(IPC.SHORTCUT_REGISTERED, handler)
   },
 
   // Terminal

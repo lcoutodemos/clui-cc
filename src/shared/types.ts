@@ -574,6 +574,9 @@ export const IPC = {
   // Error logging
   LOG_RENDERER_ERROR: 'clui:log-renderer-error',
 
+  // Shortcut hint
+  SHORTCUT_REGISTERED: 'clui:shortcut-registered',
+
   // File peek
   FILE_READ: 'clui:file-read',
   FILE_REVEAL: 'clui:file-reveal',

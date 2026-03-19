@@ -18,10 +18,10 @@ export interface ShortcutConfig {
 /**
  * Returns the platform-appropriate default shortcut.
  * - macOS: Alt+Space (doesn't conflict with Spotlight, which uses Cmd+Space)
- * - Windows: Ctrl+Space (may conflict with IMEs — that's why we support alternatives)
+ * - Windows: Alt+Space (Ctrl+Space conflicts with IMEs on most Windows setups)
  */
 export function getDefaultShortcut(): string {
-  return process.platform === 'win32' ? 'CommandOrControl+Space' : 'Alt+Space'
+  return 'Alt+Space'
 }
 
 /**
@@ -31,7 +31,6 @@ export function getDefaultShortcut(): string {
 export function getSafeAlternatives(): string[] {
   return [
     'CommandOrControl+Shift+Space',
-    'CommandOrControl+`',
     'CommandOrControl+Shift+K',
     'Alt+Shift+Space',
     'CommandOrControl+Alt+Space',

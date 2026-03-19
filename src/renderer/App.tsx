@@ -41,6 +41,7 @@ import { FileContextMenu } from './components/FileContextMenu'
 import { useColors, useThemeStore, spacing } from './theme'
 import { useFilePeekStore } from './stores/filePeekStore'
 import { useContextMenuStore } from './stores/contextMenuStore'
+import { useNotificationStore } from './stores/notificationStore'
 
 const TRANSITION = { duration: 0.26, ease: [0.4, 0, 0.1, 1] as const }
 
@@ -253,6 +254,23 @@ export default function App() {
       document.removeEventListener('mousemove', onMouseMove)
       document.removeEventListener('mouseleave', onMouseLeave)
     }
+  }, [])
+
+  // Show shortcut hint toast on first launch
+  useEffect(() => {
+    const HINT_KEY = 'clui:shortcutHintShown'
+    if (localStorage.getItem(HINT_KEY)) return
+    const cleanup = window.clui.onShortcutRegistered((shortcut: string) => {
+      const display = shortcut.replace('CommandOrControl', 'Ctrl').replace('Alt', 'Alt')
+      useNotificationStore.getState().addToast({
+        type: 'info',
+        title: `Press ${display} to show/hide Clui`,
+        message: 'Ctrl+Shift+K also works as backup',
+        duration: 8000,
+      })
+      localStorage.setItem(HINT_KEY, '1')
+    })
+    return cleanup
   }, [])
 
   // Layout dimensions — expandedUI widens and heightens the panel; terminal/comparison mode widens further

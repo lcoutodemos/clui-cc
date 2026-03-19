@@ -31,13 +31,7 @@ describe('shortcut-config', () => {
   })
 
   describe('getDefaultShortcut', () => {
-    it('returns Ctrl+Space on win32', () => {
-      restorePlatform = mockPlatform('win32')
-      expect(getDefaultShortcut()).toBe('CommandOrControl+Space')
-    })
-
-    it('returns Alt+Space on darwin', () => {
-      restorePlatform = mockPlatform('darwin')
+    it('returns Alt+Space on all platforms', () => {
       expect(getDefaultShortcut()).toBe('Alt+Space')
     })
   })
@@ -58,11 +52,10 @@ describe('shortcut-config', () => {
 
   describe('loadShortcutConfig', () => {
     it('returns default when config file does not exist', () => {
-      restorePlatform = mockPlatform('win32')
       mockExistsSync.mockReturnValue(false)
 
       const config = loadShortcutConfig()
-      expect(config.primary).toBe('CommandOrControl+Space')
+      expect(config.primary).toBe('Alt+Space')
     })
 
     it('returns saved shortcut when config file exists', () => {
@@ -74,12 +67,11 @@ describe('shortcut-config', () => {
     })
 
     it('falls back to default on corrupt config file', () => {
-      restorePlatform = mockPlatform('win32')
       mockExistsSync.mockReturnValue(true)
       mockReadFileSync.mockReturnValue('not json!!!!')
 
       const config = loadShortcutConfig()
-      expect(config.primary).toBe('CommandOrControl+Space')
+      expect(config.primary).toBe('Alt+Space')
     })
   })
 

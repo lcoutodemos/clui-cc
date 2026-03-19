@@ -1208,6 +1208,11 @@ app.whenReady().then(() => {
     // Secondary shortcut always registered
     globalShortcut.register('CommandOrControl+Shift+K', () => toggleWindow('shortcut Cmd/Ctrl+Shift+K'))
 
+    // Notify renderer of the active shortcut for first-launch hint toast
+    mainWindow?.webContents.once('did-finish-load', () => {
+      mainWindow?.webContents.send(IPC.SHORTCUT_REGISTERED, primaryShortcut)
+    })
+
     const trayIconPath = join(__dirname, process.platform === 'darwin' ? '../../resources/trayTemplate.png' : '../../resources/icon.png')
     const trayIcon = nativeImage.createFromPath(trayIconPath)
     if (process.platform === 'darwin') {
