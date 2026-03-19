@@ -1,6 +1,8 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react'
+import { AnimatePresence } from 'framer-motion'
 import { useColors } from '../theme'
 import { useTerminalStore } from '../stores/terminalStore'
+import { TerminalSearch } from './TerminalSearch'
 
 interface TerminalViewProps {
   termTabId: string
@@ -11,8 +13,10 @@ export function TerminalView({ termTabId, isActive }: TerminalViewProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const terminalRef = useRef<any>(null) // xterm Terminal instance
   const fitAddonRef = useRef<any>(null)
+  const searchAddonRef = useRef<any>(null)
   const colors = useColors()
   const [loaded, setLoaded] = useState(false)
+  const [searchOpen, setSearchOpen] = useState(false)
 
   // Lazy-load xterm.js and initialize
   useEffect(() => {
@@ -24,10 +28,12 @@ export function TerminalView({ termTabId, isActive }: TerminalViewProps) {
       const { Terminal } = await import('@xterm/xterm')
       const { FitAddon } = await import('@xterm/addon-fit')
       const { WebLinksAddon } = await import('@xterm/addon-web-links')
+      const { SearchAddon } = await import('@xterm/addon-search')
 
       if (disposed) return
 
       const fitAddon = new FitAddon()
+      const searchAddon = new SearchAddon()
 
       const terminal = new Terminal({
         fontFamily: '"JetBrains Mono", "Cascadia Code", "Fira Code", Consolas, "Courier New", monospace',
@@ -94,6 +100,12 @@ export function TerminalView({ termTabId, isActive }: TerminalViewProps) {
             return false
           }
 
+          // Search: Ctrl+Shift+F
+          if (mod && e.shiftKey && e.key === 'F' && e.type === 'keydown') {
+            window.dispatchEvent(new CustomEvent('clui-terminal-shortcut', { detail: { action: 'toggle-search', termTabId } }))
+            return false
+          }
+
           // Toggle mode: Ctrl+`
           if (mod && e.key === '`' && e.type === 'keydown') {
             useTerminalStore.getState().toggleMode()
@@ -106,6 +118,8 @@ export function TerminalView({ termTabId, isActive }: TerminalViewProps) {
 
       terminal.loadAddon(fitAddon)
       terminal.loadAddon(new WebLinksAddon())
+      terminal.loadAddon(searchAddon)
+      searchAddonRef.current = searchAddon
 
       terminal.open(containerRef.current!)
       fitAddon.fit()
@@ -208,17 +222,73 @@ export function TerminalView({ termTabId, isActive }: TerminalViewProps) {
     }
   }, [colors])
 
+  // Search toggle listener
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail
+      if (detail?.action === 'toggle-search' && detail?.termTabId === termTabId) {
+        setSearchOpen((prev) => !prev)
+      }
+    }
+    window.addEventListener('clui-terminal-shortcut', handler)
+    return () => window.removeEventListener('clui-terminal-shortcut', handler)
+  }, [termTabId])
+
+  const handleSearch = useCallback((term: string) => {
+    if (!searchAddonRef.current) return { resultIndex: -1, resultCount: 0 }
+    const found = searchAddonRef.current.findNext(term, { caseSensitive: false, decorations: { activeMatchColorOverviewRuler: '#d97757' } })
+    // SearchAddon doesn't return counts directly; approximate
+    return { resultIndex: found ? 0 : -1, resultCount: found ? 1 : 0 }
+  }, [])
+
+  const handleSearchNext = useCallback(() => {
+    if (!searchAddonRef.current) return { resultIndex: -1, resultCount: 0 }
+    const found = searchAddonRef.current.findNext('', { incremental: false })
+    return { resultIndex: found ? 0 : -1, resultCount: found ? 1 : 0 }
+  }, [])
+
+  const handleSearchPrev = useCallback(() => {
+    if (!searchAddonRef.current) return { resultIndex: -1, resultCount: 0 }
+    const found = searchAddonRef.current.findPrevious('')
+    return { resultIndex: found ? 0 : -1, resultCount: found ? 1 : 0 }
+  }, [])
+
+  const handleSearchClose = useCallback(() => {
+    setSearchOpen(false)
+    if (searchAddonRef.current) searchAddonRef.current.clearDecorations()
+    terminalRef.current?.focus()
+  }, [])
+
   return (
     <div
-      ref={containerRef}
-      data-clui-ui
       style={{
         flex: 1,
-        padding: 4,
-        display: isActive ? 'block' : 'none',
+        display: isActive ? 'flex' : 'none',
+        flexDirection: 'column',
+        position: 'relative',
         overflow: 'hidden',
       }}
-    />
+    >
+      <AnimatePresence>
+        {searchOpen && (
+          <TerminalSearch
+            onSearch={handleSearch}
+            onNext={handleSearchNext}
+            onPrev={handleSearchPrev}
+            onClose={handleSearchClose}
+          />
+        )}
+      </AnimatePresence>
+      <div
+        ref={containerRef}
+        data-clui-ui
+        style={{
+          flex: 1,
+          padding: 4,
+          overflow: 'hidden',
+        }}
+      />
+    </div>
   )
 }
 
