@@ -42,6 +42,8 @@ export interface CluiAPI {
   isVisible(): Promise<boolean>
   /** OS-level click-through for transparent window regions */
   setIgnoreMouseEvents(ignore: boolean, options?: { forward?: boolean }): void
+  /** Manual window drag for frameless windows */
+  startWindowDrag(deltaX: number, deltaY: number): void
 
   // ─── Event listeners (main → renderer) ───
   onEvent(callback: (tabId: string, event: NormalizedEvent) => void): () => void
@@ -98,6 +100,8 @@ const api: CluiAPI = {
   isVisible: () => ipcRenderer.invoke(IPC.IS_VISIBLE),
   setIgnoreMouseEvents: (ignore, options) =>
     ipcRenderer.send(IPC.SET_IGNORE_MOUSE_EVENTS, ignore, options || {}),
+  startWindowDrag: (deltaX, deltaY) =>
+    ipcRenderer.send(IPC.START_WINDOW_DRAG, deltaX, deltaY),
   setWindowWidth: (width) => ipcRenderer.send(IPC.SET_WINDOW_WIDTH, width),
 
   // ─── Event listeners ───
