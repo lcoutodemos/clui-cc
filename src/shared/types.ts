@@ -358,6 +358,11 @@ export const IPC = {
   // Permission mode
   SET_PERMISSION_MODE: 'clui:set-permission-mode',
 
+  // Notifications
+  FOCUS_TAB: 'clui:focus-tab',
+  SET_NOTIFICATION_MODE: 'clui:set-notification-mode',
+  SET_ACTIVE_TAB: 'clui:set-active-tab',
+
   // Legacy (kept for backward compat during migration)
   STREAM_EVENT: 'clui:stream-event',
   RUN_COMPLETE: 'clui:run-complete',

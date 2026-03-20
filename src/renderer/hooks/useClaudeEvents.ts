@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { useSessionStore } from '../stores/sessionStore'
+import { useThemeStore } from '../theme'
 import type { NormalizedEvent } from '../../shared/types'
 
 /**
@@ -73,16 +74,43 @@ export function useClaudeEvents() {
       }
     })
 
+    const unsubFocusTab = window.clui.onFocusTab((tabId) => {
+      // Always switch to the tab and expand — don't toggle like selectTab does
+      const store = useSessionStore.getState()
+      if (store.tabs.some((t) => t.id === tabId)) {
+        useSessionStore.setState((prev) => ({
+          activeTabId: tabId,
+          isExpanded: true,
+          marketplaceOpen: false,
+          tabs: prev.tabs.map((t) =>
+            t.id === tabId ? { ...t, hasUnread: false } : t
+          ),
+        }))
+      }
+    })
+
     return () => {
       unsubEvent()
       unsubStatus()
       unsubError()
       unsubSkill()
+      unsubFocusTab()
       if (rafIdRef.current) cancelAnimationFrame(rafIdRef.current)
       chunkBufferRef.current.clear()
     }
   }, [handleNormalizedEvent, handleStatusChange, handleError])
 
-  // Note: window.clui.start() is called via sessionStore.initStaticInfo() in App.tsx.
-  // No duplicate call needed here.
+  // Sync notification mode to main process
+  const notificationMode = useThemeStore((s) => s.notificationMode)
+  useEffect(() => {
+    window.clui.setNotificationMode(notificationMode)
+  }, [notificationMode])
+
+  // Tell main process which tab is actively visible (for 'tab-hidden' mode)
+  const activeTabId = useSessionStore((s) => s.activeTabId)
+  const isExpanded = useSessionStore((s) => s.isExpanded)
+  useEffect(() => {
+    // A tab is "visible" if it's the active tab and the card is expanded
+    window.clui.setActiveTab(isExpanded ? activeTabId : null)
+  }, [activeTabId, isExpanded])
 }

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, screen, globalShortcut, Tray, Menu, nativeImage, nativeTheme, shell, systemPreferences } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, screen, globalShortcut, Tray, Menu, nativeImage, nativeTheme, shell, systemPreferences, Notification } from 'electron'
 import { join } from 'path'
 import { existsSync, readdirSync, statSync, createReadStream } from 'fs'
 import { createInterface } from 'readline'
@@ -88,6 +88,80 @@ controlPlane.on('tab-status-change', (tabId: string, newStatus: string, oldStatu
 
 controlPlane.on('error', (tabId: string, error: EnrichedError) => {
   broadcast('clui:enriched-error', tabId, error)
+})
+
+// ─── Native Notifications ───
+// Track the last prompt per tab so we can use it as notification body text.
+const lastPromptByTab = new Map<string, string>()
+// Notification mode: 'always' | 'tab-hidden' | 'window-hidden'
+// The renderer sends updates via IPC; 'window-hidden' is the default.
+let notificationMode: 'always' | 'tab-hidden' | 'window-hidden' = 'window-hidden'
+// The renderer tells us which tab is actively visible (active + expanded).
+let activeVisibleTabId: string | null = null
+
+ipcMain.on(IPC.SET_NOTIFICATION_MODE, (_event, mode: string) => {
+  if (mode === 'always' || mode === 'tab-hidden' || mode === 'window-hidden') {
+    log(`Notification mode: ${mode}`)
+    notificationMode = mode
+  }
+})
+
+ipcMain.on(IPC.SET_ACTIVE_TAB, (_event, tabId: string | null) => {
+  activeVisibleTabId = tabId
+})
+
+function shouldNotify(tabId: string): boolean {
+  switch (notificationMode) {
+    case 'always':
+      return true
+    case 'tab-hidden':
+      // Notify if the completed tab is not the one actively being viewed,
+      // or if the window is hidden entirely.
+      return !mainWindow?.isVisible() || activeVisibleTabId !== tabId
+    case 'window-hidden':
+      return !mainWindow?.isVisible()
+    default:
+      return false
+  }
+}
+
+function showNotification(title: string, body: string, tabId: string): void {
+  if (!Notification.isSupported()) {
+    log('Notifications not supported on this platform')
+    return
+  }
+
+  const notification = new Notification({
+    title,
+    body,
+    silent: true, // the app already plays its own sound
+  })
+  notification.on('click', () => {
+    showWindow('notification click')
+    broadcast(IPC.FOCUS_TAB, tabId)
+  })
+  notification.show()
+}
+
+controlPlane.on('event', (tabId: string, event: NormalizedEvent) => {
+  if (!shouldNotify(tabId)) return
+
+  if (event.type === 'task_complete') {
+    const prompt = lastPromptByTab.get(tabId) || ''
+    const body = event.result
+      ? event.result.substring(0, 100) + (event.result.length > 100 ? '...' : '')
+      : prompt
+        ? prompt.substring(0, 100) + (prompt.length > 100 ? '...' : '')
+        : 'Your task has finished.'
+
+    showNotification('Task Complete', body, tabId)
+  } else if (event.type === 'error') {
+    showNotification(
+      'Task Failed',
+      event.message?.substring(0, 100) || 'An error occurred.',
+      tabId,
+    )
+  }
 })
 
 // ─── Window Creation ───
@@ -295,6 +369,8 @@ ipcMain.handle(IPC.PROMPT, async (_event, { tabId, requestId, options }: { tabId
     throw new Error('No requestId provided — prompt rejected')
   }
 
+  lastPromptByTab.set(tabId, options.prompt)
+
   try {
     await controlPlane.submitPrompt(tabId, requestId, options)
   } catch (err: unknown) {
@@ -330,6 +406,7 @@ ipcMain.handle(IPC.TAB_HEALTH, () => {
 ipcMain.handle(IPC.CLOSE_TAB, (_event, tabId: string) => {
   log(`IPC CLOSE_TAB: ${tabId}`)
   controlPlane.closeTab(tabId)
+  lastPromptByTab.delete(tabId)
 })
 
 ipcMain.on(IPC.SET_PERMISSION_MODE, (_event, mode: string) => {

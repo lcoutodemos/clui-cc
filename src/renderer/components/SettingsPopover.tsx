@@ -1,8 +1,8 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { motion } from 'framer-motion'
-import { DotsThree, Bell, ArrowsOutSimple, Moon } from '@phosphor-icons/react'
-import { useThemeStore } from '../theme'
+import { DotsThree, Bell, ArrowsOutSimple, Moon, BellRinging } from '@phosphor-icons/react'
+import { useThemeStore, type NotificationMode } from '../theme'
 import { useSessionStore } from '../stores/sessionStore'
 import { usePopoverLayer } from './PopoverLayer'
 import { useColors } from '../theme'
@@ -50,6 +50,8 @@ export function SettingsPopover() {
   const setThemeMode = useThemeStore((s) => s.setThemeMode)
   const expandedUI = useThemeStore((s) => s.expandedUI)
   const setExpandedUI = useThemeStore((s) => s.setExpandedUI)
+  const notificationMode = useThemeStore((s) => s.notificationMode)
+  const setNotificationMode = useThemeStore((s) => s.setNotificationMode)
   const isExpanded = useSessionStore((s) => s.isExpanded)
   const popoverLayer = usePopoverLayer()
   const colors = useColors()
@@ -199,6 +201,34 @@ export function SettingsPopover() {
                   colors={colors}
                   label="Toggle notification sound"
                 />
+              </div>
+            </div>
+
+            <div style={{ height: 1, background: colors.popoverBorder }} />
+
+            {/* Notifications */}
+            <div>
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2 min-w-0">
+                  <BellRinging size={14} style={{ color: colors.textTertiary }} />
+                  <div className="text-[12px] font-medium" style={{ color: colors.textPrimary }}>
+                    Notifications
+                  </div>
+                </div>
+                <select
+                  value={notificationMode}
+                  onChange={(e) => setNotificationMode(e.target.value as NotificationMode)}
+                  className="text-[11px] rounded-md px-1.5 py-0.5 outline-none cursor-pointer"
+                  style={{
+                    background: colors.surfacePrimary,
+                    color: colors.textSecondary,
+                    border: `1px solid ${colors.containerBorder}`,
+                  }}
+                >
+                  <option value="always">Always</option>
+                  <option value="tab-hidden">Tab hidden</option>
+                  <option value="window-hidden">Window hidden</option>
+                </select>
               </div>
             </div>
 
