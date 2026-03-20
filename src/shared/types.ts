@@ -294,6 +294,17 @@ export interface CatalogPlugin {
   isSkillMd: boolean      // true = individual SKILL.md (direct install), false = CLI plugin (bundle install)
 }
 
+// ─── Terminal Selector ───
+
+export type TerminalLaunchMethod = 'applescript' | 'cli'
+
+export interface DetectedTerminal {
+  name: string
+  displayName: string
+  path: string
+  method: TerminalLaunchMethod
+}
+
 // ─── IPC Channel Names ───
 
 export const IPC = {
@@ -357,6 +368,10 @@ export const IPC = {
 
   // Permission mode
   SET_PERMISSION_MODE: 'clui:set-permission-mode',
+
+  // Terminal selector
+  DETECT_TERMINALS: 'clui:detect-terminals',
+  SELECT_CUSTOM_TERMINAL: 'clui:select-custom-terminal',
 
   // Legacy (kept for backward compat during migration)
   STREAM_EVENT: 'clui:stream-event',
