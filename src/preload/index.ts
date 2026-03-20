@@ -31,6 +31,8 @@ export interface CluiAPI {
   installPlugin(repo: string, pluginName: string, marketplace: string, sourcePath?: string, isSkillMd?: boolean): Promise<{ ok: boolean; error?: string }>
   uninstallPlugin(pluginName: string): Promise<{ ok: boolean; error?: string }>
   setPermissionMode(mode: string): void
+  setNotificationMode(mode: string): void
+  setActiveTab(tabId: string | null): void
   getTheme(): Promise<{ isDark: boolean }>
   onThemeChange(callback: (isDark: boolean) => void): () => void
 
@@ -49,6 +51,7 @@ export interface CluiAPI {
   onError(callback: (tabId: string, error: EnrichedError) => void): () => void
   onSkillStatus(callback: (status: { name: string; state: string; error?: string; reason?: string }) => void): () => void
   onWindowShown(callback: () => void): () => void
+  onFocusTab(callback: (tabId: string) => void): () => void
 }
 
 const api: CluiAPI = {
@@ -83,6 +86,8 @@ const api: CluiAPI = {
   uninstallPlugin: (pluginName) =>
     ipcRenderer.invoke(IPC.MARKETPLACE_UNINSTALL, { pluginName }),
   setPermissionMode: (mode) => ipcRenderer.send(IPC.SET_PERMISSION_MODE, mode),
+  setNotificationMode: (mode) => ipcRenderer.send(IPC.SET_NOTIFICATION_MODE, mode),
+  setActiveTab: (tabId) => ipcRenderer.send(IPC.SET_ACTIVE_TAB, tabId),
   getTheme: () => ipcRenderer.invoke(IPC.GET_THEME),
   onThemeChange: (callback) => {
     const handler = (_e: Electron.IpcRendererEvent, isDark: boolean) => callback(isDark)
@@ -137,6 +142,12 @@ const api: CluiAPI = {
     const handler = () => callback()
     ipcRenderer.on(IPC.WINDOW_SHOWN, handler)
     return () => ipcRenderer.removeListener(IPC.WINDOW_SHOWN, handler)
+  },
+
+  onFocusTab: (callback) => {
+    const handler = (_e: Electron.IpcRendererEvent, tabId: string) => callback(tabId)
+    ipcRenderer.on(IPC.FOCUS_TAB, handler)
+    return () => ipcRenderer.removeListener(IPC.FOCUS_TAB, handler)
   },
 }
 
