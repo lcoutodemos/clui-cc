@@ -699,6 +699,20 @@ export const useSessionStore = create<State>((set, get) => ({
             const lastTool = [...msgs].reverse().find((m) => m.role === 'tool' && m.toolStatus === 'running')
             if (lastTool) {
               lastTool.toolInput = (lastTool.toolInput || '') + event.partialInput
+              // Update activity text with file path when available
+              const toolName = lastTool.toolName || 'Tool'
+              try {
+                const parsed = JSON.parse(lastTool.toolInput)
+                const filePath = parsed.file_path || parsed.path || parsed.command
+                if (filePath) {
+                  const short = typeof filePath === 'string' && filePath.length > 40
+                    ? '...' + filePath.slice(-37)
+                    : filePath
+                  updated.currentActivity = `Running ${toolName}: ${short}`
+                }
+              } catch {
+                // Input JSON not complete yet, keep existing activity
+              }
             }
             updated.messages = msgs
             break
