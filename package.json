@@ -37,6 +37,7 @@
   },
   "dependencies": {
     "@phosphor-icons/react": "^2.1.10",
+    "@rollup/rollup-linux-x64-gnu": "^4.59.1",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/addon-search": "^0.16.0",
     "@xterm/addon-web-links": "^0.12.0",
