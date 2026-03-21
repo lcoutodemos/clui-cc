@@ -294,6 +294,24 @@ export interface CatalogPlugin {
   isSkillMd: boolean      // true = individual SKILL.md (direct install), false = CLI plugin (bundle install)
 }
 
+// ─── App Settings ───
+
+export interface ShortcutSettings {
+  primaryShortcut: string | null
+  secondaryShortcut: string | null
+}
+
+export interface ShortcutSettingsUpdateResult {
+  ok: boolean
+  settings: ShortcutSettings
+  error?: string
+}
+
+export const DEFAULT_SHORTCUT_SETTINGS: ShortcutSettings = {
+  primaryShortcut: 'Alt+Space',
+  secondaryShortcut: 'CommandOrControl+Shift+K',
+}
+
 // ─── IPC Channel Names ───
 
 export const IPC = {
@@ -348,6 +366,10 @@ export const IPC = {
   // Theme
   GET_THEME: 'clui:get-theme',
   THEME_CHANGED: 'clui:theme-changed',
+
+  // Shortcut settings
+  GET_SHORTCUT_SETTINGS: 'clui:get-shortcut-settings',
+  SET_SHORTCUT_SETTINGS: 'clui:set-shortcut-settings',
 
   // Marketplace
   MARKETPLACE_FETCH: 'clui:marketplace-fetch',

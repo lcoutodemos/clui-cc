@@ -1,6 +1,6 @@
 import { app, BrowserWindow, ipcMain, dialog, screen, globalShortcut, Tray, Menu, nativeImage, nativeTheme, shell, systemPreferences } from 'electron'
 import { join } from 'path'
-import { existsSync, readdirSync, statSync, createReadStream } from 'fs'
+import { existsSync, readdirSync, statSync, createReadStream, readFileSync, writeFileSync } from 'fs'
 import { createInterface } from 'readline'
 import { homedir } from 'os'
 import { ControlPlane } from './claude/control-plane'
@@ -8,8 +8,9 @@ import { ensureSkills, type SkillStatus } from './skills/installer'
 import { fetchCatalog, listInstalled, installPlugin, uninstallPlugin } from './marketplace/catalog'
 import { log as _log, LOG_FILE, flushLogs } from './logger'
 import { getCliEnv } from './cli-env'
-import { IPC } from '../shared/types'
-import type { RunOptions, NormalizedEvent, EnrichedError } from '../shared/types'
+import { DEFAULT_SHORTCUT_SETTINGS, IPC } from '../shared/types'
+import type { RunOptions, NormalizedEvent, EnrichedError, ShortcutSettings } from '../shared/types'
+import { loadShortcutSettings, registerShortcutSettings, saveShortcutSettings } from './shortcut-settings'
 
 const DEBUG_MODE = process.env.CLUI_DEBUG === '1'
 const SPACES_DEBUG = DEBUG_MODE || process.env.CLUI_SPACES_DEBUG === '1'
@@ -22,6 +23,7 @@ let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 let screenshotCounter = 0
 let toggleSequence = 0
+let currentShortcutSettings: ShortcutSettings = DEFAULT_SHORTCUT_SETTINGS
 
 // Feature flag: enable PTY interactive permissions transport
 const INTERACTIVE_PTY = process.env.CLUI_INTERACTIVE_PERMISSIONS_PTY === '1'
@@ -985,6 +987,38 @@ ipcMain.handle(IPC.GET_THEME, () => {
   return { isDark: nativeTheme.shouldUseDarkColors }
 })
 
+ipcMain.handle(IPC.GET_SHORTCUT_SETTINGS, () => currentShortcutSettings)
+
+ipcMain.handle(IPC.SET_SHORTCUT_SETTINGS, (_event, settings: ShortcutSettings) => {
+  const previousSettings = currentShortcutSettings
+
+  try {
+    const registration = registerShortcutSettings(settings, toggleWindow)
+    if (!registration.ok) {
+      registerShortcutSettings(previousSettings, toggleWindow)
+      return {
+        ok: false,
+        error: registration.error,
+        settings: previousSettings,
+      }
+    }
+
+    currentShortcutSettings = registration.settings
+    saveShortcutSettings(currentShortcutSettings)
+    return {
+      ok: true,
+      settings: currentShortcutSettings,
+    }
+  } catch (err) {
+    registerShortcutSettings(previousSettings, toggleWindow)
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+      settings: previousSettings,
+    }
+  }
+})
+
 nativeTheme.on('updated', () => {
   broadcast(IPC.THEME_CHANGED, nativeTheme.shouldUseDarkColors)
 })
@@ -1061,13 +1095,19 @@ app.whenReady().then(async () => {
   }
 
 
-  // Primary: Option+Space (2 keys, doesn't conflict with shell)
-  // Fallback: Cmd+Shift+K kept as secondary shortcut
-  const registered = globalShortcut.register('Alt+Space', () => toggleWindow('shortcut Alt+Space'))
-  if (!registered) {
-    log('Alt+Space shortcut registration failed — macOS input sources may claim it')
+  currentShortcutSettings = loadShortcutSettings()
+  let shortcutRegistration = registerShortcutSettings(currentShortcutSettings, toggleWindow)
+  if (!shortcutRegistration.ok) {
+    log(`Shortcut registration failed for saved settings — ${shortcutRegistration.error}`)
+    currentShortcutSettings = DEFAULT_SHORTCUT_SETTINGS
+    shortcutRegistration = registerShortcutSettings(currentShortcutSettings, toggleWindow)
+    if (shortcutRegistration.ok) {
+      saveShortcutSettings(currentShortcutSettings)
+    }
   }
-  globalShortcut.register('CommandOrControl+Shift+K', () => toggleWindow('shortcut Cmd/Ctrl+Shift+K'))
+  if (!shortcutRegistration.ok) {
+    log(`Default shortcut registration failed — ${shortcutRegistration.error}`)
+  }
 
   const trayIconPath = join(__dirname, '../../resources/trayTemplate.png')
   const trayIcon = nativeImage.createFromPath(trayIconPath)
