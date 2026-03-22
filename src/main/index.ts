@@ -8,6 +8,7 @@ import { ensureSkills, type SkillStatus } from './skills/installer'
 import { fetchCatalog, listInstalled, installPlugin, uninstallPlugin } from './marketplace/catalog'
 import { log as _log, LOG_FILE, flushLogs } from './logger'
 import { getCliEnv } from './cli-env'
+import { shellSingleQuote } from './shell-utils'
 import { IPC } from '../shared/types'
 import type { RunOptions, NormalizedEvent, EnrichedError } from '../shared/types'
 
@@ -930,11 +931,6 @@ ipcMain.handle(IPC.OPEN_IN_TERMINAL, (_event, arg: string | null | { sessionId?:
   const { randomUUID } = require('crypto')
   const { tmpdir } = require('os')
   const scriptPath = join(tmpdir(), `clui-term-${randomUUID()}.sh`)
-
-  // Shell single-quote escaping for embedding projectPath inside a 'cd ...' call.
-  // Single quotes block all expansion ($, `, \) — the only special char inside
-  // single-quoted strings is ' itself, which we escape as '\''.
-  const shellSingleQuote = (s: string): string => "'" + s.replace(/'/g, "'\\''") + "'"
 
   let shellCmd: string
   if (sessionId) {
