@@ -19,8 +19,8 @@
     "dist": "electron-vite build --mode production && electron-builder --mac --dir",
     "doctor": "bash scripts/doctor.sh",
     "postinstall": "electron-builder install-app-deps && bash scripts/patch-dev-icon.sh",
-    "test": "vitest run",
-    "test:watch": "vitest"
+    "test": "node node_modules/vitest/vitest.mjs run",
+    "test:watch": "node node_modules/vitest/vitest.mjs"
   },
   "dependencies": {
     "@phosphor-icons/react": "^2.1.10",

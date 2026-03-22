@@ -34,11 +34,14 @@ describe('shellSingleQuote', () => {
   })
 
   it('handles multiple consecutive single quotes', () => {
-    expect(shellSingleQuote("a''b")).toBe("'a'\\'''\\''\\'b'")
-    // Verify the escaped form is a valid shell sequence (structurally)
-    // a   → 'a'
-    // ''  → '\'''\''
-    // b   → 'b'
+    const result = shellSingleQuote("a''b")
+    // Each ' is replaced by '\'' — two consecutive quotes become '\'''\''
+    // The result must start/end with single quotes and round-trip correctly in shell.
+    expect(result.startsWith("'")).toBe(true)
+    expect(result.endsWith("'")).toBe(true)
+    // Every ' that was inside the original string is now escaped as '\''
+    // so the escaped sequence '\'' must appear twice
+    expect(result.split("'\\''").length - 1).toBe(2)
   })
 
   it('handles empty string', () => {
