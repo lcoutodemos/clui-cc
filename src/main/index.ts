@@ -1,6 +1,6 @@
 import { app, BrowserWindow, ipcMain, dialog, screen, globalShortcut, Tray, Menu, nativeImage, nativeTheme, shell, systemPreferences } from 'electron'
 import { join } from 'path'
-import { existsSync, readdirSync, statSync, createReadStream } from 'fs'
+import { existsSync, readdirSync, statSync, createReadStream, writeFileSync, unlinkSync } from 'fs'
 import { createInterface } from 'readline'
 import { homedir } from 'os'
 import { ControlPlane } from './claude/control-plane'
@@ -924,35 +924,43 @@ ipcMain.handle(IPC.OPEN_IN_TERMINAL, (_event, arg: string | null | { sessionId?:
     return false
   }
 
-  // Shell-safe single-quote escaping: replace ' with '\'' (end quote, escaped literal quote, reopen quote)
-  // Single quotes block all shell expansion ($, `, \, etc.) — unlike double quotes which allow $() and backticks
+  // Write the shell command to a temp script file so no dynamic content is ever
+  // embedded in the AppleScript string. Terminal receives only the script file path
+  // (a safe constant-format string), eliminating all AppleScript injection surface.
+  const { randomUUID } = require('crypto')
+  const { tmpdir } = require('os')
+  const scriptPath = join(tmpdir(), `clui-term-${randomUUID()}.sh`)
+
+  // Shell single-quote escaping for embedding projectPath inside a 'cd ...' call.
+  // Single quotes block all expansion ($, `, \) — the only special char inside
+  // single-quoted strings is ' itself, which we escape as '\''.
   const shellSingleQuote = (s: string): string => "'" + s.replace(/'/g, "'\\''") + "'"
-  // AppleScript string escaping: backslashes doubled, double quotes escaped
-  const escapeAppleScript = (s: string): string => s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
 
-  const safeDir = escapeAppleScript(shellSingleQuote(projectPath))
-
-  let cmd: string
+  let shellCmd: string
   if (sessionId) {
-    // sessionId is UUID-validated above, safe to embed directly
-    cmd = `cd ${safeDir} && ${claudeBin} --resume ${sessionId}`
+    // sessionId is UUID-validated above — alphanumeric + hyphens, safe to embed directly
+    shellCmd = `cd ${shellSingleQuote(projectPath)} && ${claudeBin} --resume ${sessionId}`
   } else {
-    cmd = `cd ${safeDir} && ${claudeBin}`
+    shellCmd = `cd ${shellSingleQuote(projectPath)} && ${claudeBin}`
   }
 
-  const script = `tell application "Terminal"
-  activate
-  do script "${cmd}"
-end tell`
-
   try {
-    execFile('/usr/bin/osascript', ['-e', script], (err: Error | null) => {
+    writeFileSync(scriptPath, `#!/bin/sh\n${shellCmd}\n`, { mode: 0o700 })
+
+    // The AppleScript only contains the script file path (UUID-based, no user input).
+    // scriptPath is safe: it's /tmp/clui-term-<uuid>.sh — no special characters possible.
+    const appleScript = `tell application "Terminal"\n  activate\n  do script ${shellSingleQuote(scriptPath)}\nend tell`
+
+    execFile('/usr/bin/osascript', ['-e', appleScript], (err: Error | null) => {
+      // Clean up temp script after a short delay (Terminal needs time to read it)
+      setTimeout(() => { try { unlinkSync(scriptPath) } catch {} }, 5000)
       if (err) log(`Failed to open terminal: ${err.message}`)
-      else log(`Opened terminal with: ${cmd}`)
+      else log(`Opened terminal with: ${shellCmd}`)
     })
     return true
   } catch (err: unknown) {
     log(`Failed to open terminal: ${err}`)
+    try { unlinkSync(scriptPath) } catch {}
     return false
   }
 })
