@@ -291,7 +291,7 @@ export function InputBar() {
       if (e.key === 'Tab') { e.preventDefault(); if (filtered.length > 0) handleSlashSelect(filtered[slashIndex]); return }
       if (e.key === 'Escape') { e.preventDefault(); setSlashFilter(null); return }
     }
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() }
+    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); handleSend() }
     if (e.key === 'Escape' && !showSlashMenu) { window.clui.hideWindow() }
   }
 
