@@ -54,11 +54,20 @@ function getAnchoredWindowBounds(display: Electron.Display): { x: number; y: num
   }
 }
 
-function repositionWindowToCurrentDisplay(): void {
+function setWindowBounds(bounds: { x: number; y: number; width: number; height: number }, animate = false): void {
+  if (!mainWindow || mainWindow.isDestroyed()) return
+  if (animate && process.platform === 'darwin') {
+    mainWindow.setBounds(bounds, true)
+    return
+  }
+  mainWindow.setBounds(bounds)
+}
+
+function repositionWindowToCurrentDisplay(animate = false): void {
   if (!mainWindow || mainWindow.isDestroyed()) return
   const cursor = screen.getCursorScreenPoint()
   const display = screen.getDisplayNearestPoint(cursor)
-  mainWindow.setBounds(getAnchoredWindowBounds(display))
+  setWindowBounds(getAnchoredWindowBounds(display), animate)
 }
 
 // ─── Broadcast to renderer ───
@@ -187,7 +196,7 @@ function showWindow(source = 'unknown'): void {
   // Position on the display where the cursor currently is (not always primary)
   const cursor = screen.getCursorScreenPoint()
   const display = screen.getDisplayNearestPoint(cursor)
-  mainWindow.setBounds(getAnchoredWindowBounds(display))
+  setWindowBounds(getAnchoredWindowBounds(display))
 
   // Always re-assert space membership — the flag can be lost after hide/show cycles
   // and must be set before show() so the window joins the active Space, not its
@@ -236,7 +245,7 @@ ipcMain.on(IPC.SET_WINDOW_WIDTH, () => {
 
 ipcMain.on(IPC.SET_OVERLAY_POSITION, (_event, position: OverlayPosition) => {
   overlayPosition = position
-  repositionWindowToCurrentDisplay()
+  repositionWindowToCurrentDisplay(mainWindow?.isVisible() ?? false)
 })
 
 ipcMain.handle(IPC.ANIMATE_HEIGHT, () => {

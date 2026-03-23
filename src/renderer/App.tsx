@@ -106,11 +106,12 @@ export default function App() {
   const cardCollapsedWidth = expandedUI ? 670 : 430
   const cardCollapsedMargin = expandedUI ? 15 : 15
   const bodyMaxHeight = expandedUI ? 520 : 400
-  const contentAnchorStyle = overlayPosition === 'bottom-left'
-    ? { marginLeft: 0, marginRight: 'auto' as const }
+  const viewportWidth = typeof window === 'undefined' ? 1040 : window.innerWidth
+  const contentX = overlayPosition === 'bottom-left'
+    ? 0
     : overlayPosition === 'bottom-right'
-      ? { marginLeft: 'auto' as const, marginRight: 0 }
-      : { margin: '0 auto' as const }
+      ? Math.max(0, viewportWidth - contentWidth)
+      : Math.max(0, Math.round((viewportWidth - contentWidth) / 2))
   const marketplaceOffset = overlayPosition === 'bottom-left'
     ? 0
     : overlayPosition === 'bottom-right'
@@ -135,12 +136,16 @@ export default function App() {
       <div className="flex flex-col justify-end h-full" style={{ background: 'transparent' }}>
 
         {/* ─── 460px content column, centered. Circles overflow left. ─── */}
-        <div
-          style={{
+        <motion.div
+          initial={false}
+          animate={{
             width: contentWidth,
+            x: contentX,
+          }}
+          transition={TRANSITION}
+          style={{
             position: 'relative',
-            transition: 'width 0.26s cubic-bezier(0.4, 0, 0.1, 1)',
-            ...contentAnchorStyle,
+            alignSelf: 'flex-start',
           }}
         >
 
@@ -274,7 +279,7 @@ export default function App() {
               <InputBar />
             </div>
           </div>
-        </div>
+        </motion.div>
       </div>
     </PopoverLayerProvider>
   )
