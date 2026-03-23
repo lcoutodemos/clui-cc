@@ -63,16 +63,9 @@ else
   fix "brew install node"
 fi
 
-# Python 3 + distutils
+# Python 3
 if command -v python3 &>/dev/null; then
   pass "Python $(python3 --version 2>&1 | awk '{print $2}')"
-
-  if python3 -c "import distutils" 2>/dev/null; then
-    pass "Python distutils available"
-  else
-    fail "Python is missing 'distutils' (needed by native module compiler)."
-    fix "python3 -m pip install --upgrade pip setuptools"
-  fi
 else
   fail "Python 3 is not installed."
   fix "brew install python@3.11"

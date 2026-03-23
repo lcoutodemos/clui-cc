@@ -13,6 +13,7 @@ import { useSessionStore } from './stores/sessionStore'
 import { useColors, useThemeStore, spacing } from './theme'
 
 const TRANSITION = { duration: 0.26, ease: [0.4, 0, 0.1, 1] as const }
+const POSITION_SPRING = { type: 'spring' as const, stiffness: 210, damping: 24, mass: 0.9 }
 
 export default function App() {
   useClaudeEvents()
@@ -142,7 +143,10 @@ export default function App() {
             width: contentWidth,
             x: contentX,
           }}
-          transition={TRANSITION}
+          transition={{
+            width: TRANSITION,
+            x: POSITION_SPRING,
+          }}
           style={{
             position: 'relative',
             alignSelf: 'flex-start',

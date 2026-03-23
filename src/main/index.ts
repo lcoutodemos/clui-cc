@@ -23,6 +23,7 @@ let tray: Tray | null = null
 let screenshotCounter = 0
 let toggleSequence = 0
 let overlayPosition: OverlayPosition = 'bottom-center'
+let windowBoundsAnimationTimer: ReturnType<typeof setTimeout> | null = null
 
 // Feature flag: enable PTY interactive permissions transport
 const INTERACTIVE_PTY = process.env.CLUI_INTERACTIVE_PERMISSIONS_PTY === '1'
@@ -35,6 +36,7 @@ const BAR_WIDTH = 1040
 const PILL_HEIGHT = 720  // Fixed native window height — extra room for expanded UI + shadow buffers
 const PILL_BOTTOM_MARGIN = 24
 const PILL_SIDE_MARGIN = 16
+const WINDOW_MOVE_DURATION_MS = 280
 
 function getAnchoredWindowBounds(display: Electron.Display): { x: number; y: number; width: number; height: number } {
   const { width: screenWidth, height: screenHeight } = display.workAreaSize
@@ -54,12 +56,67 @@ function getAnchoredWindowBounds(display: Electron.Display): { x: number; y: num
   }
 }
 
-function setWindowBounds(bounds: { x: number; y: number; width: number; height: number }, animate = false): void {
+function easeOutExpo(t: number): number {
+  if (t >= 1) return 1
+  return 1 - Math.pow(2, -10 * t)
+}
+
+function stopWindowBoundsAnimation(): void {
+  if (!windowBoundsAnimationTimer) return
+  clearTimeout(windowBoundsAnimationTimer)
+  windowBoundsAnimationTimer = null
+}
+
+function animateWindowBounds(bounds: { x: number; y: number; width: number; height: number }): void {
   if (!mainWindow || mainWindow.isDestroyed()) return
-  if (animate && process.platform === 'darwin') {
-    mainWindow.setBounds(bounds, true)
+  stopWindowBoundsAnimation()
+
+  const from = mainWindow.getBounds()
+  if (
+    from.x === bounds.x &&
+    from.y === bounds.y &&
+    from.width === bounds.width &&
+    from.height === bounds.height
+  ) {
+    mainWindow.setBounds(bounds)
     return
   }
+
+  const startedAt = Date.now()
+  const step = () => {
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      stopWindowBoundsAnimation()
+      return
+    }
+
+    const elapsed = Date.now() - startedAt
+    const progress = Math.min(1, elapsed / WINDOW_MOVE_DURATION_MS)
+    const eased = easeOutExpo(progress)
+
+    mainWindow.setBounds({
+      x: Math.round(from.x + (bounds.x - from.x) * eased),
+      y: Math.round(from.y + (bounds.y - from.y) * eased),
+      width: Math.round(from.width + (bounds.width - from.width) * eased),
+      height: Math.round(from.height + (bounds.height - from.height) * eased),
+    })
+
+    if (progress < 1) {
+      windowBoundsAnimationTimer = setTimeout(step, 16)
+    } else {
+      windowBoundsAnimationTimer = null
+    }
+  }
+
+  step()
+}
+
+function setWindowBounds(bounds: { x: number; y: number; width: number; height: number }, animate = false): void {
+  if (!mainWindow || mainWindow.isDestroyed()) return
+  if (animate) {
+    animateWindowBounds(bounds)
+    return
+  }
+  stopWindowBoundsAnimation()
   mainWindow.setBounds(bounds)
 }
 
