@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { motion } from 'framer-motion'
 import { DotsThree, Bell, ArrowsOutSimple, Moon } from '@phosphor-icons/react'
-import { useThemeStore } from '../theme'
+import { useThemeStore, type OverlayPosition } from '../theme'
 import { useSessionStore } from '../stores/sessionStore'
 import { usePopoverLayer } from './PopoverLayer'
 import { useColors } from '../theme'
@@ -41,6 +41,49 @@ function RowToggle({
   )
 }
 
+function SegmentedPositionControl({
+  value,
+  onChange,
+  colors,
+}: {
+  value: OverlayPosition
+  onChange: (next: OverlayPosition) => void
+  colors: ReturnType<typeof useColors>
+}) {
+  const options: Array<{ value: OverlayPosition; label: string }> = [
+    { value: 'bottom-left', label: 'Left' },
+    { value: 'bottom-center', label: 'Center' },
+    { value: 'bottom-right', label: 'Right' },
+  ]
+
+  return (
+    <div
+      className="grid grid-cols-3 gap-1 rounded-lg p-1"
+      style={{ background: colors.surfacePrimary, border: `1px solid ${colors.containerBorder}` }}
+    >
+      {options.map((option) => {
+        const selected = option.value === value
+        return (
+          <button
+            key={option.value}
+            type="button"
+            onClick={() => onChange(option.value)}
+            aria-pressed={selected}
+            className="rounded-md px-2 py-1 text-[11px] font-medium transition-colors"
+            style={{
+              background: selected ? colors.accentSoft : 'transparent',
+              color: selected ? colors.accent : colors.textSecondary,
+            }}
+            title={option.label}
+          >
+            {option.label}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
 /* ─── Settings popover ─── */
 
 export function SettingsPopover() {
@@ -50,6 +93,8 @@ export function SettingsPopover() {
   const setThemeMode = useThemeStore((s) => s.setThemeMode)
   const expandedUI = useThemeStore((s) => s.expandedUI)
   const setExpandedUI = useThemeStore((s) => s.setExpandedUI)
+  const overlayPosition = useThemeStore((s) => s.overlayPosition)
+  const setOverlayPosition = useThemeStore((s) => s.setOverlayPosition)
   const isExpanded = useSessionStore((s) => s.isExpanded)
   const popoverLayer = usePopoverLayer()
   const colors = useColors()
@@ -151,7 +196,7 @@ export function SettingsPopover() {
             ...(pos.top != null ? { top: pos.top } : {}),
             ...(pos.bottom != null ? { bottom: pos.bottom } : {}),
             right: pos.right,
-            width: 240,
+            width: 252,
             pointerEvents: 'auto',
             background: colors.popoverBg,
             backdropFilter: 'blur(20px)',
@@ -180,6 +225,19 @@ export function SettingsPopover() {
                   label="Toggle full width panel"
                 />
               </div>
+            </div>
+
+            <div style={{ height: 1, background: colors.popoverBorder }} />
+
+            <div className="flex flex-col gap-2">
+              <div className="text-[12px] font-medium" style={{ color: colors.textPrimary }}>
+                Overlay position
+              </div>
+              <SegmentedPositionControl
+                value={overlayPosition}
+                onChange={setOverlayPosition}
+                colors={colors}
+              />
             </div>
 
             <div style={{ height: 1, background: colors.popoverBorder }} />

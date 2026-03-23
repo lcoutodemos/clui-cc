@@ -275,6 +275,8 @@ export interface SessionLoadMessage {
   timestamp: number
 }
 
+export type OverlayPosition = 'bottom-left' | 'bottom-center' | 'bottom-right'
+
 // ─── Marketplace / Plugin Types ───
 
 export type PluginStatus = 'not_installed' | 'checking' | 'installing' | 'installed' | 'failed'
@@ -341,6 +343,7 @@ export const IPC = {
   WINDOW_SHOWN: 'clui:window-shown',
   SET_IGNORE_MOUSE_EVENTS: 'clui:set-ignore-mouse-events',
   IS_VISIBLE: 'clui:is-visible',
+  SET_OVERLAY_POSITION: 'clui:set-overlay-position',
 
   // Skill provisioning (main → renderer)
   SKILL_STATUS: 'clui:skill-status',

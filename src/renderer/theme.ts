@@ -3,6 +3,7 @@
  * Colors derived from ChatCN oklch system and design-fixed.html reference.
  */
 import { create } from 'zustand'
+import type { OverlayPosition } from '../shared/types'
 
 // ─── Color palettes ───
 
@@ -271,18 +272,19 @@ export type ColorPalette = { [K in keyof typeof darkColors]: string }
 // ─── Theme store ───
 
 export type ThemeMode = 'system' | 'light' | 'dark'
-
 interface ThemeState {
   isDark: boolean
   themeMode: ThemeMode
   soundEnabled: boolean
   expandedUI: boolean
+  overlayPosition: OverlayPosition
   /** OS-reported dark mode — used when themeMode is 'system' */
   _systemIsDark: boolean
   setIsDark: (isDark: boolean) => void
   setThemeMode: (mode: ThemeMode) => void
   setSoundEnabled: (enabled: boolean) => void
   setExpandedUI: (expanded: boolean) => void
+  setOverlayPosition: (position: OverlayPosition) => void
   /** Called by OS theme change listener — updates system value */
   setSystemTheme: (isDark: boolean) => void
 }
@@ -308,7 +310,12 @@ function applyTheme(isDark: boolean): void {
 
 const SETTINGS_KEY = 'clui-settings'
 
-function loadSettings(): { themeMode: ThemeMode; soundEnabled: boolean; expandedUI: boolean } {
+function loadSettings(): {
+  themeMode: ThemeMode
+  soundEnabled: boolean
+  expandedUI: boolean
+  overlayPosition: OverlayPosition
+} {
   try {
     const raw = localStorage.getItem(SETTINGS_KEY)
     if (raw) {
@@ -317,13 +324,21 @@ function loadSettings(): { themeMode: ThemeMode; soundEnabled: boolean; expanded
         themeMode: ['light', 'dark'].includes(parsed.themeMode) ? parsed.themeMode : 'dark',
         soundEnabled: typeof parsed.soundEnabled === 'boolean' ? parsed.soundEnabled : true,
         expandedUI: typeof parsed.expandedUI === 'boolean' ? parsed.expandedUI : false,
+        overlayPosition: ['bottom-left', 'bottom-center', 'bottom-right'].includes(parsed.overlayPosition)
+          ? parsed.overlayPosition
+          : 'bottom-center',
       }
     }
   } catch {}
-  return { themeMode: 'dark', soundEnabled: true, expandedUI: false }
+  return { themeMode: 'dark', soundEnabled: true, expandedUI: false, overlayPosition: 'bottom-center' }
 }
 
-function saveSettings(s: { themeMode: ThemeMode; soundEnabled: boolean; expandedUI: boolean }): void {
+function saveSettings(s: {
+  themeMode: ThemeMode
+  soundEnabled: boolean
+  expandedUI: boolean
+  overlayPosition: OverlayPosition
+}): void {
   try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)) } catch {}
 }
 
@@ -335,6 +350,7 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
   themeMode: saved.themeMode,
   soundEnabled: saved.soundEnabled,
   expandedUI: saved.expandedUI,
+  overlayPosition: saved.overlayPosition,
   _systemIsDark: true,
   setIsDark: (isDark) => {
     set({ isDark })
@@ -344,15 +360,39 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
     const resolved = mode === 'system' ? get()._systemIsDark : mode === 'dark'
     set({ themeMode: mode, isDark: resolved })
     applyTheme(resolved)
-    saveSettings({ themeMode: mode, soundEnabled: get().soundEnabled, expandedUI: get().expandedUI })
+    saveSettings({
+      themeMode: mode,
+      soundEnabled: get().soundEnabled,
+      expandedUI: get().expandedUI,
+      overlayPosition: get().overlayPosition,
+    })
   },
   setSoundEnabled: (enabled) => {
     set({ soundEnabled: enabled })
-    saveSettings({ themeMode: get().themeMode, soundEnabled: enabled, expandedUI: get().expandedUI })
+    saveSettings({
+      themeMode: get().themeMode,
+      soundEnabled: enabled,
+      expandedUI: get().expandedUI,
+      overlayPosition: get().overlayPosition,
+    })
   },
   setExpandedUI: (expanded) => {
     set({ expandedUI: expanded })
-    saveSettings({ themeMode: get().themeMode, soundEnabled: get().soundEnabled, expandedUI: expanded })
+    saveSettings({
+      themeMode: get().themeMode,
+      soundEnabled: get().soundEnabled,
+      expandedUI: expanded,
+      overlayPosition: get().overlayPosition,
+    })
+  },
+  setOverlayPosition: (overlayPosition) => {
+    set({ overlayPosition })
+    saveSettings({
+      themeMode: get().themeMode,
+      soundEnabled: get().soundEnabled,
+      expandedUI: get().expandedUI,
+      overlayPosition,
+    })
   },
   setSystemTheme: (isDark) => {
     set({ _systemIsDark: isDark })

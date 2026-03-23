@@ -23,6 +23,7 @@ export default function App() {
   const colors = useColors()
   const setSystemTheme = useThemeStore((s) => s.setSystemTheme)
   const expandedUI = useThemeStore((s) => s.expandedUI)
+  const overlayPosition = useThemeStore((s) => s.overlayPosition)
 
   // ─── Theme initialization ───
   useEffect(() => {
@@ -37,6 +38,10 @@ export default function App() {
     })
     return unsub
   }, [setSystemTheme])
+
+  useEffect(() => {
+    window.clui.setOverlayPosition(overlayPosition)
+  }, [overlayPosition])
 
   useEffect(() => {
     useSessionStore.getState().initStaticInfo().then(() => {
@@ -101,6 +106,17 @@ export default function App() {
   const cardCollapsedWidth = expandedUI ? 670 : 430
   const cardCollapsedMargin = expandedUI ? 15 : 15
   const bodyMaxHeight = expandedUI ? 520 : 400
+  const contentAnchorStyle = overlayPosition === 'bottom-left'
+    ? { marginLeft: 0, marginRight: 'auto' as const }
+    : overlayPosition === 'bottom-right'
+      ? { marginLeft: 'auto' as const, marginRight: 0 }
+      : { margin: '0 auto' as const }
+  const marketplaceOffset = overlayPosition === 'bottom-left'
+    ? 0
+    : overlayPosition === 'bottom-right'
+      ? contentWidth - 720
+      : (contentWidth - 720) / 2
+  const externalButtonSide = overlayPosition === 'bottom-left' ? 'right' : 'left'
 
   const handleScreenshot = useCallback(async () => {
     const result = await window.clui.takeScreenshot()
@@ -119,7 +135,14 @@ export default function App() {
       <div className="flex flex-col justify-end h-full" style={{ background: 'transparent' }}>
 
         {/* ─── 460px content column, centered. Circles overflow left. ─── */}
-        <div style={{ width: contentWidth, position: 'relative', margin: '0 auto', transition: 'width 0.26s cubic-bezier(0.4, 0, 0.1, 1)' }}>
+        <div
+          style={{
+            width: contentWidth,
+            position: 'relative',
+            transition: 'width 0.26s cubic-bezier(0.4, 0, 0.1, 1)',
+            ...contentAnchorStyle,
+          }}
+        >
 
           <AnimatePresence initial={false}>
             {marketplaceOpen && (
@@ -128,10 +151,9 @@ export default function App() {
                 style={{
                   width: 720,
                   maxWidth: 720,
-                  marginLeft: '50%',
-                  transform: 'translateX(-50%)',
                   marginBottom: 14,
                   position: 'relative',
+                  left: marketplaceOffset,
                   zIndex: 30,
                 }}
               >
@@ -210,9 +232,9 @@ export default function App() {
             {/* Stacked circle buttons — expand on hover */}
             <div
               data-clui-ui
-              className="circles-out"
+              className={`circles-out circles-out-${externalButtonSide}`}
             >
-              <div className="btn-stack">
+              <div className={`btn-stack btn-stack-${externalButtonSide}`}>
                 {/* btn-1: Attach (front, rightmost) */}
                 <button
                   className="stack-btn stack-btn-1 glass-surface"

@@ -9,7 +9,7 @@ import { fetchCatalog, listInstalled, installPlugin, uninstallPlugin } from './m
 import { log as _log, LOG_FILE, flushLogs } from './logger'
 import { getCliEnv } from './cli-env'
 import { IPC } from '../shared/types'
-import type { RunOptions, NormalizedEvent, EnrichedError } from '../shared/types'
+import type { RunOptions, NormalizedEvent, EnrichedError, OverlayPosition } from '../shared/types'
 
 const DEBUG_MODE = process.env.CLUI_DEBUG === '1'
 const SPACES_DEBUG = DEBUG_MODE || process.env.CLUI_SPACES_DEBUG === '1'
@@ -22,6 +22,7 @@ let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 let screenshotCounter = 0
 let toggleSequence = 0
+let overlayPosition: OverlayPosition = 'bottom-center'
 
 // Feature flag: enable PTY interactive permissions transport
 const INTERACTIVE_PTY = process.env.CLUI_INTERACTIVE_PERMISSIONS_PTY === '1'
@@ -33,6 +34,32 @@ const controlPlane = new ControlPlane(INTERACTIVE_PTY)
 const BAR_WIDTH = 1040
 const PILL_HEIGHT = 720  // Fixed native window height — extra room for expanded UI + shadow buffers
 const PILL_BOTTOM_MARGIN = 24
+const PILL_SIDE_MARGIN = 16
+
+function getAnchoredWindowBounds(display: Electron.Display): { x: number; y: number; width: number; height: number } {
+  const { width: screenWidth, height: screenHeight } = display.workAreaSize
+  const { x: dx, y: dy } = display.workArea
+
+  const x = overlayPosition === 'bottom-left'
+    ? dx + PILL_SIDE_MARGIN
+    : overlayPosition === 'bottom-right'
+      ? dx + screenWidth - BAR_WIDTH - PILL_SIDE_MARGIN
+      : dx + Math.round((screenWidth - BAR_WIDTH) / 2)
+
+  return {
+    x,
+    y: dy + screenHeight - PILL_HEIGHT - PILL_BOTTOM_MARGIN,
+    width: BAR_WIDTH,
+    height: PILL_HEIGHT,
+  }
+}
+
+function repositionWindowToCurrentDisplay(): void {
+  if (!mainWindow || mainWindow.isDestroyed()) return
+  const cursor = screen.getCursorScreenPoint()
+  const display = screen.getDisplayNearestPoint(cursor)
+  mainWindow.setBounds(getAnchoredWindowBounds(display))
+}
 
 // ─── Broadcast to renderer ───
 
@@ -95,15 +122,11 @@ controlPlane.on('error', (tabId: string, error: EnrichedError) => {
 function createWindow(): void {
   const cursor = screen.getCursorScreenPoint()
   const display = screen.getDisplayNearestPoint(cursor)
-  const { width: screenWidth, height: screenHeight } = display.workAreaSize
-  const { x: dx, y: dy } = display.workArea
-
-  const x = dx + Math.round((screenWidth - BAR_WIDTH) / 2)
-  const y = dy + screenHeight - PILL_HEIGHT - PILL_BOTTOM_MARGIN
+  const { x, y, width, height } = getAnchoredWindowBounds(display)
 
   mainWindow = new BrowserWindow({
-    width: BAR_WIDTH,
-    height: PILL_HEIGHT,
+    width,
+    height,
     x,
     y,
     ...(process.platform === 'darwin' ? { type: 'panel' as const } : {}),  // NSPanel — non-activating, joins all spaces
@@ -164,14 +187,7 @@ function showWindow(source = 'unknown'): void {
   // Position on the display where the cursor currently is (not always primary)
   const cursor = screen.getCursorScreenPoint()
   const display = screen.getDisplayNearestPoint(cursor)
-  const { width: sw, height: sh } = display.workAreaSize
-  const { x: dx, y: dy } = display.workArea
-  mainWindow.setBounds({
-    x: dx + Math.round((sw - BAR_WIDTH) / 2),
-    y: dy + sh - PILL_HEIGHT - PILL_BOTTOM_MARGIN,
-    width: BAR_WIDTH,
-    height: PILL_HEIGHT,
-  })
+  mainWindow.setBounds(getAnchoredWindowBounds(display))
 
   // Always re-assert space membership — the flag can be lost after hide/show cycles
   // and must be set before show() so the window joins the active Space, not its
@@ -216,6 +232,11 @@ ipcMain.on(IPC.RESIZE_HEIGHT, () => {
 
 ipcMain.on(IPC.SET_WINDOW_WIDTH, () => {
   // No-op — native width is fixed to keep expand/collapse animation smooth.
+})
+
+ipcMain.on(IPC.SET_OVERLAY_POSITION, (_event, position: OverlayPosition) => {
+  overlayPosition = position
+  repositionWindowToCurrentDisplay()
 })
 
 ipcMain.handle(IPC.ANIMATE_HEIGHT, () => {

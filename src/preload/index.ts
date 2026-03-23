@@ -1,6 +1,16 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { IPC } from '../shared/types'
-import type { RunOptions, NormalizedEvent, HealthReport, EnrichedError, Attachment, SessionMeta, CatalogPlugin, SessionLoadMessage } from '../shared/types'
+import type {
+  RunOptions,
+  NormalizedEvent,
+  HealthReport,
+  EnrichedError,
+  Attachment,
+  SessionMeta,
+  CatalogPlugin,
+  SessionLoadMessage,
+  OverlayPosition,
+} from '../shared/types'
 
 export interface CluiAPI {
   // ─── Request-response (renderer → main) ───
@@ -42,6 +52,7 @@ export interface CluiAPI {
   isVisible(): Promise<boolean>
   /** OS-level click-through for transparent window regions */
   setIgnoreMouseEvents(ignore: boolean, options?: { forward?: boolean }): void
+  setOverlayPosition(position: OverlayPosition): void
 
   // ─── Event listeners (main → renderer) ───
   onEvent(callback: (tabId: string, event: NormalizedEvent) => void): () => void
@@ -99,6 +110,7 @@ const api: CluiAPI = {
   setIgnoreMouseEvents: (ignore, options) =>
     ipcRenderer.send(IPC.SET_IGNORE_MOUSE_EVENTS, ignore, options || {}),
   setWindowWidth: (width) => ipcRenderer.send(IPC.SET_WINDOW_WIDTH, width),
+  setOverlayPosition: (position) => ipcRenderer.send(IPC.SET_OVERLAY_POSITION, position),
 
   // ─── Event listeners ───
   onEvent: (callback) => {
