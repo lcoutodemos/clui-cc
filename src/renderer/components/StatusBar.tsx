@@ -11,10 +11,7 @@ import { useColors } from '../theme'
 function ModelPicker() {
   const preferredModel = useSessionStore((s) => s.preferredModel)
   const setPreferredModel = useSessionStore((s) => s.setPreferredModel)
-  const tab = useSessionStore(
-    (s) => s.tabs.find((t) => t.id === s.activeTabId),
-    (a, b) => a === b || (!!a && !!b && a.status === b.status && a.sessionModel === b.sessionModel),
-  )
+  const tab = useSessionStore((s) => s.tabs.find((t) => t.id === s.activeTabId))
   const popoverLayer = usePopoverLayer()
   const colors = useColors()
 
@@ -252,21 +249,13 @@ function PermissionModePicker() {
 /** Get a compact display path: basename for deep paths, ~ for home */
 function compactPath(fullPath: string): string {
   if (fullPath === '~') return '~'
-  const parts = fullPath.replace(/\/$/, '').split('/')
+  const normalized = fullPath.replace(/[/\\]+$/, '')
+  const parts = normalized.split(/[/\\]/)
   return parts[parts.length - 1] || fullPath
 }
 
 export function StatusBar() {
-  const tab = useSessionStore(
-    (s) => s.tabs.find((t) => t.id === s.activeTabId),
-    (a, b) => a === b || (!!a && !!b
-      && a.status === b.status
-      && a.additionalDirs === b.additionalDirs
-      && a.hasChosenDirectory === b.hasChosenDirectory
-      && a.workingDirectory === b.workingDirectory
-      && a.claudeSessionId === b.claudeSessionId
-    ),
-  )
+  const tab = useSessionStore((s) => s.tabs.find((t) => t.id === s.activeTabId))
   const addDirectory = useSessionStore((s) => s.addDirectory)
   const removeDirectory = useSessionStore((s) => s.removeDirectory)
   const popoverLayer = usePopoverLayer()

@@ -5,7 +5,7 @@ import { join } from 'path'
 import { StreamParser } from '../stream-parser'
 import { normalize } from './event-normalizer'
 import { log as _log } from '../logger'
-import { getCliEnv } from '../cli-env'
+import { getCliEnv, findClaudeBinary } from '../cli-env'
 import type { ClaudeEvent, NormalizedEvent, RunOptions, EnrichedError } from '../../shared/types'
 
 const MAX_RING_LINES = 100
@@ -101,35 +101,34 @@ export class RunManager extends EventEmitter {
   }
 
   private _findClaudeBinary(): string {
-    const candidates = [
-      '/usr/local/bin/claude',
-      '/opt/homebrew/bin/claude',
-      join(homedir(), '.npm-global/bin/claude'),
-    ]
-
-    for (const c of candidates) {
-      try {
-        execSync(`test -x "${c}"`, { stdio: 'ignore' })
-        return c
-      } catch {}
-    }
-
-    try {
-      return execSync('/bin/zsh -ilc "whence -p claude"', { encoding: 'utf-8', env: getCliEnv() }).trim()
-    } catch {}
-
-    try {
-      return execSync('/bin/bash -lc "which claude"', { encoding: 'utf-8', env: getCliEnv() }).trim()
-    } catch {}
-
-    return 'claude'
+    return findClaudeBinary()
   }
 
-  private _getEnv(): NodeJS.ProcessEnv {
+  private _getEnv(model?: string): NodeJS.ProcessEnv {
     const env = getCliEnv()
-    const binDir = this.claudeBinary.substring(0, this.claudeBinary.lastIndexOf('/'))
-    if (env.PATH && !env.PATH.includes(binDir)) {
-      env.PATH = `${binDir}:${env.PATH}`
+
+    // Ollama support: point Claude Code to the local Ollama provider if an Ollama model is selected.
+    const isOllama = model && (
+      model.includes(':cloud') ||
+      model.includes('qwen') ||
+      model.includes('glm') ||
+      model.includes('kimi') ||
+      model.includes('minimax')
+    )
+
+    if (isOllama) {
+      env.ANTHROPIC_AUTH_TOKEN = 'ollama'
+      env.ANTHROPIC_API_KEY = 'ollama-unused-key'
+      env.ANTHROPIC_BASE_URL = 'http://localhost:11434'
+    }
+
+    const lastSep = this.claudeBinary.lastIndexOf(process.platform === 'win32' ? '\\' : '/')
+    if (lastSep !== -1) {
+      const binDir = this.claudeBinary.substring(0, lastSep)
+      const pathSep = process.platform === 'win32' ? ';' : ':'
+      if (env.PATH && !env.PATH.includes(binDir)) {
+        env.PATH = `${binDir}${pathSep}${env.PATH}`
+      }
     }
 
     return env
@@ -200,7 +199,7 @@ export class RunManager extends EventEmitter {
     const child = spawn(this.claudeBinary, args, {
       stdio: ['pipe', 'pipe', 'pipe'],
       cwd,
-      env: this._getEnv(),
+      env: this._getEnv(options.model),
     })
 
     log(`Spawned PID: ${child.pid}`)
@@ -262,7 +261,7 @@ export class RunManager extends EventEmitter {
       // stays alive waiting for more input; closing stdin triggers clean exit.
       if (raw.type === 'result') {
         log(`Run complete [${requestId}]: sawPermissionRequest=${handle.sawPermissionRequest}, denials=${handle.permissionDenials.length}`)
-        try { child.stdin?.end() } catch {}
+        try { child.stdin?.end() } catch { }
       }
     })
 
@@ -381,6 +380,10 @@ export class RunManager extends EventEmitter {
 
   getActiveRunIds(): string[] {
     return Array.from(this.activeRuns.keys())
+  }
+
+  getBinaryPath(): string {
+    return this.claudeBinary
   }
 
   private _ringPush(buffer: string[], line: string): void {

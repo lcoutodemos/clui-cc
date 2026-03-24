@@ -9,6 +9,12 @@ export const AVAILABLE_MODELS = [
   { id: 'claude-opus-4-6', label: 'Opus 4.6' },
   { id: 'claude-sonnet-4-6', label: 'Sonnet 4.6' },
   { id: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5' },
+  { id: 'kimi-k2.5:cloud', label: 'Ollama: Kimi K2.5' },
+  { id: 'glm-5:cloud', label: 'Ollama: GLM-5' },
+  { id: 'minimax-m2.7:cloud', label: 'Ollama: Minimax M2.7' },
+  { id: 'qwen3.5:cloud', label: 'Ollama: Qwen 3.5 Cloud' },
+  { id: 'glm-4.7-flash', label: 'Ollama: GLM-4.7 Flash' },
+  { id: 'qwen3.5', label: 'Ollama: Qwen 3.5' },
 ] as const
 
 function normalizeModelId(modelId: string): string {
@@ -47,6 +53,9 @@ interface StaticInfo {
   subscriptionType: string | null
   projectPath: string
   homePath: string
+  isNodeInstalled: boolean
+  isClaudeInstalled: boolean
+  isAuthValid: boolean
 }
 
 interface State {
@@ -60,6 +69,8 @@ interface State {
   preferredModel: string | null
   /** Global permission mode: 'ask' shows cards, 'auto' auto-approves all tool calls */
   permissionMode: 'ask' | 'auto'
+  /** Flag to allow users to bypass the Claude Code login requirement (e.g., for local LLMs) */
+  authBypassed: boolean
 
   // Marketplace state
   marketplaceOpen: boolean
@@ -75,6 +86,7 @@ interface State {
   initStaticInfo: () => Promise<void>
   setPreferredModel: (model: string | null) => void
   setPermissionMode: (mode: 'ask' | 'auto') => void
+  setAuthBypassed: (bypassed: boolean) => void
   createTab: () => Promise<string>
   selectTab: (tabId: string) => void
   closeTab: (tabId: string) => void
@@ -116,9 +128,9 @@ async function playNotificationIfHidden(): Promise<void> {
     const visible = await window.clui.isVisible()
     if (!visible) {
       notificationAudio.currentTime = 0
-      notificationAudio.play().catch(() => {})
+      notificationAudio.play().catch(() => { })
     }
-  } catch {}
+  } catch { }
 }
 
 function makeLocalTab(): TabState {
@@ -156,6 +168,7 @@ export const useSessionStore = create<State>((set, get) => ({
   staticInfo: null,
   preferredModel: null,
   permissionMode: 'ask',
+  authBypassed: false,
 
   // Marketplace
   marketplaceOpen: false,
@@ -177,9 +190,12 @@ export const useSessionStore = create<State>((set, get) => ({
           subscriptionType: result.auth?.subscriptionType || null,
           projectPath: result.projectPath || '~',
           homePath: result.homePath || '~',
+          isNodeInstalled: result.isNodeInstalled,
+          isClaudeInstalled: result.isClaudeInstalled,
+          isAuthValid: result.isAuthValid,
         },
       })
-    } catch {}
+    } catch { }
   },
 
   setPreferredModel: (model) => {
@@ -189,6 +205,10 @@ export const useSessionStore = create<State>((set, get) => ({
   setPermissionMode: (mode) => {
     set({ permissionMode: mode })
     window.clui.setPermissionMode(mode)
+  },
+
+  setAuthBypassed: (bypassed) => {
+    set({ authBypassed: bypassed })
   },
 
   createTab: async () => {
@@ -348,7 +368,7 @@ export const useSessionStore = create<State>((set, get) => ({
   },
 
   closeTab: (tabId) => {
-    window.clui.closeTab(tabId).catch(() => {})
+    window.clui.closeTab(tabId).catch(() => { })
 
     const s = get()
     const remaining = s.tabs.filter((t) => t.id !== tabId)
@@ -431,12 +451,12 @@ export const useSessionStore = create<State>((set, get) => ({
       tabs: s.tabs.map((t) =>
         t.id === activeTabId
           ? {
-              ...t,
-              messages: [
-                ...t.messages,
-                { id: nextMsgId(), role: 'system' as const, content, timestamp: Date.now() },
-              ],
-            }
+            ...t,
+            messages: [
+              ...t.messages,
+              { id: nextMsgId(), role: 'system' as const, content, timestamp: Date.now() },
+            ],
+          }
           : t
       ),
     }))
@@ -446,7 +466,7 @@ export const useSessionStore = create<State>((set, get) => ({
 
   respondPermission: (tabId, questionId, optionId) => {
     // Send to backend
-    window.clui.respondPermission(tabId, questionId, optionId).catch(() => {})
+    window.clui.respondPermission(tabId, questionId, optionId).catch(() => { })
 
     // Remove answered item from queue; show next tool's activity or clear
     set((s) => ({
@@ -472,11 +492,11 @@ export const useSessionStore = create<State>((set, get) => ({
       tabs: s.tabs.map((t) =>
         t.id === activeTabId
           ? {
-              ...t,
-              additionalDirs: t.additionalDirs.includes(dir)
-                ? t.additionalDirs
-                : [...t.additionalDirs, dir],
-            }
+            ...t,
+            additionalDirs: t.additionalDirs.includes(dir)
+              ? t.additionalDirs
+              : [...t.additionalDirs, dir],
+          }
           : t
       ),
     }))
@@ -500,12 +520,12 @@ export const useSessionStore = create<State>((set, get) => ({
       tabs: s.tabs.map((t) =>
         t.id === activeTabId
           ? {
-              ...t,
-              workingDirectory: dir,
-              hasChosenDirectory: true,
-              claudeSessionId: null,
-              additionalDirs: [],
-            }
+            ...t,
+            workingDirectory: dir,
+            hasChosenDirectory: true,
+            claudeSessionId: null,
+            additionalDirs: [],
+          }
           : t
       ),
     }))
@@ -580,12 +600,12 @@ export const useSessionStore = create<State>((set, get) => ({
         const withEffectiveBase = t.hasChosenDirectory
           ? t
           : {
-              ...t,
-              // Once the user sends the first message, lock in the effective
-              // base directory (home by default) so the footer no longer shows "—".
-              hasChosenDirectory: true,
-              workingDirectory: resolvedPath,
-            }
+            ...t,
+            // Once the user sends the first message, lock in the effective
+            // base directory (home by default) so the footer no longer shows "—".
+            hasChosenDirectory: true,
+            workingDirectory: resolvedPath,
+          }
         if (isBusy) {
           return {
             ...withEffectiveBase,
@@ -891,11 +911,11 @@ export const useSessionStore = create<State>((set, get) => ({
       tabs: s.tabs.map((t) =>
         t.id === tabId
           ? {
-              ...t,
-              status: newStatus as TabStatus,
-              // Clear activity when transitioning to idle (e.g., after warmup init)
-              ...(newStatus === 'idle' ? { currentActivity: '', permissionQueue: [] as import('../../shared/types').PermissionRequest[], permissionDenied: null } : {}),
-            }
+            ...t,
+            status: newStatus as TabStatus,
+            // Clear activity when transitioning to idle (e.g., after warmup init)
+            ...(newStatus === 'idle' ? { currentActivity: '', permissionQueue: [] as import('../../shared/types').PermissionRequest[], permissionDenied: null } : {}),
+          }
           : t
       ),
     }))
@@ -919,14 +939,14 @@ export const useSessionStore = create<State>((set, get) => ({
           messages: alreadyHasError
             ? t.messages
             : [
-                ...t.messages,
-                {
-                  id: nextMsgId(),
-                  role: 'system' as const,
-                  content: `Error: ${error.message}${error.stderrTail.length > 0 ? '\n\n' + error.stderrTail.slice(-5).join('\n') : ''}`,
-                  timestamp: Date.now(),
-                },
-              ],
+              ...t.messages,
+              {
+                id: nextMsgId(),
+                role: 'system' as const,
+                content: `Error: ${error.message}${error.stderrTail.length > 0 ? '\n\n' + error.stderrTail.slice(-5).join('\n') : ''}`,
+                timestamp: Date.now(),
+              },
+            ],
         }
       }),
     }))

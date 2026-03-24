@@ -6,17 +6,41 @@ import { homedir } from 'os'
 import { ControlPlane } from './claude/control-plane'
 import { ensureSkills, type SkillStatus } from './skills/installer'
 import { fetchCatalog, listInstalled, installPlugin, uninstallPlugin } from './marketplace/catalog'
-import { log as _log, LOG_FILE, flushLogs } from './logger'
 import { getCliEnv } from './cli-env'
 import { IPC } from '../shared/types'
 import type { RunOptions, NormalizedEvent, EnrichedError } from '../shared/types'
+import electronLog from 'electron-log'
+const log = Object.assign(
+  (...args: any[]) => electronLog.info(...args),
+  {
+    info: (...args: any[]) => electronLog.info(...args),
+    error: (...args: any[]) => electronLog.error(...args),
+    warn: (...args: any[]) => electronLog.warn(...args),
+    debug: (...args: any[]) => electronLog.debug(...args),
+  }
+)
+
+// Configure electron-log
+electronLog.transports.file.resolvePathFn = () => join(app.getPath('userData'), 'logs/main.log')
+const LOG_FILE = join(app.getPath('userData'), 'logs/main.log')
+
+function flushLogs(): void {
+  try {
+    // electron-log flushes automatically, but ensure any pending writes complete
+    electronLog.info('Clui CC shutting down...')
+  } catch {}
+}
+
+// Force transparent visuals on Windows to prevent white border artifacts
+if (process.platform === 'win32') {
+  app.commandLine.appendSwitch('enable-transparent-visuals')
+  app.commandLine.appendSwitch('disable-gpu-compositing')
+}
+
+electronLog.info('Clui CC starting...')
 
 const DEBUG_MODE = process.env.CLUI_DEBUG === '1'
 const SPACES_DEBUG = DEBUG_MODE || process.env.CLUI_SPACES_DEBUG === '1'
-
-function log(msg: string): void {
-  _log('main', msg)
-}
 
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
@@ -27,6 +51,10 @@ let toggleSequence = 0
 const INTERACTIVE_PTY = process.env.CLUI_INTERACTIVE_PERMISSIONS_PTY === '1'
 
 const controlPlane = new ControlPlane(INTERACTIVE_PTY)
+
+if (process.platform === 'win32') {
+  app.setName(' ') // Overrides productName fallback for window title
+}
 
 // Keep native width fixed to avoid renderer animation vs setBounds race.
 // The UI itself still launches in compact mode; extra width is transparent/click-through.
@@ -45,7 +73,7 @@ function broadcast(channel: string, ...args: unknown[]): void {
 function snapshotWindowState(reason: string): void {
   if (!SPACES_DEBUG) return
   if (!mainWindow || mainWindow.isDestroyed()) {
-    log(`[spaces] ${reason} window=none`)
+    log.info(`[spaces] ${reason} window=none`)
     return
   }
 
@@ -55,7 +83,7 @@ function snapshotWindowState(reason: string): void {
   const visibleOnAll = mainWindow.isVisibleOnAllWorkspaces()
   const wcFocused = mainWindow.webContents.isFocused()
 
-  log(
+  log.info(
     `[spaces] ${reason} ` +
     `vis=${mainWindow.isVisible()} focused=${mainWindow.isFocused()} wcFocused=${wcFocused} ` +
     `alwaysOnTop=${mainWindow.isAlwaysOnTop()} allWs=${visibleOnAll} ` +
@@ -114,15 +142,32 @@ function createWindow(): void {
     alwaysOnTop: true,
     skipTaskbar: true,
     hasShadow: false,
-    roundedCorners: true,
+    roundedCorners: false,
     backgroundColor: '#00000000',
     show: false,
-    icon: join(__dirname, '../../resources/icon.icns'),
+    icon: join(__dirname, `../../resources/icon.${process.platform === 'win32' ? 'ico' : 'icns'}`),
+    ...(process.platform === 'win32' ? ({
+      autoHideMenuBar: true,
+      thickFrame: false,
+    } as any) : {}),
+    title: ' ',
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
       nodeIntegration: false,
+      backgroundThrottling: false,
     },
+  })
+
+  if (process.platform === 'win32') {
+    mainWindow.removeMenu()
+    mainWindow.setMenu(null)
+    mainWindow.setMenuBarVisibility(false)
+  }
+
+  // Trap and kill any attempt to set a window title (prevents white bar on Windows focus/blur)
+  mainWindow.on('page-title-updated', (e) => {
+    e.preventDefault()
   })
 
   // Belt-and-suspenders: panel already joins all spaces and floats,
@@ -136,6 +181,15 @@ function createWindow(): void {
     // { forward: true } ensures mousemove events still reach the renderer
     // so it can toggle click-through off when cursor enters interactive UI.
     mainWindow?.setIgnoreMouseEvents(true, { forward: true })
+
+    // Deep-trap Alt+Space even when focused (Windows system menu bypass)
+    mainWindow?.webContents.on('before-input-event', (event, input) => {
+      if (input.type === 'keyDown' && input.alt && input.key === ' ' && process.platform === 'win32') {
+        event.preventDefault()
+        toggleWindow('before-input-event')
+      }
+    })
+
     if (process.env.ELECTRON_RENDERER_URL) {
       mainWindow?.webContents.openDevTools({ mode: 'detach' })
     }
@@ -149,6 +203,16 @@ function createWindow(): void {
       mainWindow?.hide()
     }
   })
+
+  // Prevent Windows from re-showing the title bar/menu on blur
+  if (process.platform === 'win32') {
+    mainWindow.on('blur', () => {
+      mainWindow?.setMenuBarVisibility(false)
+    })
+    mainWindow.on('focus', () => {
+      mainWindow?.setMenuBarVisibility(false)
+    })
+  }
 
   if (process.env.ELECTRON_RENDERER_URL) {
     mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL)
@@ -179,7 +243,7 @@ function showWindow(source = 'unknown'): void {
   mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
 
   if (SPACES_DEBUG) {
-    log(`[spaces] showWindow#${toggleId} source=${source} move-to-display id=${display.id}`)
+    log.info(`[spaces] showWindow#${toggleId} source=${source} move-to-display id=${display.id}`)
     snapshotWindowState(`showWindow#${toggleId} pre-show`)
   }
   // As an accessory app (app.dock.hide), show() + focus gives keyboard
@@ -194,7 +258,7 @@ function toggleWindow(source = 'unknown'): void {
   if (!mainWindow) return
   const toggleId = ++toggleSequence
   if (SPACES_DEBUG) {
-    log(`[spaces] toggle#${toggleId} source=${source} start`)
+    log.info(`[spaces] toggle#${toggleId} source=${source} start`)
     snapshotWindowState(`toggle#${toggleId} pre`)
   }
 
@@ -245,35 +309,61 @@ ipcMain.handle(IPC.START, async () => {
   log('IPC START — fetching static CLI info')
   const { execSync } = require('child_process')
 
+  const isNodeInstalled = true // If we're running Electron, Node is effectively here
+  let isClaudeInstalled = false
+  let isAuthValid = false
+
+  const claudePath = controlPlane.getClaudeBinaryPath()
   let version = 'unknown'
   try {
-    version = execSync('claude -v', { encoding: 'utf-8', timeout: 5000, env: getCliEnv() }).trim()
+    version = execSync(`"${claudePath}" -v`, { encoding: 'utf-8', timeout: 5000, env: getCliEnv() }).trim()
+    isClaudeInstalled = true
   } catch {}
 
   let auth: { email?: string; subscriptionType?: string; authMethod?: string } = {}
   try {
-    const raw = execSync('claude auth status', { encoding: 'utf-8', timeout: 5000, env: getCliEnv() }).trim()
-    auth = JSON.parse(raw)
+    // Note: claude auth status might not return JSON directly; 
+    // we'll try to parse it but fall back to checking if it ran successfully.
+    const raw = execSync(`"${claudePath}" auth status`, { encoding: 'utf-8', timeout: 5000, env: getCliEnv() }).trim()
+    try {
+      auth = JSON.parse(raw)
+    } catch {
+      // If not JSON, check for common patterns like "Logged in as"
+      if (raw.toLowerCase().includes('logged in as')) {
+        const emailMatch = raw.match(/as\s+([^\s]+)/i)
+        if (emailMatch) auth.email = emailMatch[1]
+      }
+    }
+    isAuthValid = !!auth.email || raw.toLowerCase().includes('logged in as')
   } catch {}
 
   let mcpServers: string[] = []
   try {
-    const raw = execSync('claude mcp list', { encoding: 'utf-8', timeout: 5000, env: getCliEnv() }).trim()
+    const raw = execSync(`"${claudePath}" mcp list`, { encoding: 'utf-8', timeout: 5000, env: getCliEnv() }).trim()
     if (raw) mcpServers = raw.split('\n').filter(Boolean)
   } catch {}
 
-  return { version, auth, mcpServers, projectPath: process.cwd(), homePath: require('os').homedir() }
+  return {
+    version,
+    auth,
+    mcpServers,
+    projectPath: process.cwd(),
+    homePath: require('os').homedir(),
+    isNodeInstalled,
+    isClaudeInstalled,
+    isAuthValid,
+  }
 })
 
-ipcMain.handle(IPC.CREATE_TAB, () => {
-  const tabId = controlPlane.createTab()
-  log(`IPC CREATE_TAB → ${tabId}`)
-  return { tabId }
+ipcMain.handle(IPC.CREATE_TAB, (_event, tabId?: string) => {
+  const id = controlPlane.createTab(tabId)
+  log(`IPC CREATE_TAB → ${id}`)
+  return { tabId: id }
 })
 
-ipcMain.on(IPC.INIT_SESSION, (_event, tabId: string) => {
+ipcMain.on(IPC.INIT_SESSION, (_event, tabId: string, options?: RunOptions) => {
   log(`IPC INIT_SESSION: ${tabId}`)
-  controlPlane.initSession(tabId)
+  controlPlane.initSession(tabId, options)
 })
 
 ipcMain.on(IPC.RESET_TAB_SESSION, (_event, tabId: string) => {
@@ -283,9 +373,9 @@ ipcMain.on(IPC.RESET_TAB_SESSION, (_event, tabId: string) => {
 
 ipcMain.handle(IPC.PROMPT, async (_event, { tabId, requestId, options }: { tabId: string; requestId: string; options: RunOptions }) => {
   if (DEBUG_MODE) {
-    log(`IPC PROMPT: tab=${tabId} req=${requestId} prompt="${options.prompt.substring(0, 100)}"`)
+    log.info(`IPC PROMPT: tab=${tabId} req=${requestId} prompt="${options.prompt.substring(0, 100)}"`)
   } else {
-    log(`IPC PROMPT: tab=${tabId} req=${requestId}`)
+    log.info(`IPC PROMPT: tab=${tabId} req=${requestId}`)
   }
 
   if (!tabId) {
@@ -299,7 +389,7 @@ ipcMain.handle(IPC.PROMPT, async (_event, { tabId, requestId, options }: { tabId
     await controlPlane.submitPrompt(tabId, requestId, options)
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err)
-    log(`PROMPT error: ${msg}`)
+    log.info(`PROMPT error: ${msg}`)
     throw err
   }
 })
@@ -334,7 +424,7 @@ ipcMain.handle(IPC.CLOSE_TAB, (_event, tabId: string) => {
 
 ipcMain.on(IPC.SET_PERMISSION_MODE, (_event, mode: string) => {
   if (mode !== 'ask' && mode !== 'auto') {
-    log(`IPC SET_PERMISSION_MODE: invalid mode "${mode}" — ignoring`)
+    log.info(`IPC SET_PERMISSION_MODE: invalid mode "${mode}" — ignoring`)
     return
   }
   log(`IPC SET_PERMISSION_MODE: ${mode}`)
@@ -352,7 +442,7 @@ ipcMain.handle(IPC.LIST_SESSIONS, async (_e, projectPath?: string) => {
     const cwd = projectPath || process.cwd()
     // Validate projectPath — reject null bytes, newlines, non-absolute paths
     if (/[\0\r\n]/.test(cwd) || !cwd.startsWith('/')) {
-      log(`LIST_SESSIONS: rejected invalid projectPath: ${cwd}`)
+      log.info(`LIST_SESSIONS: rejected invalid projectPath: ${cwd}`)
       return []
     }
     // Claude stores project sessions at ~/.claude/projects/<encoded-path>/
@@ -360,7 +450,7 @@ ipcMain.handle(IPC.LIST_SESSIONS, async (_e, projectPath?: string) => {
     const encodedPath = cwd.replace(/\//g, '-')
     const sessionsDir = join(homedir(), '.claude', 'projects', encodedPath)
     if (!existsSync(sessionsDir)) {
-      log(`LIST_SESSIONS: directory not found: ${sessionsDir}`)
+      log.info(`LIST_SESSIONS: directory not found: ${sessionsDir}`)
       return []
     }
     const files = readdirSync(sessionsDir).filter((f: string) => f.endsWith('.jsonl'))
@@ -425,7 +515,7 @@ ipcMain.handle(IPC.LIST_SESSIONS, async (_e, projectPath?: string) => {
     sessions.sort((a, b) => new Date(b.lastTimestamp).getTime() - new Date(a.lastTimestamp).getTime())
     return sessions.slice(0, 20) // Return top 20
   } catch (err) {
-    log(`LIST_SESSIONS error: ${err}`)
+    log.info(`LIST_SESSIONS error: ${err}`)
     return []
   }
 })
@@ -439,7 +529,7 @@ ipcMain.handle(IPC.LOAD_SESSION, async (_e, arg: { sessionId: string; projectPat
   // Validate sessionId — must be strict UUID to prevent path traversal via crafted filenames
   const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
   if (!UUID_RE.test(sessionId)) {
-    log(`LOAD_SESSION: rejected invalid sessionId: ${sessionId}`)
+    log.info(`LOAD_SESSION: rejected invalid sessionId: ${sessionId}`)
     return []
   }
 
@@ -447,7 +537,7 @@ ipcMain.handle(IPC.LOAD_SESSION, async (_e, arg: { sessionId: string; projectPat
     const cwd = projectPath || process.cwd()
     // Validate projectPath — reject null bytes, newlines, non-absolute paths
     if (/[\0\r\n]/.test(cwd) || !cwd.startsWith('/')) {
-      log(`LOAD_SESSION: rejected invalid projectPath: ${cwd}`)
+      log.info(`LOAD_SESSION: rejected invalid projectPath: ${cwd}`)
       return []
     }
     const encodedPath = cwd.replace(/\//g, '-')
@@ -497,7 +587,7 @@ ipcMain.handle(IPC.LOAD_SESSION, async (_e, arg: { sessionId: string; projectPat
     })
     return messages
   } catch (err) {
-    log(`LOAD_SESSION error: ${err}`)
+    log.info(`LOAD_SESSION error: ${err}`)
     return []
   }
 })
@@ -508,7 +598,7 @@ ipcMain.handle(IPC.SELECT_DIRECTORY, async () => {
   // Unparented avoids modal dimming on the transparent overlay.
   // Activation is fine here — user is actively interacting with CLUI.
   if (process.platform === 'darwin') app.focus()
-  const options = { properties: ['openDirectory'] as const }
+  const options = { properties: ['openDirectory'] as any }
   const result = process.platform === 'darwin'
     ? await dialog.showOpenDialog(options)
     : await dialog.showOpenDialog(mainWindow, options)
@@ -532,7 +622,7 @@ ipcMain.handle(IPC.ATTACH_FILES, async () => {
   if (!mainWindow) return null
   // macOS: activate app so unparented dialog appears on top
   if (process.platform === 'darwin') app.focus()
-  const options = {
+  const options: any = {
     properties: ['openFile', 'multiSelections'],
     filters: [
       { name: 'All Files', extensions: ['*'] },
@@ -598,10 +688,25 @@ ipcMain.handle(IPC.TAKE_SCREENSHOT, async () => {
     const timestamp = Date.now()
     const screenshotPath = join(tmpdir(), `clui-screenshot-${timestamp}.png`)
 
-    execSync(`/usr/sbin/screencapture -i "${screenshotPath}"`, {
-      timeout: 30000,
-      stdio: 'ignore',
-    })
+    if (process.platform === 'darwin') {
+      execSync(`/usr/sbin/screencapture -i "${screenshotPath}"`, {
+        timeout: 30000,
+        stdio: 'ignore',
+      })
+    } else if (process.platform === 'win32') {
+      // Basic PowerShell screenshot (requires .NET)
+      const script = `
+        Add-Type -AssemblyName System.Windows.Forms
+        $screen = [System.Windows.Forms.Screen]::PrimaryScreen
+        $bitmap = New-Object System.Drawing.Bitmap($screen.Bounds.Width, $screen.Bounds.Height)
+        $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+        $graphics.CopyFromScreen($screen.Bounds.X, $screen.Bounds.Y, 0, 0, $bitmap.Size)
+        $bitmap.Save("${screenshotPath.replace(/\\/g, '\\\\')}", [System.Drawing.Imaging.ImageFormat]::Png)
+        $graphics.Dispose()
+        $bitmap.Dispose()
+      `
+      execSync(`powershell -Command "${script.replace(/\n/g, ' ')}"`, { timeout: 30000 })
+    }
 
     if (!existsSync(screenshotPath)) {
       return null
@@ -627,7 +732,7 @@ ipcMain.handle(IPC.TAKE_SCREENSHOT, async () => {
     }
     broadcast(IPC.WINDOW_SHOWN)
     if (SPACES_DEBUG) {
-      log('[spaces] screenshot restore show+focus')
+      log.info('[spaces] screenshot restore show+focus')
       snapshotWindowState('screenshot restore immediate')
       setTimeout(() => snapshotWindowState('screenshot restore +200ms'), 200)
     }
@@ -704,6 +809,10 @@ ipcMain.handle(IPC.TRANSCRIBE_AUDIO, async (_event, audioBase64: string) => {
       '/opt/homebrew/bin/whisper',
       '/usr/local/bin/whisper',
       join(homedir(), '.local/bin/whisper'),
+      // Windows candidates
+      join(process.env.PROGRAMFILES || 'C:/Program Files', 'whisper-cpp/whisper-cli.exe'),
+      join(homedir(), 'AppData/Local/bin/whisper-cli.exe'),
+      join(homedir(), 'AppData/Local/bin/whisper.exe'),
     ]
 
     let whisperBin = ''
@@ -714,19 +823,26 @@ ipcMain.handle(IPC.TRANSCRIBE_AUDIO, async (_event, audioBase64: string) => {
 
     if (!whisperBin) {
       t0 = Date.now()
+      const searchCmd = process.platform === 'win32' ? 'where' : 'whence -p'
+      const shell = process.platform === 'win32' ? 'cmd.exe' : '/bin/zsh'
+      const shellArgs = process.platform === 'win32' ? ['/c'] : ['-lc']
+
       for (const name of ['whisperkit-cli', 'whisper-cli', 'whisper']) {
         try {
-          whisperBin = await runExecFile('/bin/zsh', ['-lc', `whence -p ${name}`], 5000).then((s) => s.trim())
+          const exeName = process.platform === 'win32' ? `${name}.exe` : name
+          whisperBin = await runExecFile(shell, [...shellArgs, `${searchCmd} ${exeName}`], 5000).then((s) => s.trim().split(/\r?\n/)[0])
           if (whisperBin) break
         } catch {}
       }
-      mark('probe_binary_whence', t0)
+      mark('probe_binary_discovery', t0)
     }
 
     if (!whisperBin) {
-      const hint = process.arch === 'arm64'
-        ? 'brew install whisperkit-cli   (or: brew install whisper-cpp)'
-        : 'brew install whisper-cpp'
+      const hint = process.platform === 'win32'
+        ? 'Download whisper-cli.exe from whisper.cpp releases'
+        : (process.arch === 'arm64'
+          ? 'brew install whisperkit-cli   (or: brew install whisper-cpp)'
+          : 'brew install whisper-cpp')
       return {
         error: `Whisper not found. Install with:\n  ${hint}`,
         transcript: null,
@@ -736,7 +852,7 @@ ipcMain.handle(IPC.TRANSCRIBE_AUDIO, async (_event, audioBase64: string) => {
     const isWhisperKit = whisperBin.includes('whisperkit-cli')
     const isWhisperCpp = !isWhisperKit && whisperBin.includes('whisper-cli')
 
-    log(`Transcribing with: ${whisperBin} (backend: ${isWhisperKit ? 'WhisperKit' : isWhisperCpp ? 'whisper-cpp' : 'Python whisper'})`)
+    log.info(`Transcribing with: ${whisperBin} (backend: ${isWhisperKit ? 'WhisperKit' : isWhisperCpp ? 'whisper-cpp' : 'Python whisper'})`)
 
     let output: string
     if (isWhisperKit) {
@@ -764,10 +880,10 @@ ipcMain.handle(IPC.TRANSCRIBE_AUDIO, async (_event, audioBase64: string) => {
           // Also clean up .srt that --report creates
           const srtPath = join(reportDir, `${wavBasename}.srt`)
           try { unlinkSync(srtPath) } catch {}
-          log(`Transcription timing(ms): ${JSON.stringify({ ...phaseMs, total: Date.now() - startedAt })}`)
+          log.info(`Transcription timing(ms): ${JSON.stringify({ ...phaseMs, total: Date.now() - startedAt })}`)
           return { error: null, transcript }
         } catch (parseErr: any) {
-          log(`WhisperKit JSON parse failed: ${parseErr.message}, falling back to stdout`)
+          log.info(`WhisperKit JSON parse failed: ${parseErr.message}, falling back to stdout`)
           try { unlinkSync(reportPath) } catch {}
         }
       }
@@ -834,7 +950,7 @@ ipcMain.handle(IPC.TRANSCRIBE_AUDIO, async (_event, audioBase64: string) => {
         const transcript = readFileSync(txtPath, 'utf-8').trim()
         mark('python_whisper_read_txt', t0)
         try { unlinkSync(txtPath) } catch {}
-        log(`Transcription timing(ms): ${JSON.stringify({ ...phaseMs, total: Date.now() - startedAt })}`)
+        log.info(`Transcription timing(ms): ${JSON.stringify({ ...phaseMs, total: Date.now() - startedAt })}`)
         return { error: null, transcript }
       }
       // File not created — Python whisper failed silently
@@ -852,15 +968,15 @@ ipcMain.handle(IPC.TRANSCRIBE_AUDIO, async (_event, audioBase64: string) => {
       .trim()
 
     if (HALLUCINATIONS.test(transcript)) {
-      log(`Transcription timing(ms): ${JSON.stringify({ ...phaseMs, total: Date.now() - startedAt })}`)
+      log.info(`Transcription timing(ms): ${JSON.stringify({ ...phaseMs, total: Date.now() - startedAt })}`)
       return { error: null, transcript: '' }
     }
 
-    log(`Transcription timing(ms): ${JSON.stringify({ ...phaseMs, total: Date.now() - startedAt })}`)
+    log.info(`Transcription timing(ms): ${JSON.stringify({ ...phaseMs, total: Date.now() - startedAt })}`)
     return { error: null, transcript: transcript || '' }
   } catch (err: any) {
-    log(`Transcription error: ${err.message}`)
-    log(`Transcription timing(ms): ${JSON.stringify({ ...phaseMs, total: Date.now() - startedAt, failed: true })}`)
+    log.info(`Transcription error: ${err.message}`)
+    log.info(`Transcription timing(ms): ${JSON.stringify({ ...phaseMs, total: Date.now() - startedAt, failed: true })}`)
     return {
       error: `Transcription failed: ${err.message}`,
       transcript: null,
@@ -898,7 +1014,7 @@ ipcMain.handle(IPC.GET_DIAGNOSTICS, () => {
 
 ipcMain.handle(IPC.OPEN_IN_TERMINAL, (_event, arg: string | null | { sessionId?: string | null; projectPath?: string }) => {
   const { execFile } = require('child_process')
-  const claudeBin = 'claude'
+  const claudeBin = controlPlane.getClaudeBinaryPath()
 
   const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -914,13 +1030,16 @@ ipcMain.handle(IPC.OPEN_IN_TERMINAL, (_event, arg: string | null | { sessionId?:
 
   // Validate sessionId — must be a strict UUID to prevent injection into the shell command
   if (sessionId && !UUID_RE.test(sessionId)) {
-    log(`OPEN_IN_TERMINAL: rejected invalid sessionId: ${sessionId}`)
+    log.info(`OPEN_IN_TERMINAL: rejected invalid sessionId: ${sessionId}`)
     return false
   }
 
   // Sanitize projectPath — reject null bytes, newlines, and non-absolute paths
-  if (/[\0\r\n]/.test(projectPath) || !projectPath.startsWith('/')) {
-    log(`OPEN_IN_TERMINAL: rejected invalid projectPath: ${projectPath}`)
+  const isAbsolute = process.platform === 'win32'
+    ? /^[A-Za-z]:[\\/]/.test(projectPath)  // e.g. C:\ or D:/
+    : projectPath.startsWith('/')
+  if (/[\0\r\n]/.test(projectPath) || !isAbsolute) {
+    log.info(`OPEN_IN_TERMINAL: rejected invalid projectPath: ${projectPath}`)
     return false
   }
 
@@ -946,13 +1065,21 @@ ipcMain.handle(IPC.OPEN_IN_TERMINAL, (_event, arg: string | null | { sessionId?:
 end tell`
 
   try {
-    execFile('/usr/bin/osascript', ['-e', script], (err: Error | null) => {
-      if (err) log(`Failed to open terminal: ${err.message}`)
-      else log(`Opened terminal with: ${cmd}`)
-    })
+    if (process.platform === 'darwin') {
+      execFile('/usr/bin/osascript', ['-e', script], (err: Error | null) => {
+        if (err) log.error(`Failed to open terminal: ${err.message}`)
+        else log.info(`Opened terminal with: ${cmd}`)
+      })
+    } else if (process.platform === 'win32') {
+      // Open cmd.exe in the project directory and run 'claude'
+      const { spawn } = require('child_process')
+      const terminalCmd = sessionId ? `claude --resume ${sessionId}` : 'claude'
+      spawn('cmd.exe', ['/c', `start cmd.exe /k "cd /d ${projectPath} && ${terminalCmd}"`], { shell: true })
+      log.info(`Opened Windows Terminal (cmd.exe) in ${projectPath}`)
+    }
     return true
   } catch (err: unknown) {
-    log(`Failed to open terminal: ${err}`)
+    log.error(`Failed to open terminal: ${err}`)
     return false
   }
 })
@@ -1003,7 +1130,7 @@ async function requestPermissions(): Promise<void> {
       await systemPreferences.askForMediaAccess('microphone')
     }
   } catch (err: any) {
-    log(`Permission preflight: microphone check failed — ${err.message}`)
+    log.info(`Permission preflight: microphone check failed — ${err.message}`)
   }
 
   // ── Accessibility (for global ⌥+Space shortcut) ──
@@ -1028,7 +1155,7 @@ app.whenReady().then(async () => {
 
   // Skill provisioning — non-blocking, streams status to renderer
   ensureSkills((status: SkillStatus) => {
-    log(`Skill ${status.name}: ${status.state}${status.error ? ` — ${status.error}` : ''}`)
+    log.info(`Skill ${status.name}: ${status.state}${status.error ? ` — ${status.error}` : ''}`)
     broadcast(IPC.SKILL_STATUS, status)
   }).catch((err: Error) => log(`Skill provisioning error: ${err.message}`))
 
@@ -1047,15 +1174,15 @@ app.whenReady().then(async () => {
     app.on('browser-window-blur', () => snapshotWindowState('event app browser-window-blur'))
 
     screen.on('display-added', (_e, display) => {
-      log(`[spaces] event display-added id=${display.id}`)
+      log.info(`[spaces] event display-added id=${display.id}`)
       snapshotWindowState('event display-added')
     })
     screen.on('display-removed', (_e, display) => {
-      log(`[spaces] event display-removed id=${display.id}`)
+      log.info(`[spaces] event display-removed id=${display.id}`)
       snapshotWindowState('event display-removed')
     })
     screen.on('display-metrics-changed', (_e, display, changedMetrics) => {
-      log(`[spaces] event display-metrics-changed id=${display.id} changed=${changedMetrics.join(',')}`)
+      log.info(`[spaces] event display-metrics-changed id=${display.id} changed=${changedMetrics.join(',')}`)
       snapshotWindowState('event display-metrics-changed')
     })
   }
@@ -1063,9 +1190,11 @@ app.whenReady().then(async () => {
 
   // Primary: Option+Space (2 keys, doesn't conflict with shell)
   // Fallback: Cmd+Shift+K kept as secondary shortcut
-  const registered = globalShortcut.register('Alt+Space', () => toggleWindow('shortcut Alt+Space'))
+  // Global Summer Shortcut
+  const mainShortcut = process.platform === 'win32' ? 'Alt+Space' : 'Alt+Space' // Prompt said Alt+Space for Windows
+  const registered = globalShortcut.register(mainShortcut, () => toggleWindow('shortcut ' + mainShortcut))
   if (!registered) {
-    log('Alt+Space shortcut registration failed — macOS input sources may claim it')
+    log.error(`${mainShortcut} shortcut registration failed`)
   }
   globalShortcut.register('CommandOrControl+Shift+K', () => toggleWindow('shortcut Cmd/Ctrl+Shift+K'))
 
@@ -1091,7 +1220,9 @@ app.whenReady().then(async () => {
 
 app.on('will-quit', () => {
   globalShortcut.unregisterAll()
-  controlPlane.shutdown()
+  if (typeof (controlPlane as any).shutdown === 'function') {
+    (controlPlane as any).shutdown()
+  }
   flushLogs()
 })
 

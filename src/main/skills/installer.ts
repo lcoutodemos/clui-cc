@@ -15,8 +15,13 @@ import { execSync } from 'child_process'
 import { randomUUID } from 'crypto'
 import { SKILLS, type SkillEntry } from './manifest'
 
-/** Directory containing bundled skill sources (relative to main process __dirname) */
-const BUNDLED_SKILLS_DIR = join(__dirname, '../../skills')
+/** Directory containing bundled skill sources */
+const BUNDLED_SKILLS_DIR = process.env.NODE_ENV === 'production'
+  ? join(process.resourcesPath, 'app.asar.unpacked', 'skills') // if unpacked
+  : join(__dirname, '../../skills')
+
+// Fallback for non-unpacked asar
+const BUNDLED_SKILLS_DIR_ALT = join(__dirname, '../../skills')
 
 const SKILLS_DIR = join(homedir(), '.claude', 'skills')
 const VERSION_FILE = '.clui-version'
@@ -37,11 +42,16 @@ interface VersionMeta {
   installedAt: string
 }
 
-function log(msg: string): void {
-  const { appendFileSync } = require('fs')
-  const line = `[${new Date().toISOString()}] [skills] ${msg}\n`
-  try { appendFileSync(join(homedir(), '.clui-debug.log'), line) } catch {}
-}
+import electronLog from 'electron-log'
+const log = Object.assign(
+  (...args: any[]) => electronLog.info(...args),
+  {
+    info: (...args: any[]) => electronLog.info(...args),
+    error: (...args: any[]) => electronLog.error(...args),
+    warn: (...args: any[]) => electronLog.warn(...args),
+    debug: (...args: any[]) => electronLog.debug(...args),
+  }
+)
 
 function readVersionFile(skillDir: string): VersionMeta | null {
   const fp = join(skillDir, VERSION_FILE)
@@ -94,12 +104,10 @@ async function installGithubSkill(
     const pathDepth = path.split('/').length + 1 // +1 for the github top-level dir
     const tarballUrl = `https://api.github.com/repos/${repo}/tarball/${commitSha}`
 
-    // Use curl + tar — both always available on macOS
-    const cmd = [
-      `curl -sL "${tarballUrl}"`,
-      '|',
-      `tar -xz --strip-components=${pathDepth} -C "${tmpDir}" "*/${path}"`,
-    ].join(' ')
+    // Use curl + tar — both available on modern Windows and macOS
+    const cmd = process.platform === 'win32'
+      ? `curl -sL "${tarballUrl}" | tar -xz --strip-components=${pathDepth} -C "${tmpDir}" "*/${path}"`
+      : `curl -sL "${tarballUrl}" | tar -xz --strip-components=${pathDepth} -C "${tmpDir}" "*/${path}"`
 
     execSync(cmd, { timeout: 60000, stdio: 'pipe' })
 
@@ -126,11 +134,11 @@ async function installGithubSkill(
     renameSync(tmpDir, targetDir)
     writeVersionFile(targetDir, entry)
 
-    log(`Installed ${entry.name} v${entry.version}`)
+    log.info(`Installed ${entry.name} v${entry.version}`)
     onStatus({ name: entry.name, state: 'installed' })
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err)
-    log(`Failed to install ${entry.name}: ${msg}`)
+    log.info(`Failed to install ${entry.name}: ${msg}`)
 
     // Clean up tmp dir on failure
     try { rmSync(tmpDir, { recursive: true, force: true }) } catch {}
@@ -180,11 +188,11 @@ async function installBundledSkill(
     renameSync(tmpDir, targetDir)
     writeVersionFile(targetDir, entry)
 
-    log(`Installed bundled skill ${entry.name} v${entry.version}`)
+    log.info(`Installed bundled skill ${entry.name} v${entry.version}`)
     onStatus({ name: entry.name, state: 'installed' })
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err)
-    log(`Failed to install bundled skill ${entry.name}: ${msg}`)
+    log.info(`Failed to install bundled skill ${entry.name}: ${msg}`)
     try { rmSync(tmpDir, { recursive: true, force: true }) } catch {}
     onStatus({ name: entry.name, state: 'failed', error: msg })
   }
@@ -202,7 +210,7 @@ async function installSkill(
 
     if (!meta) {
       // Dir exists but no .clui-version — user-managed, don't touch
-      log(`Skipping ${entry.name}: user-managed (no ${VERSION_FILE})`)
+      log.info(`Skipping ${entry.name}: user-managed (no ${VERSION_FILE})`)
       onStatus({ name: entry.name, state: 'skipped', reason: 'user-managed' })
       return
     }
@@ -211,15 +219,15 @@ async function installSkill(
       // Re-validate required files to detect corrupt/partial installs
       const validationErr = validateSkill(targetDir, entry.requiredFiles)
       if (!validationErr) {
-        log(`Skipping ${entry.name}: already at v${entry.version}`)
+        log.info(`Skipping ${entry.name}: already at v${entry.version}`)
         onStatus({ name: entry.name, state: 'skipped', reason: 'up-to-date' })
         return
       }
-      log(`Repairing ${entry.name}: version matches but ${validationErr}`)
+      log.info(`Repairing ${entry.name}: version matches but ${validationErr}`)
     }
 
     // Version mismatch — needs update
-    log(`Updating ${entry.name}: v${meta.version} → v${entry.version}`)
+    log.info(`Updating ${entry.name}: v${meta.version} → v${entry.version}`)
   }
 
   // Ensure parent dir exists
@@ -250,7 +258,7 @@ export async function ensureSkills(
       await installSkill(entry, onStatus)
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err)
-      log(`Unexpected error installing ${entry.name}: ${msg}`)
+      log.info(`Unexpected error installing ${entry.name}: ${msg}`)
       onStatus({ name: entry.name, state: 'failed', error: msg })
     }
   }

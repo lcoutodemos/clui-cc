@@ -313,7 +313,7 @@ function EmptyState() {
         Choose folder
       </button>
       <span className="text-[11px]" style={{ color: colors.textTertiary }}>
-        Press <strong style={{ color: colors.textSecondary }}>⌥ + Space</strong> to show/hide this overlay
+        Press <strong style={{ color: colors.textSecondary }}>{navigator.userAgent.includes('Win') ? 'Alt' : '⌥'} + Space</strong> to show/hide this overlay
       </span>
     </div>
   )

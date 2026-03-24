@@ -6,6 +6,7 @@ import { ConversationView } from './components/ConversationView'
 import { InputBar } from './components/InputBar'
 import { StatusBar } from './components/StatusBar'
 import { MarketplacePanel } from './components/MarketplacePanel'
+import { SetupWizard } from './components/SetupWizard'
 import { PopoverLayerProvider } from './components/PopoverLayer'
 import { useClaudeEvents } from './hooks/useClaudeEvents'
 import { useHealthReconciliation } from './hooks/useHealthReconciliation'
@@ -38,15 +39,19 @@ export default function App() {
     return unsub
   }, [setSystemTheme])
 
+  const [isInitializing, setIsInitializing] = React.useState(true)
+  const staticInfo = useSessionStore((s) => s.staticInfo)
+
   useEffect(() => {
     useSessionStore.getState().initStaticInfo().then(() => {
       const homeDir = useSessionStore.getState().staticInfo?.homePath || '~'
       const tab = useSessionStore.getState().tabs[0]
       if (tab) {
-        // Set working directory to home by default (user hasn't chosen yet)
+        // Set working directory to home by default
         useSessionStore.setState((s) => ({
           tabs: s.tabs.map((t, i) => (i === 0 ? { ...t, workingDirectory: homeDir, hasChosenDirectory: false } : t)),
         }))
+        // Ensure we handle the tab ID properly
         window.clui.createTab().then(({ tabId }) => {
           useSessionStore.setState((s) => ({
             tabs: s.tabs.map((t, i) => (i === 0 ? { ...t, id: tabId } : t)),
@@ -54,7 +59,22 @@ export default function App() {
           }))
         }).catch(() => {})
       }
-    })
+    }).finally(() => setIsInitializing(false))
+  }, [])
+
+  // Local keyboard shortcut for toggling (Alt+Space fallback)
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      // Check for Alt+Space
+      const isAltSpace = e.altKey && (e.code === 'Space' || e.key === ' ')
+      if (isAltSpace) {
+        e.preventDefault()
+        window.clui.hideWindow()
+      }
+    }
+    // Use capture phase to ensure we catch it before other elements
+    window.addEventListener('keydown', onKeyDown, true)
+    return () => window.removeEventListener('keydown', onKeyDown, true)
   }, [])
 
   // OS-level click-through (RAF-throttled to avoid per-pixel IPC)
@@ -93,14 +113,10 @@ export default function App() {
 
   const isExpanded = useSessionStore((s) => s.isExpanded)
   const marketplaceOpen = useSessionStore((s) => s.marketplaceOpen)
+  const authBypassed = useSessionStore((s) => s.authBypassed)
   const isRunning = activeTabStatus === 'running' || activeTabStatus === 'connecting'
 
-  // Layout dimensions — expandedUI widens and heightens the panel
-  const contentWidth = expandedUI ? 700 : spacing.contentWidth
-  const cardExpandedWidth = expandedUI ? 700 : 460
-  const cardCollapsedWidth = expandedUI ? 670 : 430
-  const cardCollapsedMargin = expandedUI ? 15 : 15
-  const bodyMaxHeight = expandedUI ? 520 : 400
+  const needsSetup = staticInfo && (!staticInfo.isNodeInstalled || !staticInfo.isClaudeInstalled || (!staticInfo.isAuthValid && !authBypassed))
 
   const handleScreenshot = useCallback(async () => {
     const result = await window.clui.takeScreenshot()
@@ -113,6 +129,25 @@ export default function App() {
     if (!files || files.length === 0) return
     addAttachments(files)
   }, [addAttachments])
+
+  if (isInitializing) {
+    return (
+      <div className="h-full w-full flex items-center justify-center" style={{ background: colors.containerBg }}>
+        {/* Simple loading state covers the flash */}
+      </div>
+    )
+  }
+
+  if (needsSetup) {
+    return <SetupWizard />
+  }
+
+  // Layout dimensions — expandedUI widens and heightens the panel
+  const contentWidth = expandedUI ? 700 : spacing.contentWidth
+  const cardExpandedWidth = expandedUI ? 700 : 460
+  const cardCollapsedWidth = expandedUI ? 670 : 430
+  const cardCollapsedMargin = expandedUI ? 15 : 15
+  const bodyMaxHeight = expandedUI ? 520 : 400
 
   return (
     <PopoverLayerProvider>
