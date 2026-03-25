@@ -239,6 +239,17 @@ ipcMain.on(IPC.SET_IGNORE_MOUSE_EVENTS, (event, ignore: boolean, options?: { for
   }
 })
 
+// Manual window drag — works reliably with frameless + setIgnoreMouseEvents
+ipcMain.on(IPC.START_WINDOW_DRAG, (event, deltaX: number, deltaY: number) => {
+  const win = BrowserWindow.fromWebContents(event.sender)
+  if (win && !win.isDestroyed()) {
+    const [x, y] = win.getPosition()
+    // Vertical is handled in two phases in the renderer: window first (until macOS clamps),
+    // then CSS translateY within the window — so deltaY here is always within allowed range
+    win.setPosition(Math.round(x + deltaX), Math.round(y + deltaY))
+  }
+})
+
 // ─── IPC Handlers (typed, strict) ───
 
 ipcMain.handle(IPC.START, async () => {
