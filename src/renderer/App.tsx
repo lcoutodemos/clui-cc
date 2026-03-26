@@ -52,6 +52,7 @@ export default function App() {
             tabs: s.tabs.map((t, i) => (i === 0 ? { ...t, id: tabId } : t)),
             activeTabId: tabId,
           }))
+          useSessionStore.getState().restoreLastSession(tabId).catch(() => {})
         }).catch(() => {})
       }
     })

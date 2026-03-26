@@ -344,7 +344,7 @@ export function StatusBar() {
           disabled={isRunning}
         >
           <FolderOpen size={11} className="flex-shrink-0" />
-          <span className="truncate">{tab.hasChosenDirectory ? compactPath(tab.workingDirectory) : '—'}</span>
+          <span className="truncate">{compactPath(tab.workingDirectory)}</span>
           {hasExtraDirs && (
             <span style={{ color: colors.textTertiary, fontWeight: 600 }}>+{tab.additionalDirs.length}</span>
           )}

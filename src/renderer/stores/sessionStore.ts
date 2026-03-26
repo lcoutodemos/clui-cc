@@ -95,12 +95,31 @@ interface State {
   addDirectory: (dir: string) => void
   removeDirectory: (dir: string) => void
   setBaseDirectory: (dir: string) => void
+  restoreLastSession: (tabId: string) => Promise<void>
   addAttachments: (attachments: Attachment[]) => void
   removeAttachment: (attachmentId: string) => void
   clearAttachments: () => void
   handleNormalizedEvent: (tabId: string, event: NormalizedEvent) => void
   handleStatusChange: (tabId: string, newStatus: string, oldStatus: string) => void
   handleError: (tabId: string, error: EnrichedError) => void
+}
+
+// ─── Last-session persistence ───
+
+const LAST_SESSION_KEY = 'clui-last-session'
+
+function persistLastSession(folder: string): void {
+  try { localStorage.setItem(LAST_SESSION_KEY, JSON.stringify({ folder })) } catch {}
+}
+
+export function loadLastSession(): { folder: string } | null {
+  try {
+    const raw = localStorage.getItem(LAST_SESSION_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw)
+    if (typeof parsed?.folder !== 'string') return null
+    return { folder: parsed.folder }
+  } catch { return null }
 }
 
 let msgCounter = 0
@@ -495,6 +514,7 @@ export const useSessionStore = create<State>((set, get) => ({
 
   setBaseDirectory: (dir) => {
     const { activeTabId } = get()
+    persistLastSession(dir)
     window.clui.resetTabSession(activeTabId)
     set((s) => ({
       tabs: s.tabs.map((t) =>
@@ -506,6 +526,19 @@ export const useSessionStore = create<State>((set, get) => ({
               claudeSessionId: null,
               additionalDirs: [],
             }
+          : t
+      ),
+    }))
+  },
+
+  restoreLastSession: async (tabId) => {
+    if (!useThemeStore.getState().useLastFolder) return
+    const lastSession = loadLastSession()
+    if (!lastSession) return
+    set((s) => ({
+      tabs: s.tabs.map((t) =>
+        t.id === tabId
+          ? { ...t, workingDirectory: lastSession.folder, hasChosenDirectory: true }
           : t
       ),
     }))

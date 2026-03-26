@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { motion } from 'framer-motion'
-import { DotsThree, Bell, ArrowsOutSimple, Moon } from '@phosphor-icons/react'
+import { DotsThree, Bell, ArrowsOutSimple, Moon, FolderOpen } from '@phosphor-icons/react'
 import { useThemeStore } from '../theme'
 import { useSessionStore } from '../stores/sessionStore'
 import { usePopoverLayer } from './PopoverLayer'
@@ -50,6 +50,8 @@ export function SettingsPopover() {
   const setThemeMode = useThemeStore((s) => s.setThemeMode)
   const expandedUI = useThemeStore((s) => s.expandedUI)
   const setExpandedUI = useThemeStore((s) => s.setExpandedUI)
+  const useLastFolder = useThemeStore((s) => s.useLastFolder)
+  const setUseLastFolder = useThemeStore((s) => s.setUseLastFolder)
   const isExpanded = useSessionStore((s) => s.isExpanded)
   const popoverLayer = usePopoverLayer()
   const colors = useColors()
@@ -198,6 +200,26 @@ export function SettingsPopover() {
                   onChange={setSoundEnabled}
                   colors={colors}
                   label="Toggle notification sound"
+                />
+              </div>
+            </div>
+
+            <div style={{ height: 1, background: colors.popoverBorder }} />
+
+            {/* Restore last folder */}
+            <div>
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2 min-w-0">
+                  <FolderOpen size={14} style={{ color: colors.textTertiary }} />
+                  <div className="text-[12px] font-medium" style={{ color: colors.textPrimary }}>
+                    Restore last folder
+                  </div>
+                </div>
+                <RowToggle
+                  checked={useLastFolder}
+                  onChange={setUseLastFolder}
+                  colors={colors}
+                  label="Toggle restore last folder on startup"
                 />
               </div>
             </div>
