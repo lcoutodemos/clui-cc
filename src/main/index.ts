@@ -66,9 +66,10 @@ const INTERACTIVE_PTY = process.env.CLUI_INTERACTIVE_PERMISSIONS_PTY === '1'
 const controlPlane = new ControlPlane(INTERACTIVE_PTY)
 
 // Keep native width fixed to avoid renderer animation vs setBounds race.
-// The UI itself still launches in compact mode; extra width is transparent/click-through.
-const BAR_WIDTH = 1400
-const PILL_HEIGHT = 720  // Fixed native window height — extra room for expanded UI + shadow buffers
+// Window fills the display workArea — transparent/click-through so no visual difference.
+// Dynamic sizing eliminates all content clipping at any scale.
+const MIN_WIDTH = 1040
+const MIN_HEIGHT = 720
 const BASE_BOTTOM_MARGIN = 24
 
 /**
@@ -95,6 +96,17 @@ function getBottomMargin(display: Electron.Display): number {
     }
   } catch { /* defaults command failed — use base margin */ }
   return BASE_BOTTOM_MARGIN
+}
+
+/** Push the current Dock bottom margin into the renderer as a CSS variable.
+ *  Called on startup and whenever the display metrics change. */
+function syncDockMargin(): void {
+  if (!mainWindow || mainWindow.isDestroyed()) return
+  const display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint())
+  const margin = getBottomMargin(display)
+  mainWindow.webContents.executeJavaScript(
+    `document.documentElement.style.setProperty('--clui-dock-margin', '${margin}px')`
+  ).catch(() => {})
 }
 
 // ─── Broadcast to renderer ───
@@ -161,12 +173,14 @@ function createWindow(): void {
   const { width: screenWidth, height: screenHeight } = display.workAreaSize
   const { x: dx, y: dy } = display.workArea
 
-  const x = dx + Math.round((screenWidth - BAR_WIDTH) / 2)
-  const y = dy + screenHeight - PILL_HEIGHT - getBottomMargin(display)
+  const winWidth = Math.max(screenWidth, MIN_WIDTH)
+  const winHeight = Math.max(screenHeight, MIN_HEIGHT)
+  const x = dx
+  const y = dy
 
   mainWindow = new BrowserWindow({
-    width: BAR_WIDTH,
-    height: PILL_HEIGHT,
+    width: winWidth,
+    height: winHeight,
     x,
     y,
     ...(process.platform === 'darwin' ? { type: 'panel' as const } : {}),  // NSPanel — non-activating, joins all spaces
@@ -203,6 +217,7 @@ function createWindow(): void {
 
   mainWindow.once('ready-to-show', () => {
     mainWindow?.show()
+    syncDockMargin()
     // Enable OS-level click-through for transparent regions.
     // { forward: true } ensures mousemove events still reach the renderer
     // so it can toggle click-through off when cursor enters interactive UI.
@@ -266,10 +281,10 @@ function resetWindowPosition(): void {
   const { x: dx, y: dy } = display.workArea
 
   mainWindow.setBounds({
-    x: dx + Math.round((sw - BAR_WIDTH) / 2),
-    y: dy + sh - PILL_HEIGHT - getBottomMargin(display),
-    width: BAR_WIDTH,
-    height: PILL_HEIGHT,
+    x: dx,
+    y: dy,
+    width: Math.max(sw, MIN_WIDTH),
+    height: Math.max(sh, MIN_HEIGHT),
   })
   lastWindowBounds = mainWindow.getBounds()
 }
@@ -292,7 +307,7 @@ function toggleWindow(source = 'unknown'): void {
 
 // ─── Resize ───
 // Fixed-height mode: ignore renderer resize events to prevent jank.
-// The native window stays at PILL_HEIGHT; all expand/collapse happens inside the renderer.
+// The native window fills the workArea; all expand/collapse happens inside the renderer.
 
 ipcMain.on(IPC.RESIZE_HEIGHT, () => {
   // No-op — fixed height window, no dynamic resize
@@ -1164,11 +1179,12 @@ app.whenReady().then(async () => {
         const { width: sw, height: sh } = display.workAreaSize
         const { x: dx, y: dy } = display.workArea
         mainWindow.setBounds({
-          x: dx + Math.round((sw - BAR_WIDTH) / 2),
-          y: dy + sh - PILL_HEIGHT - getBottomMargin(display),
-          width: BAR_WIDTH,
-          height: PILL_HEIGHT,
+          x: dx,
+          y: dy,
+          width: Math.max(sw, MIN_WIDTH),
+          height: Math.max(sh, MIN_HEIGHT),
         })
+        syncDockMargin()
         log(`[spaces] repositioned for workArea change`)
       }
     })
