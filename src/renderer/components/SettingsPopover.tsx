@@ -100,7 +100,7 @@ function TerminalPicker() {
   const [open, setOpen] = useState(false)
 
   useEffect(() => {
-    window.clui.detectTerminals().then(setTerminals).catch(() => {})
+    window.clui.detectTerminals?.().then(setTerminals).catch(() => {})
   }, [])
 
   const installed = terminals.filter((t) => t.installed)
