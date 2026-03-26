@@ -18,7 +18,9 @@
     "preview": "electron-vite preview",
     "dist": "electron-vite build --mode production && electron-builder --mac --dir",
     "doctor": "bash scripts/doctor.sh",
-    "postinstall": "electron-builder install-app-deps && bash scripts/patch-dev-icon.sh"
+    "postinstall": "electron-builder install-app-deps && bash scripts/patch-dev-icon.sh",
+    "test": "node node_modules/vitest/vitest.mjs run",
+    "test:watch": "node node_modules/vitest/vitest.mjs"
   },
   "dependencies": {
     "@phosphor-icons/react": "^2.1.10",
@@ -64,6 +66,7 @@
     "react-dom": "^19.0.0",
     "tailwindcss": "^4.2.1",
     "typescript": "^5.7.0",
-    "vite": "^6.0.0"
+    "vite": "^6.0.0",
+    "vitest": "^2.0.0"
   }
 }
