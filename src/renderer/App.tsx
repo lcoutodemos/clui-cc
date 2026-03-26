@@ -6,6 +6,8 @@ import { ConversationView } from './components/ConversationView'
 import { InputBar } from './components/InputBar'
 import { StatusBar } from './components/StatusBar'
 import { MarketplacePanel } from './components/MarketplacePanel'
+import { SettingsContent } from './components/SettingsPopover'
+import { HistoryContent } from './components/HistoryPicker'
 import { PopoverLayerProvider } from './components/PopoverLayer'
 import { useClaudeEvents } from './hooks/useClaudeEvents'
 import { useHealthReconciliation } from './hooks/useHealthReconciliation'
@@ -185,14 +187,69 @@ export default function App() {
 
   const isExpanded = useSessionStore((s) => s.isExpanded)
   const marketplaceOpen = useSessionStore((s) => s.marketplaceOpen)
+  const historyOpen = useSessionStore((s) => s.historyOpen)
+  const settingsOpen = useThemeStore((s) => s.settingsOpen)
   const isRunning = activeTabStatus === 'running' || activeTabStatus === 'connecting'
 
-  // Layout dimensions — expandedUI widens and heightens the panel
-  const contentWidth = expandedUI ? 700 : spacing.contentWidth
-  const cardExpandedWidth = expandedUI ? 700 : 460
-  const cardCollapsedWidth = expandedUI ? 670 : 430
+  const pillScale = useThemeStore((s) => s.pillScale)
+  const scale = pillScale / 100
+
+  // Layout dimensions — expandedUI widens and heightens the panel, pillScale scales horizontally
+  const contentWidth = Math.round((expandedUI ? 700 : spacing.contentWidth) * scale)
+  const cardExpandedWidth = Math.round((expandedUI ? 700 : 460) * scale)
+  const cardCollapsedWidth = Math.round((expandedUI ? 670 : 430) * scale)
   const cardCollapsedMargin = expandedUI ? 15 : 15
   const bodyMaxHeight = expandedUI ? 520 : 400
+
+  // Mutual exclusion: when settings opens, close history + marketplace + collapse chat
+  useEffect(() => {
+    if (settingsOpen) {
+      const ss = useSessionStore.getState()
+      if (ss.historyOpen) useSessionStore.setState({ historyOpen: false })
+      if (ss.marketplaceOpen) useSessionStore.setState({ marketplaceOpen: false })
+      if (ss.isExpanded) useSessionStore.setState({ isExpanded: false })
+    }
+  }, [settingsOpen])
+
+  // Close settings on click outside the settings panel
+  useEffect(() => {
+    if (!settingsOpen) return
+    const handler = (e: MouseEvent) => {
+      const target = e.target as HTMLElement
+      if (target.closest?.('[data-settings-panel]') || target.closest?.('[data-settings-trigger]')) return
+      useThemeStore.getState().toggleSettings()
+    }
+    const timer = setTimeout(() => document.addEventListener('mousedown', handler), 0)
+    return () => {
+      clearTimeout(timer)
+      document.removeEventListener('mousedown', handler)
+    }
+  }, [settingsOpen])
+
+  // Close history on click outside the history panel
+  useEffect(() => {
+    if (!historyOpen) return
+    const handler = (e: MouseEvent) => {
+      const target = e.target as HTMLElement
+      if (target.closest?.('[data-history-panel]') || target.closest?.('[data-history-trigger]')) return
+      useSessionStore.setState({ historyOpen: false })
+    }
+    const timer = setTimeout(() => document.addEventListener('mousedown', handler), 0)
+    return () => {
+      clearTimeout(timer)
+      document.removeEventListener('mousedown', handler)
+    }
+  }, [historyOpen])
+
+  // Close panels when width slider starts dragging
+  useEffect(() => {
+    const onScaleStart = () => {
+      if (useThemeStore.getState().settingsOpen) useThemeStore.getState().toggleSettings()
+      if (useSessionStore.getState().historyOpen) useSessionStore.setState({ historyOpen: false })
+    }
+    window.addEventListener('clui-scale-start', onScaleStart)
+    return () => window.removeEventListener('clui-scale-start', onScaleStart)
+  }, [])
 
   const handleScreenshot = useCallback(async () => {
     const result = await window.clui.takeScreenshot()
@@ -211,7 +268,7 @@ export default function App() {
       <div className="flex flex-col justify-end h-full" style={{ background: 'transparent' }}>
 
         {/* ─── 460px content column, centered. Circles overflow left. ─── */}
-        <div style={{ width: contentWidth, position: 'relative', margin: '0 auto', transition: 'width 0.26s cubic-bezier(0.4, 0, 0.1, 1)', transform: 'translateY(var(--clui-card-y, 0px))' }}>
+        <div data-clui-column style={{ width: contentWidth, position: 'relative', margin: '0 auto', transition: 'width 0.08s linear', transform: 'translateY(var(--clui-card-y, 0px))' }}>
 
           <AnimatePresence initial={false}>
             {marketplaceOpen && (
@@ -248,6 +305,70 @@ export default function App() {
             )}
           </AnimatePresence>
 
+          <AnimatePresence initial={false}>
+            {settingsOpen && !marketplaceOpen && (
+              <div
+                data-clui-ui
+                data-settings-panel
+                style={{
+                  width: isExpanded ? cardExpandedWidth : cardCollapsedWidth,
+                  marginLeft: '50%',
+                  transform: 'translateX(-50%)',
+                  marginBottom: 14,
+                  position: 'relative',
+                  zIndex: 25,
+                }}
+              >
+                <motion.div
+                  initial={{ opacity: 0, y: 14, scale: 0.98 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 10, scale: 0.985 }}
+                  transition={TRANSITION}
+                >
+                  <div
+                    data-clui-ui
+                    className="glass-surface no-drag"
+                    style={{ borderRadius: 24, maxHeight: 400, overflowY: 'auto' as const }}
+                  >
+                    <SettingsContent />
+                  </div>
+                </motion.div>
+              </div>
+            )}
+          </AnimatePresence>
+
+          <AnimatePresence initial={false}>
+            {historyOpen && !marketplaceOpen && !settingsOpen && (
+              <div
+                data-clui-ui
+                data-history-panel
+                style={{
+                  width: isExpanded ? cardExpandedWidth : cardCollapsedWidth,
+                  marginLeft: '50%',
+                  transform: 'translateX(-50%)',
+                  marginBottom: 14,
+                  position: 'relative',
+                  zIndex: 25,
+                }}
+              >
+                <motion.div
+                  initial={{ opacity: 0, y: 14, scale: 0.98 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 10, scale: 0.985 }}
+                  transition={TRANSITION}
+                >
+                  <div
+                    data-clui-ui
+                    className="glass-surface no-drag"
+                    style={{ borderRadius: 24, maxHeight: 350, overflowY: 'auto' as const }}
+                  >
+                    <HistoryContent />
+                  </div>
+                </motion.div>
+              </div>
+            )}
+          </AnimatePresence>
+
           {/*
             ─── Tabs / message shell ───
             This always remains the chat shell. The marketplace is a separate
@@ -257,7 +378,6 @@ export default function App() {
             data-clui-ui
             className="overflow-hidden flex flex-col drag-region"
             animate={{
-              width: isExpanded ? cardExpandedWidth : cardCollapsedWidth,
               marginBottom: isExpanded ? 10 : -14,
               marginLeft: isExpanded ? 0 : cardCollapsedMargin,
               marginRight: isExpanded ? 0 : cardCollapsedMargin,
@@ -267,11 +387,13 @@ export default function App() {
             }}
             transition={TRANSITION}
             style={{
+              width: isExpanded ? cardExpandedWidth : cardCollapsedWidth,
               borderWidth: 1,
               borderStyle: 'solid',
               borderRadius: 20,
               position: 'relative',
               zIndex: isExpanded ? 20 : 10,
+              transition: 'width 0.08s linear',
             }}
           >
             {/* Tab strip — always mounted */}

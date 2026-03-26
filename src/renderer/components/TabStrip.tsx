@@ -2,7 +2,7 @@ import React from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Plus, X } from '@phosphor-icons/react'
 import { useSessionStore } from '../stores/sessionStore'
-import { HistoryPicker } from './HistoryPicker'
+import { HistoryTrigger } from './HistoryPicker'
 import { SettingsPopover } from './SettingsPopover'
 import { useColors } from '../theme'
 import type { TabStatus } from '../../shared/types'
@@ -122,7 +122,7 @@ export function TabStrip() {
           <Plus size={14} />
         </button>
 
-        <HistoryPicker />
+        <HistoryTrigger />
 
         <SettingsPopover />
       </div>

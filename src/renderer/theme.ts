@@ -280,17 +280,25 @@ export type ColorPalette = { [K in keyof typeof darkColors]: string }
 
 export type ThemeMode = 'system' | 'light' | 'dark'
 
+type TerminalId = 'auto' | 'terminal' | 'ghostty' | 'iterm'
+
 interface ThemeState {
   isDark: boolean
   themeMode: ThemeMode
   soundEnabled: boolean
   expandedUI: boolean
+  pillScale: number
+  terminalApp: TerminalId
+  settingsOpen: boolean
   /** OS-reported dark mode — used when themeMode is 'system' */
   _systemIsDark: boolean
   setIsDark: (isDark: boolean) => void
   setThemeMode: (mode: ThemeMode) => void
   setSoundEnabled: (enabled: boolean) => void
   setExpandedUI: (expanded: boolean) => void
+  setPillScale: (scale: number) => void
+  setTerminalApp: (id: TerminalId) => void
+  toggleSettings: () => void
   /** Called by OS theme change listener — updates system value */
   setSystemTheme: (isDark: boolean) => void
 }
@@ -316,33 +324,38 @@ function applyTheme(isDark: boolean): void {
 
 const SETTINGS_KEY = 'clui-settings'
 
-function loadSettings(): { themeMode: ThemeMode; soundEnabled: boolean; expandedUI: boolean } {
+function loadSettings(): { themeMode: ThemeMode; soundEnabled: boolean; expandedUI: boolean; pillScale: number; terminalApp: TerminalId } {
   try {
     const raw = localStorage.getItem(SETTINGS_KEY)
     if (raw) {
       const parsed = JSON.parse(raw)
+      const pillScale = typeof parsed.pillScale === 'number' ? Math.max(75, Math.min(150, parsed.pillScale)) : 100
       return {
         themeMode: ['light', 'dark'].includes(parsed.themeMode) ? parsed.themeMode : 'dark',
         soundEnabled: typeof parsed.soundEnabled === 'boolean' ? parsed.soundEnabled : true,
         expandedUI: typeof parsed.expandedUI === 'boolean' ? parsed.expandedUI : false,
+        pillScale,
+        terminalApp: ['auto', 'terminal', 'ghostty', 'iterm'].includes(parsed.terminalApp) ? parsed.terminalApp : 'auto',
       }
     }
   } catch {}
-  return { themeMode: 'dark', soundEnabled: true, expandedUI: false }
+  return { themeMode: 'dark', soundEnabled: true, expandedUI: false, pillScale: 100, terminalApp: 'auto' }
 }
 
-function saveSettings(s: { themeMode: ThemeMode; soundEnabled: boolean; expandedUI: boolean }): void {
+function saveSettings(s: { themeMode: ThemeMode; soundEnabled: boolean; expandedUI: boolean; pillScale: number; terminalApp: TerminalId }): void {
   try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)) } catch {}
 }
 
-// Always start in compact UI mode on launch.
-const saved = { ...loadSettings(), expandedUI: false }
+const saved = loadSettings()
 
 export const useThemeStore = create<ThemeState>((set, get) => ({
   isDark: saved.themeMode === 'dark' ? true : saved.themeMode === 'light' ? false : true,
   themeMode: saved.themeMode,
   soundEnabled: saved.soundEnabled,
   expandedUI: saved.expandedUI,
+  pillScale: saved.pillScale,
+  terminalApp: saved.terminalApp,
+  settingsOpen: false,
   _systemIsDark: true,
   setIsDark: (isDark) => {
     set({ isDark })
@@ -352,16 +365,26 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
     const resolved = mode === 'system' ? get()._systemIsDark : mode === 'dark'
     set({ themeMode: mode, isDark: resolved })
     applyTheme(resolved)
-    saveSettings({ themeMode: mode, soundEnabled: get().soundEnabled, expandedUI: get().expandedUI })
+    saveSettings({ themeMode: mode, soundEnabled: get().soundEnabled, expandedUI: get().expandedUI, pillScale: get().pillScale, terminalApp: get().terminalApp })
   },
   setSoundEnabled: (enabled) => {
     set({ soundEnabled: enabled })
-    saveSettings({ themeMode: get().themeMode, soundEnabled: enabled, expandedUI: get().expandedUI })
+    saveSettings({ themeMode: get().themeMode, soundEnabled: enabled, expandedUI: get().expandedUI, pillScale: get().pillScale, terminalApp: get().terminalApp })
   },
   setExpandedUI: (expanded) => {
     set({ expandedUI: expanded })
-    saveSettings({ themeMode: get().themeMode, soundEnabled: get().soundEnabled, expandedUI: expanded })
+    saveSettings({ themeMode: get().themeMode, soundEnabled: get().soundEnabled, expandedUI: expanded, pillScale: get().pillScale, terminalApp: get().terminalApp })
   },
+  setPillScale: (scale) => {
+    const clamped = Math.max(75, Math.min(150, scale))
+    set({ pillScale: clamped })
+    saveSettings({ themeMode: get().themeMode, soundEnabled: get().soundEnabled, expandedUI: get().expandedUI, pillScale: clamped, terminalApp: get().terminalApp })
+  },
+  setTerminalApp: (id) => {
+    set({ terminalApp: id })
+    saveSettings({ themeMode: get().themeMode, soundEnabled: get().soundEnabled, expandedUI: get().expandedUI, pillScale: get().pillScale, terminalApp: id })
+  },
+  toggleSettings: () => set((s) => ({ settingsOpen: !s.settingsOpen })),
   setSystemTheme: (isDark) => {
     set({ _systemIsDark: isDark })
     // Only apply if following system

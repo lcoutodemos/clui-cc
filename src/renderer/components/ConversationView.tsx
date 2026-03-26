@@ -149,7 +149,7 @@ export function ConversationView() {
       {/* Scrollable messages area */}
       <div
         ref={scrollRef}
-        className="overflow-y-auto overflow-x-hidden px-4 pt-2 conversation-selectable"
+        className="overflow-y-auto overflow-x-hidden pl-4 pr-5 pt-2 conversation-selectable"
         style={{ maxHeight: expandedUI ? 460 : 336, paddingBottom: 28 }}
         onScroll={handleScroll}
       >
@@ -678,8 +678,8 @@ function ToolGroup({ tools, skipMotion }: { tools: Message[]; skipMotion?: boole
             className="flex items-center gap-1 cursor-pointer mb-1.5"
             onClick={() => setExpanded(false)}
           >
-            <CaretDown size={10} style={{ color: colors.textMuted }} />
-            <span className="text-[11px]" style={{ color: colors.textMuted }}>
+            <CaretDown size={10} style={{ color: colors.textTertiary }} />
+            <span className="text-[11px]" style={{ color: colors.textTertiary }}>
               Used {tools.length} tool{tools.length !== 1 ? 's' : ''}
             </span>
           </div>
@@ -804,7 +804,7 @@ function ToolGroup({ tools, skipMotion }: { tools: Message[]; skipMotion?: boole
                         className="inline-block text-[10px] mt-0.5 px-1.5 py-[1px] rounded"
                         style={{
                           background: tool.toolStatus === 'error' ? colors.statusErrorBg : colors.surfaceHover,
-                          color: tool.toolStatus === 'error' ? colors.statusError : colors.textMuted,
+                          color: tool.toolStatus === 'error' ? colors.statusError : colors.textTertiary,
                         }}
                       >
                         Result
@@ -812,7 +812,7 @@ function ToolGroup({ tools, skipMotion }: { tools: Message[]; skipMotion?: boole
                     )}
 
                     {isRunning && (
-                      <span className="text-[10px] mt-0.5 block" style={{ color: colors.textMuted }}>
+                      <span className="text-[10px] mt-0.5 block" style={{ color: colors.textTertiary }}>
                         running...
                       </span>
                     )}
