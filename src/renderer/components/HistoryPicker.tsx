@@ -90,7 +90,7 @@ export function HistoryContent() {
         Recent Sessions
       </div>
 
-      <div className="overflow-y-auto py-1" style={{ maxHeight: 280 }}>
+      <div className="overflow-y-auto py-1" style={{ maxHeight: 280, minHeight: 280 }}>
         {loading && (
           <div className="px-3 py-4 text-center text-[11px]" style={{ color: colors.textTertiary }}>
             Loading...

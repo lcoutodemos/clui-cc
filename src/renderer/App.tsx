@@ -63,10 +63,9 @@ export default function App() {
   const dragRef = useRef<{ startX: number; startY: number } | null>(null)
 
   // Vertical position tracking — window moves first (until macOS clamps it), then CSS overflows
-  const PILL_HEIGHT_CONST = 720
-  const PILL_BOTTOM_MARGIN_CONST = 24
+  const windowHeight = window.innerHeight
   const minWindowY = window.screen.availTop   // top of work area (below menu bar)
-  const initialWindowY = window.screen.availTop + window.screen.availHeight - PILL_HEIGHT_CONST - PILL_BOTTOM_MARGIN_CONST
+  const initialWindowY = window.screen.availTop
   const windowYRef = useRef(initialWindowY)
   const cardYRef = useRef(0) // CSS translateY offset (only used after window hits its y constraint)
 
@@ -195,6 +194,7 @@ export default function App() {
   const scale = pillScale / 100
 
   // Layout dimensions — expandedUI widens and heightens the panel, pillScale scales horizontally
+  // Layout dimensions — no caps needed, window fills display workArea
   const contentWidth = Math.round((expandedUI ? 700 : spacing.contentWidth) * scale)
   const cardExpandedWidth = Math.round((expandedUI ? 700 : 460) * scale)
   const cardCollapsedWidth = Math.round((expandedUI ? 670 : 430) * scale)
@@ -264,7 +264,7 @@ export default function App() {
 
   return (
     <PopoverLayerProvider>
-      <div className="flex flex-col justify-end h-full" style={{ background: 'transparent' }}>
+      <div className="flex flex-col justify-end h-full" style={{ background: 'transparent', paddingBottom: 'var(--clui-dock-margin, 24px)' }}>
 
         {/* ─── 460px content column, centered. Circles overflow left. ─── */}
         <div data-clui-column style={{ width: contentWidth, position: 'relative', margin: '0 auto', transition: 'width 0.08s linear', transform: 'translateY(var(--clui-card-y, 0px))' }}>
@@ -304,9 +304,10 @@ export default function App() {
             )}
           </AnimatePresence>
 
-          <AnimatePresence initial={false}>
+          <AnimatePresence initial={false} mode="wait">
             {settingsOpen && !marketplaceOpen && (
               <div
+                key="settings-panel"
                 data-clui-ui
                 data-settings-panel
                 style={{
@@ -322,7 +323,7 @@ export default function App() {
                   initial={{ opacity: 0, y: 14, scale: 0.98 }}
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   exit={{ opacity: 0, y: 10, scale: 0.985 }}
-                  transition={TRANSITION}
+                  transition={{ duration: 0.18, ease: [0.4, 0, 0.1, 1] }}
                 >
                   <div
                     data-clui-ui
@@ -334,11 +335,10 @@ export default function App() {
                 </motion.div>
               </div>
             )}
-          </AnimatePresence>
 
-          <AnimatePresence initial={false}>
             {historyOpen && !marketplaceOpen && !settingsOpen && (
               <div
+                key="history-panel"
                 data-clui-ui
                 data-history-panel
                 style={{
@@ -354,7 +354,7 @@ export default function App() {
                   initial={{ opacity: 0, y: 14, scale: 0.98 }}
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   exit={{ opacity: 0, y: 10, scale: 0.985 }}
-                  transition={TRANSITION}
+                  transition={{ duration: 0.18, ease: [0.4, 0, 0.1, 1] }}
                 >
                   <div
                     data-clui-ui

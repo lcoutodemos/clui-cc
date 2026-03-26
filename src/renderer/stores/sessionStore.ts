@@ -275,7 +275,7 @@ export const useSessionStore = create<State>((set, get) => ({
     if (s.marketplaceOpen) {
       set({ marketplaceOpen: false })
     } else {
-      set({ isExpanded: false, marketplaceOpen: true, historyOpen: false })
+      set({ marketplaceOpen: true, historyOpen: false })
       if (useThemeStore.getState().settingsOpen) useThemeStore.setState({ settingsOpen: false })
       get().loadMarketplace()
     }
