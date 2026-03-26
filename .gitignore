@@ -36,3 +36,8 @@ Desktop.ini
 # Temporary files
 *.tmp
 *.bak
+
+# Development artifacts (not for upstream)
+.planning/
+artifacts/
+docs/superpowers/

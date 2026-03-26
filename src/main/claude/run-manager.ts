@@ -102,6 +102,7 @@ export class RunManager extends EventEmitter {
 
   private _findClaudeBinary(): string {
     const candidates = [
+      join(homedir(), '.local/bin/claude'),
       '/usr/local/bin/claude',
       '/opt/homebrew/bin/claude',
       join(homedir(), '.npm-global/bin/claude'),

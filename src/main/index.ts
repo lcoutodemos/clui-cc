@@ -3,6 +3,7 @@ import { join } from 'path'
 import { existsSync, readdirSync, statSync, createReadStream } from 'fs'
 import { createInterface } from 'readline'
 import { homedir } from 'os'
+import { execFileSync } from 'child_process'
 import { ControlPlane } from './claude/control-plane'
 import { ensureSkills, type SkillStatus } from './skills/installer'
 import { fetchCatalog, listInstalled, installPlugin, uninstallPlugin } from './marketplace/catalog'
@@ -65,10 +66,49 @@ const INTERACTIVE_PTY = process.env.CLUI_INTERACTIVE_PERMISSIONS_PTY === '1'
 const controlPlane = new ControlPlane(INTERACTIVE_PTY)
 
 // Keep native width fixed to avoid renderer animation vs setBounds race.
-// The UI itself still launches in compact mode; extra width is transparent/click-through.
-const BAR_WIDTH = 1040
-const PILL_HEIGHT = 720  // Fixed native window height — extra room for expanded UI + shadow buffers
-const PILL_BOTTOM_MARGIN = 24
+// Window fills the display workArea — transparent/click-through so no visual difference.
+// Dynamic sizing eliminates all content clipping at any scale.
+const MIN_WIDTH = 1040
+const MIN_HEIGHT = 720
+const BASE_BOTTOM_MARGIN = 24
+
+/**
+ * Dynamic bottom margin: if the display's workArea already accounts for a
+ * bottom Dock (permanent Dock), use the small base margin. If workArea
+ * extends to the screen bottom (auto-hide Dock), read Dock prefs and add
+ * enough margin so the pill clears the Dock when it slides in.
+ */
+function getBottomMargin(display: Electron.Display): number {
+  const screenBottom = display.bounds.y + display.bounds.height
+  const workAreaBottom = display.workArea.y + display.workArea.height
+  // If workArea is shorter than screen, a permanent Dock is present — workArea handles it
+  if (screenBottom - workAreaBottom > 10) return BASE_BOTTOM_MARGIN
+  // Auto-hide or no bottom Dock — check Dock prefs
+  try {
+    const autohide = execFileSync('defaults', ['read', 'com.apple.dock', 'autohide'], { encoding: 'utf-8' }).trim()
+    const orientation = execFileSync('defaults', ['read', 'com.apple.dock', 'orientation'], { encoding: 'utf-8' }).trim()
+    if (autohide === '1' && (orientation === 'bottom' || orientation === '')) {
+      // Use tilesize (unmagnified) — when user interacts with the pill their
+      // cursor is above the Dock, so magnification is not active.
+      const tilesize = parseInt(execFileSync('defaults', ['read', 'com.apple.dock', 'tilesize'], { encoding: 'utf-8' }).trim(), 10) || 48
+      // Dock chrome adds ~22px padding around icons
+      return Math.max(BASE_BOTTOM_MARGIN, tilesize + 22)
+    }
+  } catch { /* defaults command failed — use base margin */ }
+  return BASE_BOTTOM_MARGIN
+}
+
+/** Push the current Dock bottom margin into the renderer as a CSS variable.
+ *  Called on startup and whenever the display metrics change. */
+function syncDockMargin(): void {
+  if (!mainWindow || mainWindow.isDestroyed()) return
+  const display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint())
+  const margin = getBottomMargin(display)
+  if (typeof margin !== 'number' || !isFinite(margin)) return
+  mainWindow.webContents.executeJavaScript(
+    `document.documentElement.style.setProperty('--clui-dock-margin', '${margin}px')`
+  ).catch(() => { /* webContents may not be ready */ })
+}
 
 // ─── Broadcast to renderer ───
 
@@ -134,12 +174,14 @@ function createWindow(): void {
   const { width: screenWidth, height: screenHeight } = display.workAreaSize
   const { x: dx, y: dy } = display.workArea
 
-  const x = dx + Math.round((screenWidth - BAR_WIDTH) / 2)
-  const y = dy + screenHeight - PILL_HEIGHT - PILL_BOTTOM_MARGIN
+  const winWidth = Math.max(screenWidth, MIN_WIDTH)
+  const winHeight = Math.max(screenHeight, MIN_HEIGHT)
+  const x = dx
+  const y = dy
 
   mainWindow = new BrowserWindow({
-    width: BAR_WIDTH,
-    height: PILL_HEIGHT,
+    width: winWidth,
+    height: winHeight,
     x,
     y,
     ...(process.platform === 'darwin' ? { type: 'panel' as const } : {}),  // NSPanel — non-activating, joins all spaces
@@ -176,6 +218,7 @@ function createWindow(): void {
 
   mainWindow.once('ready-to-show', () => {
     mainWindow?.show()
+    syncDockMargin()
     // Enable OS-level click-through for transparent regions.
     // { forward: true } ensures mousemove events still reach the renderer
     // so it can toggle click-through off when cursor enters interactive UI.
@@ -239,10 +282,10 @@ function resetWindowPosition(): void {
   const { x: dx, y: dy } = display.workArea
 
   mainWindow.setBounds({
-    x: dx + Math.round((sw - BAR_WIDTH) / 2),
-    y: dy + sh - PILL_HEIGHT - PILL_BOTTOM_MARGIN,
-    width: BAR_WIDTH,
-    height: PILL_HEIGHT,
+    x: dx,
+    y: dy,
+    width: Math.max(sw, MIN_WIDTH),
+    height: Math.max(sh, MIN_HEIGHT),
   })
   lastWindowBounds = mainWindow.getBounds()
 }
@@ -265,7 +308,7 @@ function toggleWindow(source = 'unknown'): void {
 
 // ─── Resize ───
 // Fixed-height mode: ignore renderer resize events to prevent jank.
-// The native window stays at PILL_HEIGHT; all expand/collapse happens inside the renderer.
+// The native window fills the workArea; all expand/collapse happens inside the renderer.
 
 ipcMain.on(IPC.RESIZE_HEIGHT, () => {
   // No-op — fixed height window, no dynamic resize
@@ -1134,6 +1177,23 @@ app.whenReady().then(async () => {
       snapshotWindowState('event display-metrics-changed')
     })
   }
+
+  // Reposition when workArea changes (e.g. Dock auto-hide toggle, monitor plug/unplug).
+  // Must be OUTSIDE the SPACES_DEBUG block — this is production functionality.
+  screen.on('display-metrics-changed', (_e, display, changedMetrics) => {
+    if (changedMetrics.includes('workArea') && mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()) {
+      const { width: sw, height: sh } = display.workAreaSize
+      const { x: dx, y: dy } = display.workArea
+      mainWindow.setBounds({
+        x: dx,
+        y: dy,
+        width: Math.max(sw, MIN_WIDTH),
+        height: Math.max(sh, MIN_HEIGHT),
+      })
+      syncDockMargin()
+      log(`[spaces] repositioned for workArea change`)
+    }
+  })
 
 
   // Primary: Option+Space (2 keys, doesn't conflict with shell)
