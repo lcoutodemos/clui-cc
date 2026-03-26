@@ -1,4 +1,4 @@
-import React, { useEffect, useCallback, useRef } from 'react'
+import React, { useEffect, useCallback, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Paperclip, Camera, HeadCircuit } from '@phosphor-icons/react'
 import { TabStrip } from './components/TabStrip'
@@ -241,14 +241,23 @@ export default function App() {
     }
   }, [historyOpen])
 
-  // Close history (but not settings!) when width slider starts dragging —
-  // the slider lives INSIDE settings, so closing settings would be bad UX.
+  // Freeze Settings panel width during slider drag, glide to final size on release
+  const [frozenSettingsWidth, setFrozenSettingsWidth] = useState<number | null>(null)
   useEffect(() => {
     const onScaleStart = () => {
+      // Freeze settings panel at current width so it doesn't jitter during drag
+      const expanded = useSessionStore.getState().isExpanded
+      const s = useThemeStore.getState().pillScale / 100
+      setFrozenSettingsWidth(Math.round((expanded ? (useThemeStore.getState().expandedUI ? 700 : 460) : (useThemeStore.getState().expandedUI ? 670 : 430)) * s))
       if (useSessionStore.getState().historyOpen) useSessionStore.setState({ historyOpen: false })
     }
+    const onScaleDone = () => setFrozenSettingsWidth(null)
     window.addEventListener('clui-scale-start', onScaleStart)
-    return () => window.removeEventListener('clui-scale-start', onScaleStart)
+    window.addEventListener('clui-scale-done', onScaleDone)
+    return () => {
+      window.removeEventListener('clui-scale-start', onScaleStart)
+      window.removeEventListener('clui-scale-done', onScaleDone)
+    }
   }, [])
 
   const handleScreenshot = useCallback(async () => {
@@ -311,10 +320,11 @@ export default function App() {
                 data-clui-ui
                 data-settings-panel
                 style={{
-                  width: isExpanded ? cardExpandedWidth : cardCollapsedWidth,
+                  width: frozenSettingsWidth ?? (isExpanded ? cardExpandedWidth : cardCollapsedWidth),
                   marginLeft: '50%',
                   transform: 'translateX(-50%)',
                   marginBottom: 14,
+                  transition: frozenSettingsWidth == null ? 'width 0.2s ease-out' : 'none',
                   position: 'relative',
                   zIndex: 25,
                 }}
