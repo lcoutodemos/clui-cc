@@ -104,9 +104,10 @@ function syncDockMargin(): void {
   if (!mainWindow || mainWindow.isDestroyed()) return
   const display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint())
   const margin = getBottomMargin(display)
+  if (typeof margin !== 'number' || !isFinite(margin)) return
   mainWindow.webContents.executeJavaScript(
     `document.documentElement.style.setProperty('--clui-dock-margin', '${margin}px')`
-  ).catch(() => {})
+  ).catch(() => { /* webContents may not be ready */ })
 }
 
 // ─── Broadcast to renderer ───
@@ -1174,21 +1175,25 @@ app.whenReady().then(async () => {
     screen.on('display-metrics-changed', (_e, display, changedMetrics) => {
       log(`[spaces] event display-metrics-changed id=${display.id} changed=${changedMetrics.join(',')}`)
       snapshotWindowState('event display-metrics-changed')
-      // Reposition when workArea changes (e.g. Dock auto-hide toggle, Dock resize)
-      if (changedMetrics.includes('workArea') && mainWindow && mainWindow.isVisible()) {
-        const { width: sw, height: sh } = display.workAreaSize
-        const { x: dx, y: dy } = display.workArea
-        mainWindow.setBounds({
-          x: dx,
-          y: dy,
-          width: Math.max(sw, MIN_WIDTH),
-          height: Math.max(sh, MIN_HEIGHT),
-        })
-        syncDockMargin()
-        log(`[spaces] repositioned for workArea change`)
-      }
     })
   }
+
+  // Reposition when workArea changes (e.g. Dock auto-hide toggle, monitor plug/unplug).
+  // Must be OUTSIDE the SPACES_DEBUG block — this is production functionality.
+  screen.on('display-metrics-changed', (_e, display, changedMetrics) => {
+    if (changedMetrics.includes('workArea') && mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()) {
+      const { width: sw, height: sh } = display.workAreaSize
+      const { x: dx, y: dy } = display.workArea
+      mainWindow.setBounds({
+        x: dx,
+        y: dy,
+        width: Math.max(sw, MIN_WIDTH),
+        height: Math.max(sh, MIN_HEIGHT),
+      })
+      syncDockMargin()
+      log(`[spaces] repositioned for workArea change`)
+    }
+  })
 
 
   // Primary: Option+Space (2 keys, doesn't conflict with shell)
