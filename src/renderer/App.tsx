@@ -241,10 +241,10 @@ export default function App() {
     }
   }, [historyOpen])
 
-  // Close panels when width slider starts dragging
+  // Close history (but not settings!) when width slider starts dragging —
+  // the slider lives INSIDE settings, so closing settings would be bad UX.
   useEffect(() => {
     const onScaleStart = () => {
-      if (useThemeStore.getState().settingsOpen) useThemeStore.getState().toggleSettings()
       if (useSessionStore.getState().historyOpen) useSessionStore.setState({ historyOpen: false })
     }
     window.addEventListener('clui-scale-start', onScaleStart)
