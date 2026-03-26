@@ -310,11 +310,10 @@ export default function App() {
                 data-clui-ui
                 data-settings-panel
                 style={{
-                  width: isExpanded ? cardExpandedWidth : cardCollapsedWidth,
+                  width: 602,
                   marginLeft: '50%',
                   transform: 'translateX(-50%)',
                   marginBottom: 14,
-                  transition: 'width 0.12s linear',
                   position: 'relative',
                   zIndex: 25,
                 }}
