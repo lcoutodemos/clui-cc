@@ -283,7 +283,7 @@ export default function App() {
             <motion.div
               initial={false}
               animate={{
-                height: isExpanded ? 'auto' : 0,
+                height: isExpanded ? 'auto' : 12,
                 opacity: isExpanded ? 1 : 0,
               }}
               transition={TRANSITION}
