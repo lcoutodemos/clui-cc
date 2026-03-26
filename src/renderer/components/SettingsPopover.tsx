@@ -78,10 +78,12 @@ function PillScaleSlider() {
         onPointerDown={() => {
           setDragging(true)
           window.dispatchEvent(new CustomEvent('clui-scale-start'))
-        }}
-        onPointerUp={() => {
-          setDragging(false)
-          window.dispatchEvent(new CustomEvent('clui-scale-done'))
+          // Use window-level listener so pointerUp fires even if released outside the slider
+          const onUp = () => {
+            setDragging(false)
+            window.dispatchEvent(new CustomEvent('clui-scale-done'))
+          }
+          window.addEventListener('pointerup', onUp, { once: true })
         }}
         className="w-full mt-1 cursor-pointer"
         style={{ accentColor: colors.accent, height: 4 }}
@@ -130,7 +132,7 @@ function TerminalPicker() {
         <div className="mt-1.5 rounded-lg overflow-hidden" style={{ border: `1px solid ${colors.popoverBorder}` }}>
           {/* Auto option */}
           <button
-            onClick={() => { setTerminalApp('auto' as any); setOpen(false) }}
+            onClick={() => { setTerminalApp('auto'); setOpen(false) }}
             className="w-full text-left text-[11px] px-2.5 py-1.5 transition-colors cursor-pointer flex items-center justify-between"
             style={{
               color: terminalApp === 'auto' ? colors.accent : colors.textSecondary,
@@ -144,7 +146,7 @@ function TerminalPicker() {
           {installed.map((t) => (
             <button
               key={t.id}
-              onClick={() => { setTerminalApp(t.id as any); setOpen(false) }}
+              onClick={() => { setTerminalApp(t.id as 'terminal' | 'ghostty' | 'iterm'); setOpen(false) }}
               className="w-full text-left text-[11px] px-2.5 py-1.5 transition-colors cursor-pointer flex items-center justify-between"
               style={{
                 color: terminalApp === t.id ? colors.accent : colors.textSecondary,

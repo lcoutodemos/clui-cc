@@ -15,6 +15,7 @@ import { useSessionStore } from './stores/sessionStore'
 import { useColors, useThemeStore, spacing } from './theme'
 
 const TRANSITION = { duration: 0.26, ease: [0.4, 0, 0.1, 1] as const }
+const PANEL_TRANSITION = { duration: 0.18, ease: [0.4, 0, 0.1, 1] as const }
 
 export default function App() {
   useClaudeEvents()
@@ -62,9 +63,8 @@ export default function App() {
   // Shared drag ref — must be declared before the setIgnoreMouseEvents effect so both closures can read it
   const dragRef = useRef<{ startX: number; startY: number } | null>(null)
 
-  // Vertical position tracking — window moves first (until macOS clamps it), then CSS overflows
-  const windowHeight = window.innerHeight
-  const minWindowY = window.screen.availTop   // top of work area (below menu bar)
+  // Vertical position tracking — window now fills workArea, so initial Y = top of workArea
+  const minWindowY = window.screen.availTop
   const initialWindowY = window.screen.availTop
   const windowYRef = useRef(initialWindowY)
   const cardYRef = useRef(0) // CSS translateY offset (only used after window hits its y constraint)
@@ -198,7 +198,7 @@ export default function App() {
   const contentWidth = Math.round((expandedUI ? 700 : spacing.contentWidth) * scale)
   const cardExpandedWidth = Math.round((expandedUI ? 700 : 460) * scale)
   const cardCollapsedWidth = Math.round((expandedUI ? 670 : 430) * scale)
-  const cardCollapsedMargin = expandedUI ? 15 : 15
+  const cardCollapsedMargin = 15
   const bodyMaxHeight = expandedUI ? 520 : 400
 
   // Mutual exclusion: when settings opens, close history + marketplace + collapse chat
@@ -323,7 +323,7 @@ export default function App() {
                   initial={{ opacity: 0, y: 14, scale: 0.98 }}
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   exit={{ opacity: 0, y: 10, scale: 0.985 }}
-                  transition={{ duration: 0.18, ease: [0.4, 0, 0.1, 1] }}
+                  transition={PANEL_TRANSITION}
                 >
                   <div
                     data-clui-ui
@@ -354,7 +354,7 @@ export default function App() {
                   initial={{ opacity: 0, y: 14, scale: 0.98 }}
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   exit={{ opacity: 0, y: 10, scale: 0.985 }}
-                  transition={{ duration: 0.18, ease: [0.4, 0, 0.1, 1] }}
+                  transition={PANEL_TRANSITION}
                 >
                   <div
                     data-clui-ui

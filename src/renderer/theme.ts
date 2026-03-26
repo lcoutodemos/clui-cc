@@ -365,24 +365,23 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
     const resolved = mode === 'system' ? get()._systemIsDark : mode === 'dark'
     set({ themeMode: mode, isDark: resolved })
     applyTheme(resolved)
-    saveSettings({ themeMode: mode, soundEnabled: get().soundEnabled, expandedUI: get().expandedUI, pillScale: get().pillScale, terminalApp: get().terminalApp })
+    const s = get(); saveSettings({ themeMode: s.themeMode, soundEnabled: s.soundEnabled, expandedUI: s.expandedUI, pillScale: s.pillScale, terminalApp: s.terminalApp })
   },
   setSoundEnabled: (enabled) => {
     set({ soundEnabled: enabled })
-    saveSettings({ themeMode: get().themeMode, soundEnabled: enabled, expandedUI: get().expandedUI, pillScale: get().pillScale, terminalApp: get().terminalApp })
+    const s = get(); saveSettings({ themeMode: s.themeMode, soundEnabled: s.soundEnabled, expandedUI: s.expandedUI, pillScale: s.pillScale, terminalApp: s.terminalApp })
   },
   setExpandedUI: (expanded) => {
     set({ expandedUI: expanded })
-    saveSettings({ themeMode: get().themeMode, soundEnabled: get().soundEnabled, expandedUI: expanded, pillScale: get().pillScale, terminalApp: get().terminalApp })
+    const s = get(); saveSettings({ themeMode: s.themeMode, soundEnabled: s.soundEnabled, expandedUI: s.expandedUI, pillScale: s.pillScale, terminalApp: s.terminalApp })
   },
   setPillScale: (scale) => {
-    const clamped = Math.max(75, Math.min(150, scale))
-    set({ pillScale: clamped })
-    saveSettings({ themeMode: get().themeMode, soundEnabled: get().soundEnabled, expandedUI: get().expandedUI, pillScale: clamped, terminalApp: get().terminalApp })
+    set({ pillScale: Math.max(75, Math.min(150, scale)) })
+    const s = get(); saveSettings({ themeMode: s.themeMode, soundEnabled: s.soundEnabled, expandedUI: s.expandedUI, pillScale: s.pillScale, terminalApp: s.terminalApp })
   },
   setTerminalApp: (id) => {
     set({ terminalApp: id })
-    saveSettings({ themeMode: get().themeMode, soundEnabled: get().soundEnabled, expandedUI: get().expandedUI, pillScale: get().pillScale, terminalApp: id })
+    const s = get(); saveSettings({ themeMode: s.themeMode, soundEnabled: s.soundEnabled, expandedUI: s.expandedUI, pillScale: s.pillScale, terminalApp: s.terminalApp })
   },
   toggleSettings: () => set((s) => ({ settingsOpen: !s.settingsOpen })),
   setSystemTheme: (isDark) => {
