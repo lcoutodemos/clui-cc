@@ -312,6 +312,13 @@ ipcMain.on(IPC.RESET_WINDOW_POSITION, () => {
   resetWindowPosition()
 })
 
+// Set native window opacity (0.0–1.0)
+ipcMain.on(IPC.SET_WINDOW_OPACITY, (_event, opacity: number) => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.setOpacity(Math.max(0.2, Math.min(1, opacity)))
+  }
+})
+
 // ─── IPC Handlers (typed, strict) ───
 
 ipcMain.handle(IPC.START, async () => {

@@ -342,6 +342,7 @@ export const IPC = {
   SET_IGNORE_MOUSE_EVENTS: 'clui:set-ignore-mouse-events',
   START_WINDOW_DRAG: 'clui:start-window-drag',
   RESET_WINDOW_POSITION: 'clui:reset-window-position',
+  SET_WINDOW_OPACITY: 'clui:set-window-opacity',
   IS_VISIBLE: 'clui:is-visible',
 
   // Skill provisioning (main → renderer)
