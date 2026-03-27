@@ -21,7 +21,7 @@ import { join } from 'path'
 import { execSync } from 'child_process'
 import { appendFileSync, chmodSync, existsSync, statSync } from 'fs'
 import type { NormalizedEvent, RunOptions, EnrichedError } from '../../shared/types'
-import { getCliEnv } from '../cli-env'
+import { getCliEnv, findClaudeBinary } from '../cli-env'
 
 // node-pty is a native module — require at runtime to avoid Vite bundling issues
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -32,22 +32,22 @@ try {
   // Will be set when first needed — fail at startRun() time, not import time
 }
 
-const LOG_FILE = join(homedir(), '.clui-debug.log')
+import electronLog from 'electron-log'
+const log = Object.assign(
+  (...args: any[]) => electronLog.info(...args),
+  {
+    info: (...args: any[]) => electronLog.info(...args),
+    error: (...args: any[]) => electronLog.error(...args),
+    warn: (...args: any[]) => electronLog.warn(...args),
+    debug: (...args: any[]) => electronLog.debug(...args),
+  }
+)
+
 const MAX_RING_LINES = 100
-const PTY_BUFFER_SIZE = 50 // rolling window of cleaned lines for parser context
-const PERMISSION_TIMEOUT_MS = 5 * 60 * 1000 // 5 minutes
+const PTY_BUFFER_SIZE = 50 
+const PERMISSION_TIMEOUT_MS = 5 * 60 * 1000 
 const QUIESCENCE_MS = 2000
 
-function log(msg: string): void {
-  const line = `[${new Date().toISOString()}] [PtyRunManager] ${msg}\n`
-  try { appendFileSync(LOG_FILE, line) } catch {}
-}
-
-// ─── ANSI Stripping ───
-
-/**
- * Strip ANSI escape sequences (colors, cursor movement, clear line, etc.)
- */
 function stripAnsi(str: string): string {
   // Covers CSI sequences including private modes like ?2004h
   return str.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, '')
@@ -281,7 +281,7 @@ export class PtyRunManager extends EventEmitter {
     super()
     this.claudeBinary = this._findClaudeBinary()
     this._ensureSpawnHelperExecutable()
-    log(`Claude binary: ${this.claudeBinary}`)
+    log.info(`Claude binary: ${this.claudeBinary}`)
   }
 
   /**
@@ -296,50 +296,47 @@ export class PtyRunManager extends EventEmitter {
         path.dirname(pkgPath),
         'prebuilds',
         `${process.platform}-${process.arch}`,
-        'spawn-helper',
+        process.platform === 'win32' ? 'spawn-helper.exe' : 'spawn-helper',
       )
       if (!existsSync(helperPath)) return
       const st = statSync(helperPath)
       const isExecutable = (st.mode & 0o111) !== 0
       if (!isExecutable) {
         chmodSync(helperPath, 0o755)
-        log(`Fixed spawn-helper permissions: ${helperPath}`)
+        log.info(`Fixed spawn-helper permissions: ${helperPath}`)
       }
     } catch (err) {
-      log(`spawn-helper permission check failed: ${(err as Error).message}`)
+      log.info(`spawn-helper permission check failed: ${(err as Error).message}`)
     }
   }
 
   private _findClaudeBinary(): string {
-    const candidates = [
-      '/usr/local/bin/claude',
-      '/opt/homebrew/bin/claude',
-      join(homedir(), '.npm-global/bin/claude'),
-    ]
-
-    for (const c of candidates) {
-      try {
-        execSync(`test -x "${c}"`, { stdio: 'ignore' })
-        return c
-      } catch {}
-    }
-
-    try {
-      return execSync('/bin/zsh -ilc "whence -p claude"', { encoding: 'utf-8', env: getCliEnv() }).trim()
-    } catch {}
-
-    try {
-      return execSync('/bin/bash -lc "which claude"', { encoding: 'utf-8', env: getCliEnv() }).trim()
-    } catch {}
-
-    return 'claude'
+    return findClaudeBinary()
   }
 
-  private _getEnv(): NodeJS.ProcessEnv {
+  private _getEnv(model?: string): NodeJS.ProcessEnv {
     const env = getCliEnv()
-    const binDir = this.claudeBinary.substring(0, this.claudeBinary.lastIndexOf('/'))
+
+    // Ollama support: point Claude Code to the local Ollama provider if an Ollama model is selected.
+    const isOllama = model && (
+      model.includes(':cloud') ||
+      model.includes('qwen') ||
+      model.includes('glm') ||
+      model.includes('kimi') ||
+      model.includes('minimax')
+    )
+
+    if (isOllama) {
+      env.ANTHROPIC_AUTH_TOKEN = 'ollama'
+      env.ANTHROPIC_API_KEY = 'ollama-unused-key'
+      env.ANTHROPIC_BASE_URL = 'http://localhost:11434'
+    }
+
+    const sep = process.platform === 'win32' ? '\\' : '/'
+    const binDir = this.claudeBinary.substring(0, this.claudeBinary.lastIndexOf(sep))
+    const pathSep = process.platform === 'win32' ? ';' : ':'
     if (env.PATH && !env.PATH.includes(binDir)) {
-      env.PATH = `${binDir}:${env.PATH}`
+      env.PATH = `${binDir}${pathSep}${env.PATH}`
     }
 
     return env
@@ -373,18 +370,18 @@ export class PtyRunManager extends EventEmitter {
     // Pass prompt as positional argument
     args.push(options.prompt)
 
-    log(`Starting PTY run ${requestId}: ${this.claudeBinary} ${args.join(' ')}`)
-    log(`Prompt: ${options.prompt.substring(0, 200)}`)
+    log.info(`Starting PTY run ${requestId}: ${this.claudeBinary} ${args.join(' ')}`)
+    log.info(`Prompt: ${options.prompt.substring(0, 200)}`)
 
     const ptyProcess = pty.spawn(this.claudeBinary, args, {
       name: 'xterm-256color',
       cols: 120,
       rows: 40,
       cwd,
-      env: this._getEnv(),
+      env: this._getEnv(options.model),
     })
 
-    log(`Spawned PTY PID: ${ptyProcess.pid}`)
+    log.info(`Spawned PTY PID: ${ptyProcess.pid}`)
 
     const handle: PtyRunHandle = {
       runId: requestId,
@@ -467,7 +464,7 @@ export class PtyRunManager extends EventEmitter {
     })
 
     ptyProcess.onExit(({ exitCode, signal }) => {
-      log(`PTY exited [${requestId}]: code=${exitCode} signal=${signal}`)
+      log.info(`PTY exited [${requestId}]: code=${exitCode} signal=${signal}`)
 
       // Clear permission timeout
       if (handle.permissionTimeout) {
@@ -524,7 +521,7 @@ export class PtyRunManager extends EventEmitter {
     // Push to rolling buffer
     this._ringPushBuffer(handle.ptyBuffer, cleaned)
 
-    log(`PTY line [${requestId}]: ${cleaned.substring(0, 200)}`)
+    log.info(`PTY line [${requestId}]: ${cleaned.substring(0, 200)}`)
 
     // ─── Try to extract session ID ───
     if (!handle.emittedSessionInit) {
@@ -563,7 +560,7 @@ export class PtyRunManager extends EventEmitter {
     // ─── Permission phase: collecting detection context ───
     if (handle.permissionPhase === 'detecting' || handle.permissionPhase === 'idle') {
       this._checkPermissionInBuffer(requestId, handle, cleaned)
-      if (handle.permissionPhase === 'waiting_user') {
+      if ((handle.permissionPhase as any) === 'waiting_user') {
         return // Permission prompt detected and emitted
       }
     }
@@ -682,7 +679,7 @@ export class PtyRunManager extends EventEmitter {
     }
 
     // Permission prompt detected!
-    log(`Permission prompt detected [${requestId}]: tool=${permission.toolName}, options=${permission.options.length}`)
+    log.info(`Permission prompt detected [${requestId}]: tool=${permission.toolName}, options=${permission.options.length}`)
 
     handle.pendingPermission = permission
     handle.permissionPhase = 'waiting_user'
@@ -709,7 +706,7 @@ export class PtyRunManager extends EventEmitter {
     // Set timeout for user response
     handle.permissionTimeout = setTimeout(() => {
       if (handle.permissionPhase === 'waiting_user') {
-        log(`Permission timeout [${requestId}] — auto-denying`)
+        log.info(`Permission timeout [${requestId}] — auto-denying`)
         this.emit('normalized', requestId, {
           type: 'text_chunk',
           text: '\n[Permission timed out — automatically denied after 5 minutes]\n',
@@ -730,12 +727,12 @@ export class PtyRunManager extends EventEmitter {
   respondToPermission(requestId: string, _questionId: string, optionId: string): boolean {
     const handle = this.activeRuns.get(requestId)
     if (!handle) {
-      log(`respondToPermission: no active run for ${requestId}`)
+      log.info(`respondToPermission: no active run for ${requestId}`)
       return false
     }
 
     if (handle.permissionPhase !== 'waiting_user' || !handle.pendingPermission) {
-      log(`respondToPermission: not waiting for permission (phase=${handle.permissionPhase})`)
+      log.info(`respondToPermission: not waiting for permission (phase=${handle.permissionPhase})`)
       return false
     }
 
@@ -747,11 +744,11 @@ export class PtyRunManager extends EventEmitter {
 
     const option = handle.pendingPermission.options.find((o) => o.optionId === optionId)
     if (!option) {
-      log(`respondToPermission: option ${optionId} not found`)
+      log.info(`respondToPermission: option ${optionId} not found`)
       return false
     }
 
-    log(`respondToPermission [${requestId}]: optionId=${optionId}, label=${option.label}`)
+    log.info(`respondToPermission [${requestId}]: optionId=${optionId}, label=${option.label}`)
 
     // ─── Send keystrokes to PTY ───
     // The Claude interactive CLI uses Ink's Select component.
@@ -782,7 +779,7 @@ export class PtyRunManager extends EventEmitter {
         }, 50)
       }
     } catch (err) {
-      log(`respondToPermission: write error: ${(err as Error).message}`)
+      log.info(`respondToPermission: write error: ${(err as Error).message}`)
       return false
     }
 
@@ -806,7 +803,7 @@ export class PtyRunManager extends EventEmitter {
     const handle = this.activeRuns.get(requestId)
     if (!handle) return false
 
-    log(`Cancelling PTY run ${requestId}`)
+    log.info(`Cancelling PTY run ${requestId}`)
 
     // Clear permission timeout
     if (handle.permissionTimeout) {
@@ -822,7 +819,7 @@ export class PtyRunManager extends EventEmitter {
     // Fallback: kill after 5s
     setTimeout(() => {
       if (this.activeRuns.has(requestId)) {
-        log(`Force killing PTY run ${requestId}`)
+        log.info(`Force killing PTY run ${requestId}`)
         try {
           handle.pty.kill()
         } catch {}
@@ -839,7 +836,7 @@ export class PtyRunManager extends EventEmitter {
     const handle = this.activeRuns.get(requestId)
     if (!handle) return false
 
-    log(`Writing to PTY stdin [${requestId}]: ${message.substring(0, 200)}`)
+    log.info(`Writing to PTY stdin [${requestId}]: ${message.substring(0, 200)}`)
     try {
       handle.pty.write(message)
       return true

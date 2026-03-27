@@ -16,6 +16,20 @@ html, body, #root {
   -webkit-font-smoothing: antialiased;
 }
 
+/* Cover any residual system-drawn top border on Windows frameless windows */
+html::before {
+  content: '';
+  display: block;
+  position: fixed;
+  top: -1px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: transparent;
+  z-index: 999999;
+  pointer-events: none;
+}
+
 /* ─── Scrollbar — thin & subtle ─── */
 ::-webkit-scrollbar {
   width: 4px;

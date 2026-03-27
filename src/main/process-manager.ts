@@ -1,18 +1,22 @@
 import { spawn, execSync, ChildProcess } from 'child_process'
 import { EventEmitter } from 'events'
 import { homedir } from 'os'
-import { appendFileSync } from 'fs'
+import { appendFileSync, existsSync } from 'fs'
 import { join } from 'path'
 import { StreamParser } from './stream-parser'
-import { getCliEnv } from './cli-env'
+import { getCliEnv, findClaudeBinary } from './cli-env'
 import type { ClaudeEvent, RunOptions } from '../shared/types'
 
-const LOG_FILE = join(homedir(), '.clui-debug.log')
-
-function log(msg: string): void {
-  const line = `[${new Date().toISOString()}] ${msg}\n`
-  try { appendFileSync(LOG_FILE, line) } catch {}
-}
+import electronLog from 'electron-log'
+const log = Object.assign(
+  (...args: any[]) => electronLog.info(...args),
+  {
+    info: (...args: any[]) => electronLog.info(...args),
+    error: (...args: any[]) => electronLog.error(...args),
+    warn: (...args: any[]) => electronLog.warn(...args),
+    debug: (...args: any[]) => electronLog.debug(...args),
+  }
+)
 
 export interface RunHandle {
   runId: string
@@ -31,40 +35,11 @@ export class ProcessManager extends EventEmitter {
   constructor() {
     super()
     // Find the real claude binary — Electron doesn't inherit shell aliases or full PATH
-    this.claudeBinary = this.findClaudeBinary()
-    log(`Claude binary: ${this.claudeBinary}`)
+    this.claudeBinary = findClaudeBinary()
+    log.info(`Claude binary: ${this.claudeBinary}`)
   }
 
-  private findClaudeBinary(): string {
-    // Try common locations
-    const candidates = [
-      '/usr/local/bin/claude',
-      '/opt/homebrew/bin/claude',
-      join(homedir(), '.npm-global/bin/claude'),
-      join(homedir(), '.nvm/versions/node', '**', 'bin/claude'),
-    ]
 
-    for (const c of candidates) {
-      try {
-        execSync(`test -x "${c}"`, { stdio: 'ignore' })
-        return c
-      } catch {}
-    }
-
-    // Fallback: ask a login shell
-    try {
-      const result = execSync('/bin/zsh -ilc "whence -p claude"', { encoding: 'utf-8', env: getCliEnv() }).trim()
-      if (result) return result
-    } catch {}
-
-    try {
-      const result = execSync('/bin/bash -lc "which claude"', { encoding: 'utf-8', env: getCliEnv() }).trim()
-      if (result) return result
-    } catch {}
-
-    // Last resort
-    return 'claude'
-  }
 
   startRun(options: RunOptions): RunHandle {
     const runId = crypto.randomUUID()
@@ -99,17 +74,21 @@ export class ProcessManager extends EventEmitter {
       args.push('--system-prompt', options.systemPrompt)
     }
 
-    log(`Starting run ${runId}: ${this.claudeBinary} ${args.join(' ')}`)
-    log(`Prompt: ${options.prompt.substring(0, 200)}`)
+    log.info(`Starting run ${runId}: ${this.claudeBinary} ${args.join(' ')}`)
+    log.info(`Prompt: ${options.prompt.substring(0, 200)}`)
 
     // Build environment: merge login shell PATH with Electron's env
     // Electron doesn't source ~/.zshrc so PATH is often incomplete
     const env = getCliEnv()
 
     // Ensure our claude binary's directory is in PATH
-    const binDir = this.claudeBinary.substring(0, this.claudeBinary.lastIndexOf('/'))
-    if (env.PATH && !env.PATH.includes(binDir)) {
-      env.PATH = `${binDir}:${env.PATH}`
+    const lastSep = this.claudeBinary.lastIndexOf(process.platform === 'win32' ? '\\' : '/')
+    if (lastSep !== -1) {
+      const binDir = this.claudeBinary.substring(0, lastSep)
+      const pathSep = process.platform === 'win32' ? ';' : ':'
+      if (env.PATH && !env.PATH.includes(binDir)) {
+        env.PATH = `${binDir}${pathSep}${env.PATH}`
+      }
     }
 
     const child = spawn(this.claudeBinary, args, {
@@ -118,7 +97,7 @@ export class ProcessManager extends EventEmitter {
       env,
     })
 
-    log(`Spawned PID: ${child.pid}`)
+    log.info(`Spawned PID: ${child.pid}`)
 
     const parser = StreamParser.fromStream(child.stdout!)
 
@@ -130,7 +109,7 @@ export class ProcessManager extends EventEmitter {
     }
 
     parser.on('event', (event: ClaudeEvent) => {
-      log(`Event [${runId}]: ${event.type}`)
+      log.info(`Event [${runId}]: ${event.type}`)
       if (event.type === 'system' && 'subtype' in event && event.subtype === 'init') {
         handle.sessionId = (event as any).session_id
       }
@@ -138,25 +117,25 @@ export class ProcessManager extends EventEmitter {
     })
 
     parser.on('parse-error', (line: string) => {
-      log(`Parse error [${runId}]: ${line.substring(0, 200)}`)
+      log.info(`Parse error [${runId}]: ${line.substring(0, 200)}`)
       this.emit('parse-error', runId, line)
     })
 
     child.on('close', (code) => {
-      log(`Process closed [${runId}]: code=${code}`)
+      log.info(`Process closed [${runId}]: code=${code}`)
       this.activeRuns.delete(runId)
       this.emit('exit', runId, code, handle.sessionId)
     })
 
     child.on('error', (err) => {
-      log(`Process error [${runId}]: ${err.message}`)
+      log.info(`Process error [${runId}]: ${err.message}`)
       this.activeRuns.delete(runId)
       this.emit('error', runId, err)
     })
 
     child.stderr?.setEncoding('utf-8')
     child.stderr?.on('data', (data: string) => {
-      log(`Stderr [${runId}]: ${data.trim().substring(0, 500)}`)
+      log.info(`Stderr [${runId}]: ${data.trim().substring(0, 500)}`)
       this.emit('stderr', runId, data)
     })
 
@@ -171,7 +150,7 @@ export class ProcessManager extends EventEmitter {
     const handle = this.activeRuns.get(runId)
     if (!handle) return false
 
-    log(`Cancelling run ${runId}`)
+    log.info(`Cancelling run ${runId}`)
     handle.process.kill('SIGINT')
 
     setTimeout(() => {

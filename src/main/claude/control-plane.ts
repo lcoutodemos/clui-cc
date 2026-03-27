@@ -429,10 +429,10 @@ export class ControlPlane extends EventEmitter {
 
   // ─── Tab Lifecycle ───
 
-  createTab(): string {
-    const tabId = crypto.randomUUID()
+  createTab(tabId?: string): string {
+    const id = tabId || (typeof crypto !== 'undefined' && (crypto as any).randomUUID ? (crypto as any).randomUUID() : require('crypto').randomUUID())
     const entry: TabRegistryEntry = {
-      tabId,
+      tabId: id,
       claudeSessionId: null,
       status: 'idle',
       activeRequestId: null,
@@ -441,16 +441,16 @@ export class ControlPlane extends EventEmitter {
       lastActivityAt: Date.now(),
       promptCount: 0,
     }
-    this.tabs.set(tabId, entry)
-    log(`Tab created: ${tabId}`)
-    return tabId
+    this.tabs.set(id, entry)
+    log(`Tab created: ${id}`)
+    return id
   }
 
   /**
    * Eagerly initialize a session for a tab by running a minimal prompt.
    * Populates session metadata (model, MCP servers, tools) without visible messages.
    */
-  initSession(tabId: string): void {
+  initSession(tabId: string, options?: RunOptions): void {
     const tab = this.tabs.get(tabId)
     if (!tab) return
 
@@ -459,8 +459,9 @@ export class ControlPlane extends EventEmitter {
 
     this.submitPrompt(tabId, requestId, {
       prompt: 'hi',
-      projectPath: process.cwd(),
+      projectPath: options?.projectPath || process.cwd(),
       maxTurns: 1,
+      model: options?.model,
     }).catch((err) => {
       this.initRequestIds.delete(requestId)
       log(`Init session failed for tab ${tabId}: ${(err as Error).message}`)
@@ -756,6 +757,10 @@ export class ControlPlane extends EventEmitter {
 
   getTabStatus(tabId: string): TabRegistryEntry | undefined {
     return this.tabs.get(tabId)
+  }
+
+  getClaudeBinaryPath(): string {
+    return this.runManager.getBinaryPath()
   }
 
   getEnrichedError(requestId: string, exitCode: number | null): EnrichedError {

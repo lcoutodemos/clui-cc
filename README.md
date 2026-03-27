@@ -1,6 +1,6 @@
 # Clui CC — Command Line User Interface for Claude Code
 
-A lightweight, transparent desktop overlay for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) on macOS. Clui CC wraps the Claude Code CLI in a floating pill interface with multi-tab sessions, a permission approval UI, voice input, and a skills marketplace.
+A lightweight, transparent desktop overlay for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) on macOS and Windows. Clui CC wraps the Claude Code CLI in a floating pill interface with multi-tab sessions, a permission approval UI, voice input, and a skills marketplace.
 
 ## Demo
 
@@ -10,8 +10,9 @@ A lightweight, transparent desktop overlay for [Claude Code](https://docs.anthro
 
 ## Features
 
-- **Floating overlay** — transparent, click-through window that stays on top. Toggle with `⌥ + Space` (fallback: `Cmd+Shift+K`).
+- **Floating overlay** — transparent, click-through window that stays on top. Toggle with `⌥ + Space` on Mac or `Alt + Space` on Windows.
 - **Multi-tab sessions** — each tab spawns its own `claude -p` process with independent session state.
+- **Ollama Support (Experimental)** — Use cloud models (Qwen, GLM, etc.) via Ollama and skip the standard Claude login.
 - **Permission approval UI** — intercepts tool calls via PreToolUse HTTP hooks so you can review and approve/deny from the UI.
 - **Conversation history** — browse and resume past Claude Code sessions.
 - **Skills marketplace** — install plugins from Anthropic's GitHub repos without leaving Clui CC.
@@ -25,17 +26,20 @@ A lightweight, transparent desktop overlay for [Claude Code](https://docs.anthro
 - **Human-in-the-loop safety** — tool calls are reviewed and approved in-app before execution.
 - **Session-native workflow** — each tab runs an independent Claude session you can resume later.
 - **Local-first** — everything runs through your local Claude CLI. No telemetry, no cloud dependency.
+- **Ollama-friendly** — point to cloud ollama models to test without consuming Anthropic credits.
 
 ## How It Works
 
 ```
 UI prompt → Main process spawns claude -p → NDJSON stream → live render
-                                         → tool call? → permission UI → approve/deny
+                                          → tool call? → permission UI → approve/deny
 ```
 
 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the full deep-dive.
 
 ## Install App (Recommended)
+
+### macOS
 
 The fastest way to get Clui CC running as a regular Mac app. This installs dependencies, voice support (Whisper), builds the app, copies it to `/Applications`, and launches it.
 
@@ -52,9 +56,47 @@ Open the `clui-cc` folder in Finder and double-click `install-app.command`.
 > **First launch:** macOS may block the app because it's unsigned. Go to **System Settings → Privacy & Security → Open Anyway**. You only need to do this once.
 > **Folder cleanup:** the installer removes temporary `dist/` and `release/` folders after a successful install to keep the repo tidy.
 
-<p align="center"><img src="docs/shortcut.png" width="520" alt="Press Option + Space to show or hide Clui CC" /></p>
+### Windows
 
-After the initial install, just open **Clui CC** from your Applications folder or Spotlight.
+Currently, Windows users must build the application from source. A pre-compiled installer will be available in the future.
+
+**1) Clone the repo**
+
+```powershell
+git clone https://github.com/lcoutodemos/clui-cc.git
+cd clui-cc
+```
+
+**2) Install Dependencies & Build**
+
+```powershell
+npm install
+npm run build
+```
+
+**3) Run the App**
+
+```powershell
+npm run dev
+```
+
+To create a standalone installer for yourself:
+```powershell
+npm run dist:win
+```
+The installer will be located in the `release/` folder.
+
+<p align="center"><img src="docs/shortcut.png" width="520" alt="Press Alt + Space (Windows) or Option + Space (Mac) to show/hide the overlay" /></p>
+
+## Ollama Support (Skip Login)
+
+Clui CC includes experimental support for [Ollama](https://ollama.com/), allowing you to use cloud LLM models and skip the standard Claude Code login/API key check.
+
+**How to use:**
+1. Ensure Ollama is running locally (`http://localhost:11434`).
+2. In Clui CC, when prompted for setup, you can select **"Skip Login (Use Local LLM or API Key)"**.
+3. Point your Claude CLI to Ollama by using specific model names (e.g., `qwen`, `glm`, `kimi`).
+4. Clui CC will automatically set the `ANTHROPIC_BASE_URL` to your local Ollama instance and use dummy authentication.
 
 <details>
 <summary><strong>Terminal / Developer Commands</strong></summary>
@@ -71,6 +113,7 @@ git clone https://github.com/lcoutodemos/clui-cc.git
 cd clui-cc
 ```
 
+**Mac:**
 ```bash
 ./commands/setup.command
 ```
@@ -79,13 +122,18 @@ cd clui-cc
 ./commands/start.command
 ```
 
-> Press **⌥ + Space** to show/hide the overlay. If your macOS input source claims that combo, use **Cmd+Shift+K**.
-
 To stop:
 
 ```bash
 ./commands/stop.command
 ```
+**Windows:**
+```powershell
+npm install
+npm run dev
+```
+
+> Press **Alt + Space** (Windows) or **⌥ + Space** (Mac) to show/hide the overlay.
 
 ### Developer Workflow
 
@@ -106,14 +154,29 @@ Renderer changes update instantly. Main-process changes require restarting `npm 
 | `./commands/setup.command` | Environment check + install dependencies |
 | `./commands/start.command` | Build and launch from source |
 | `./commands/stop.command` | Stop all Clui CC processes |
+| `npm run dev` | Launch development server |
 | `npm run build` | Production build (no packaging) |
-| `npm run dist` | Package as macOS `.app` into `release/` |
+| `npm run dist:mac` | Package as macOS `.app` into `release/` |
+| `npm run dist:win` | Package as Windows `.exe` installer into `release/` |
 | `npm run doctor` | Run environment diagnostic |
 
 </details>
 
 <details>
 <summary><strong>Setup Prerequisites (Detailed)</strong></summary>
+
+### For Windows
+
+1. **Install Claude Code CLI**:
+   ```powershell
+   npm install -g @anthropic-ai/claude-code
+   ```
+2. **Authentication**: (Optional if using Ollama)
+   ```powershell
+   claude auth login
+   ```
+
+### For macOS
 
 You need **macOS 13+**. Then install these one at a time — copy each command and paste it into Terminal.
 
@@ -147,7 +210,7 @@ python3 -m pip install --upgrade pip setuptools
 npm install -g @anthropic-ai/claude-code
 ```
 
-**Step 5.** Authenticate Claude Code (follow the prompts that appear):
+**Step 5.** Authenticate Claude Code (follow the prompts that appear - Optional if using Ollama):
 
 ```bash
 claude
@@ -220,7 +283,7 @@ Quick self-check:
 npm run doctor
 ```
 
-## Tested On
+## Tested On (Mac)
 
 | Component | Version |
 |-----------|---------|
@@ -230,9 +293,19 @@ npm run doctor
 | Electron | 33.x |
 | Claude Code CLI | 2.1.71 |
 
+## Tested On (Windows)
+
+| Component | Version |
+|-----------|---------|
+| Windows | 11 |
+| Node.js | 20.x LTS, 22.x |
+| Python | 3.12 (with setuptools installed) |
+| Electron | 33.x |
+| Claude Code CLI | 2.1.71 |
+
 ## Known Limitations
 
-- **macOS only** — transparent overlay, tray icon, and node-pty are macOS-specific. Windows/Linux support is not currently implemented.
+- **macOS & Windows support** — transparent overlay, tray icon, and multi-tab sessions are fully supported on both platforms. Linux support is not currently implemented.
 - **Requires Claude Code CLI** — Clui CC is a UI layer, not a standalone AI client. You need an authenticated `claude` CLI.
 - **Permission mode** — uses `--permission-mode default`. The PTY interactive transport is legacy and disabled by default.
 

@@ -4,8 +4,17 @@ import type { RunOptions, NormalizedEvent, HealthReport, EnrichedError, Attachme
 
 export interface CluiAPI {
   // ─── Request-response (renderer → main) ───
-  start(): Promise<{ version: string; auth: { email?: string; subscriptionType?: string; authMethod?: string }; mcpServers: string[]; projectPath: string; homePath: string }>
-  createTab(): Promise<{ tabId: string }>
+  start(): Promise<{
+    version: string;
+    auth: { email?: string; subscriptionType?: string; authMethod?: string };
+    mcpServers: string[];
+    projectPath: string;
+    homePath: string;
+    isNodeInstalled: boolean;
+    isClaudeInstalled: boolean;
+    isAuthValid: boolean;
+  }>
+  createTab(tabId?: string): Promise<{ tabId: string }>
   prompt(tabId: string, requestId: string, options: RunOptions): Promise<void>
   cancel(requestId: string): Promise<boolean>
   stopTab(tabId: string): Promise<boolean>
@@ -22,7 +31,7 @@ export interface CluiAPI {
   transcribeAudio(audioBase64: string): Promise<{ error: string | null; transcript: string | null }>
   getDiagnostics(): Promise<any>
   respondPermission(tabId: string, questionId: string, optionId: string): Promise<boolean>
-  initSession(tabId: string): void
+  initSession(tabId: string, options?: RunOptions): void
   resetTabSession(tabId: string): void
   listSessions(projectPath?: string): Promise<SessionMeta[]>
   loadSession(sessionId: string, projectPath?: string): Promise<SessionLoadMessage[]>
@@ -58,7 +67,7 @@ export interface CluiAPI {
 const api: CluiAPI = {
   // ─── Request-response ───
   start: () => ipcRenderer.invoke(IPC.START),
-  createTab: () => ipcRenderer.invoke(IPC.CREATE_TAB),
+  createTab: (tabId?: string) => ipcRenderer.invoke(IPC.CREATE_TAB, tabId),
   prompt: (tabId, requestId, options) => ipcRenderer.invoke(IPC.PROMPT, { tabId, requestId, options }),
   cancel: (requestId) => ipcRenderer.invoke(IPC.CANCEL, requestId),
   stopTab: (tabId) => ipcRenderer.invoke(IPC.STOP_TAB, tabId),
@@ -76,7 +85,7 @@ const api: CluiAPI = {
   getDiagnostics: () => ipcRenderer.invoke(IPC.GET_DIAGNOSTICS),
   respondPermission: (tabId, questionId, optionId) =>
     ipcRenderer.invoke(IPC.RESPOND_PERMISSION, { tabId, questionId, optionId }),
-  initSession: (tabId) => ipcRenderer.send(IPC.INIT_SESSION, tabId),
+  initSession: (tabId, options) => ipcRenderer.send(IPC.INIT_SESSION, tabId, options),
   resetTabSession: (tabId) => ipcRenderer.send(IPC.RESET_TAB_SESSION, tabId),
   listSessions: (projectPath?: string) => ipcRenderer.invoke(IPC.LIST_SESSIONS, projectPath),
   loadSession: (sessionId: string, projectPath?: string) => ipcRenderer.invoke(IPC.LOAD_SESSION, { sessionId, projectPath }),

@@ -27,8 +27,24 @@ export function useHealthReconciliation() {
           health.tabs.map((h) => [h.tabId, h])
         )
 
+        // If the backend has no tabs (likely a restart), re-register all current tabs from the store.
+        const { tabs: currentTabs, activeTabId, preferredModel } = useSessionStore.getState()
+        if (activeTabId && !stateByTab.has(activeTabId)) {
+          // Re-register every tab we have in the store so the backend knows about them.
+          for (const t of currentTabs) {
+            await window.clui.createTab(t.id)
+            if (t.workingDirectory) {
+              window.clui.initSession(t.id, {
+                prompt: 'init',
+                model: preferredModel || undefined,
+                projectPath: t.workingDirectory
+              })
+            }
+          }
+          return // Let the next poll tick handle status reconciliation
+        }
+
         // Build updated tabs, tracking whether anything actually changed
-        const { tabs: currentTabs } = useSessionStore.getState()
         let changed = false
         const newTabs = currentTabs.map((t) => {
           if (t.status !== 'running' && t.status !== 'connecting') return t
