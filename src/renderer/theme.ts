@@ -134,6 +134,10 @@ const darkColors = {
   // Permission denied card
   permissionDeniedBorder: 'rgba(196, 112, 96, 0.3)',
   permissionDeniedHeaderBorder: 'rgba(196, 112, 96, 0.12)',
+
+  // Diff (Edit tool inline diff)
+  diffRemovedBg: 'rgba(248, 81, 73, 0.1)',
+  diffAddedBg: 'rgba(63, 185, 80, 0.1)',
 } as const
 
 const lightColors = {
@@ -264,6 +268,10 @@ const lightColors = {
   // Permission denied card
   permissionDeniedBorder: 'rgba(196, 112, 96, 0.3)',
   permissionDeniedHeaderBorder: 'rgba(196, 112, 96, 0.12)',
+
+  // Diff (Edit tool inline diff)
+  diffRemovedBg: 'rgba(248, 81, 73, 0.15)',
+  diffAddedBg: 'rgba(63, 185, 80, 0.15)',
 } as const
 
 export type ColorPalette = { [K in keyof typeof darkColors]: string }

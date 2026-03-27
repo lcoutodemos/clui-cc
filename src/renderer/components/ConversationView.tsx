@@ -628,28 +628,32 @@ function toolSummary(tools: Message[]): string {
   return `${desc} and ${tools.length - 1} more tool${tools.length > 2 ? 's' : ''}`
 }
 
+/** Short human-readable description from tool name + already-parsed input */
+function getToolDescriptionFromParsed(name: string, parsed: Record<string, unknown>): string {
+  const s = (v: unknown) => (typeof v === 'string' ? v : '')
+  switch (name) {
+    case 'Read': return `Read ${s(parsed.file_path) || s(parsed.path) || 'file'}`
+    case 'Edit': return `Edit ${s(parsed.file_path) || 'file'}`
+    case 'Write': return `Write ${s(parsed.file_path) || 'file'}`
+    case 'Glob': return `Search files: ${s(parsed.pattern)}`
+    case 'Grep': return `Search: ${s(parsed.pattern)}`
+    case 'Bash': {
+      const cmd = s(parsed.command)
+      return cmd.length > 60 ? `${cmd.substring(0, 57)}...` : cmd || 'Bash'
+    }
+    case 'WebSearch': return `Search: ${s(parsed.query) || s(parsed.search_query)}`
+    case 'WebFetch': return `Fetch: ${s(parsed.url)}`
+    case 'Agent': return `Agent: ${(s(parsed.prompt) || s(parsed.description)).substring(0, 50)}`
+    default: return name
+  }
+}
+
 /** Short human-readable description from tool name + input */
 function getToolDescription(name: string, input?: string): string {
   if (!input) return name
 
-  // Try to extract a meaningful short description from the input JSON
   try {
-    const parsed = JSON.parse(input)
-    switch (name) {
-      case 'Read': return `Read ${parsed.file_path || parsed.path || 'file'}`
-      case 'Edit': return `Edit ${parsed.file_path || 'file'}`
-      case 'Write': return `Write ${parsed.file_path || 'file'}`
-      case 'Glob': return `Search files: ${parsed.pattern || ''}`
-      case 'Grep': return `Search: ${parsed.pattern || ''}`
-      case 'Bash': {
-        const cmd = parsed.command || ''
-        return cmd.length > 60 ? `${cmd.substring(0, 57)}...` : cmd || 'Bash'
-      }
-      case 'WebSearch': return `Search: ${parsed.query || parsed.search_query || ''}`
-      case 'WebFetch': return `Fetch: ${parsed.url || ''}`
-      case 'Agent': return `Agent: ${(parsed.prompt || parsed.description || '').substring(0, 50)}`
-      default: return name
-    }
+    return getToolDescriptionFromParsed(name, JSON.parse(input))
   } catch {
     // Input is not JSON or is partial — show truncated raw
     const trimmed = input.trim()
@@ -693,7 +697,14 @@ function ToolGroup({ tools, skipMotion }: { tools: Message[]; skipMotion?: boole
             {tools.map((tool) => {
               const isRunning = tool.toolStatus === 'running'
               const toolName = tool.toolName || 'Tool'
-              const desc = getToolDescription(toolName, tool.toolInput)
+              // Parse tool input once for both description and detail content
+              let parsedInput: Record<string, unknown> | null = null
+              if (tool.toolInput) {
+                try { parsedInput = JSON.parse(tool.toolInput) } catch { /* partial JSON */ }
+              }
+              const desc = parsedInput
+                ? getToolDescriptionFromParsed(toolName, parsedInput)
+                : getToolDescription(toolName, tool.toolInput)
 
               return (
                 <div key={tool.id} className="relative">
@@ -719,6 +730,73 @@ function ToolGroup({ tools, skipMotion }: { tools: Message[]; skipMotion?: boole
                     >
                       {desc}
                     </span>
+
+                    {/* Tool detail content for Edit/Write */}
+                    {!isRunning && parsedInput && (() => {
+                      const monoFont = 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace'
+                      if (toolName === 'Edit' && ('old_string' in parsedInput || 'new_string' in parsedInput)) {
+                        const oldStr = typeof parsedInput.old_string === 'string' ? parsedInput.old_string : null
+                        const newStr = typeof parsedInput.new_string === 'string' ? parsedInput.new_string : null
+                        if (oldStr === null && newStr === null) return null
+                        return (
+                          <div
+                            className="mt-1 text-[11px] leading-[1.5] rounded overflow-hidden"
+                            style={{ border: `1px solid ${colors.toolBorder}` }}
+                            role="group"
+                            aria-label="Edit diff"
+                          >
+                            {oldStr !== null && (
+                              <pre
+                                className="px-2 py-1 whitespace-pre-wrap break-all overflow-y-auto"
+                                aria-label="Removed"
+                                style={{
+                                  background: colors.diffRemovedBg,
+                                  color: colors.textSecondary,
+                                  maxHeight: 120,
+                                  margin: 0,
+                                  fontFamily: monoFont,
+                                  fontSize: 10,
+                                }}
+                              ><span style={{ color: colors.textMuted, userSelect: 'none' }}>- </span>{oldStr.length > 300 ? oldStr.slice(0, 297) + '...' : oldStr}</pre>
+                            )}
+                            {newStr !== null && (
+                              <pre
+                                className="px-2 py-1 whitespace-pre-wrap break-all overflow-y-auto"
+                                aria-label="Added"
+                                style={{
+                                  background: colors.diffAddedBg,
+                                  color: colors.textSecondary,
+                                  maxHeight: 120,
+                                  margin: 0,
+                                  fontFamily: monoFont,
+                                  fontSize: 10,
+                                }}
+                              ><span style={{ color: colors.textMuted, userSelect: 'none' }}>+ </span>{newStr.length > 300 ? newStr.slice(0, 297) + '...' : newStr}</pre>
+                            )}
+                          </div>
+                        )
+                      }
+                      if (toolName === 'Write' && typeof parsedInput.content === 'string') {
+                        const content = parsedInput.content
+                        const snippet = content.length > 200 ? content.slice(0, 197) + '...' : content
+                        return (
+                          <pre
+                            className="mt-1 px-2 py-1 text-[10px] leading-[1.5] rounded whitespace-pre-wrap break-all overflow-y-auto"
+                            aria-label="File content"
+                            style={{
+                              background: colors.surfaceHover,
+                              color: colors.textSecondary,
+                              maxHeight: 120,
+                              margin: 0,
+                              marginTop: 4,
+                              fontFamily: monoFont,
+                              border: `1px solid ${colors.toolBorder}`,
+                            }}
+                          >{snippet}</pre>
+                        )
+                      }
+                      return null
+                    })()}
 
                     {/* Result badge */}
                     {!isRunning && (
