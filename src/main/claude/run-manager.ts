@@ -6,6 +6,7 @@ import { StreamParser } from '../stream-parser'
 import { normalize } from './event-normalizer'
 import { log as _log } from '../logger'
 import { getCliEnv } from '../cli-env'
+import { findClaudeBinary } from './find-binary'
 import type { ClaudeEvent, NormalizedEvent, RunOptions, EnrichedError } from '../../shared/types'
 
 const MAX_RING_LINES = 100
@@ -101,28 +102,7 @@ export class RunManager extends EventEmitter {
   }
 
   private _findClaudeBinary(): string {
-    const candidates = [
-      '/usr/local/bin/claude',
-      '/opt/homebrew/bin/claude',
-      join(homedir(), '.npm-global/bin/claude'),
-    ]
-
-    for (const c of candidates) {
-      try {
-        execSync(`test -x "${c}"`, { stdio: 'ignore' })
-        return c
-      } catch {}
-    }
-
-    try {
-      return execSync('/bin/zsh -ilc "whence -p claude"', { encoding: 'utf-8', env: getCliEnv() }).trim()
-    } catch {}
-
-    try {
-      return execSync('/bin/bash -lc "which claude"', { encoding: 'utf-8', env: getCliEnv() }).trim()
-    } catch {}
-
-    return 'claude'
+    return findClaudeBinary()
   }
 
   private _getEnv(): NodeJS.ProcessEnv {
