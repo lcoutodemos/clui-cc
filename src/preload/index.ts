@@ -46,6 +46,8 @@ export interface CluiAPI {
   startWindowDrag(deltaX: number, deltaY: number): void
   /** Reset overlay to its default bottom-center position */
   resetWindowPosition(): void
+  /** Set native window opacity (0.0–1.0) */
+  setWindowOpacity(opacity: number): void
 
   // ─── Event listeners (main → renderer) ───
   onEvent(callback: (tabId: string, event: NormalizedEvent) => void): () => void
@@ -105,6 +107,7 @@ const api: CluiAPI = {
   startWindowDrag: (deltaX, deltaY) =>
     ipcRenderer.send(IPC.START_WINDOW_DRAG, deltaX, deltaY),
   resetWindowPosition: () => ipcRenderer.send(IPC.RESET_WINDOW_POSITION),
+  setWindowOpacity: (opacity) => ipcRenderer.send(IPC.SET_WINDOW_OPACITY, opacity),
   setWindowWidth: (width) => ipcRenderer.send(IPC.SET_WINDOW_WIDTH, width),
 
   // ─── Event listeners ───

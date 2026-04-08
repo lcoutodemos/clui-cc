@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { motion } from 'framer-motion'
-import { DotsThree, Bell, ArrowsOutSimple, Moon } from '@phosphor-icons/react'
+import { DotsThree, Bell, ArrowsOutSimple, Moon, Drop } from '@phosphor-icons/react'
 import { useThemeStore } from '../theme'
 import { useSessionStore } from '../stores/sessionStore'
 import { usePopoverLayer } from './PopoverLayer'
@@ -50,6 +50,8 @@ export function SettingsPopover() {
   const setThemeMode = useThemeStore((s) => s.setThemeMode)
   const expandedUI = useThemeStore((s) => s.expandedUI)
   const setExpandedUI = useThemeStore((s) => s.setExpandedUI)
+  const windowOpacity = useThemeStore((s) => s.windowOpacity)
+  const setWindowOpacity = useThemeStore((s) => s.setWindowOpacity)
   const isExpanded = useSessionStore((s) => s.isExpanded)
   const popoverLayer = usePopoverLayer()
   const colors = useColors()
@@ -219,6 +221,35 @@ export function SettingsPopover() {
                   colors={colors}
                   label="Toggle dark theme"
                 />
+              </div>
+            </div>
+            <div style={{ height: 1, background: colors.popoverBorder }} />
+
+            {/* Window opacity */}
+            <div>
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2 min-w-0">
+                  <Drop size={14} style={{ color: colors.textTertiary }} />
+                  <div className="text-[12px] font-medium" style={{ color: colors.textPrimary }}>
+                    Opacity
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="range"
+                    min={20}
+                    max={100}
+                    step={5}
+                    value={windowOpacity}
+                    onChange={(e) => setWindowOpacity(Number(e.target.value))}
+                    className="w-16 h-1 accent-current cursor-pointer"
+                    style={{ accentColor: colors.accent }}
+                    aria-label="Window opacity"
+                  />
+                  <div className="text-[11px] w-7 text-right tabular-nums" style={{ color: colors.textTertiary }}>
+                    {windowOpacity}%
+                  </div>
+                </div>
               </div>
             </div>
           </div>
