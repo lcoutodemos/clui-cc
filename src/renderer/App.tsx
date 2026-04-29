@@ -327,9 +327,12 @@ export default function App() {
                     data-clui-ui
                     className="no-drag flex items-center justify-center"
                     style={{
-                      height: 10,
+                      height: 18,
                       cursor: 'ns-resize',
                       color: colors.textMuted,
+                      marginTop: -2,
+                      marginBottom: -2,
+                      background: 'transparent',
                     }}
                     title="Drag to resize chat height"
                     onMouseDown={(e) => {
@@ -347,8 +350,8 @@ export default function App() {
                   >
                     <div
                       style={{
-                        width: 38,
-                        height: 3,
+                        width: 52,
+                        height: 4,
                         borderRadius: 999,
                         background: colors.containerBorder,
                         opacity: 0.9,

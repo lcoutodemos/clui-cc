@@ -58,7 +58,6 @@ let tray: Tray | null = null
 let screenshotCounter = 0
 let toggleSequence = 0
 let lastWindowBounds: Electron.Rectangle | null = null
-let blurHideTimer: NodeJS.Timeout | null = null
 
 // Feature flag: enable PTY interactive permissions transport
 const INTERACTIVE_PTY = process.env.CLUI_INTERACTIVE_PERMISSIONS_PTY === '1'
@@ -309,7 +308,7 @@ function createWindow(): void {
     transparent: true,
     resizable: false,
     movable: true,
-    alwaysOnTop: true,
+    alwaysOnTop: false,
     skipTaskbar: true,
     hasShadow: false,
     roundedCorners: true,
@@ -327,10 +326,8 @@ function createWindow(): void {
   })
   lastWindowBounds = mainWindow.getBounds()
 
-  // Belt-and-suspenders: panel already joins all spaces and floats,
-  // but explicit flags ensure correct behavior on older Electron builds.
+  // Keep the app available across Spaces without forcing it above every app.
   mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
-  mainWindow.setAlwaysOnTop(true, 'screen-saver')
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   mainWindow.webContents.on('will-navigate', (event) => {
     event.preventDefault()
@@ -358,25 +355,6 @@ function createWindow(): void {
   mainWindow.on('move', () => {
     if (!mainWindow || mainWindow.isDestroyed()) return
     lastWindowBounds = mainWindow.getBounds()
-  })
-
-  mainWindow.on('blur', () => {
-    if (process.env.CLUI_HIDE_ON_BLUR === '0') return
-    if (blurHideTimer) clearTimeout(blurHideTimer)
-    blurHideTimer = setTimeout(() => {
-      blurHideTimer = null
-      if (!mainWindow || mainWindow.isDestroyed()) return
-      if (!mainWindow.isFocused() && mainWindow.isVisible()) {
-        mainWindow.hide()
-      }
-    }, 160)
-  })
-
-  mainWindow.on('focus', () => {
-    if (blurHideTimer) {
-      clearTimeout(blurHideTimer)
-      blurHideTimer = null
-    }
   })
 
   if (process.env.ELECTRON_RENDERER_URL) {
