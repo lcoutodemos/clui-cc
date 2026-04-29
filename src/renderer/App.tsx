@@ -1,4 +1,4 @@
-import React, { useEffect, useCallback, useRef } from 'react'
+import React, { useEffect, useCallback, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Paperclip, Camera, HeadCircuit } from '@phosphor-icons/react'
 import { TabStrip } from './components/TabStrip'
@@ -13,6 +13,10 @@ import { useSessionStore } from './stores/sessionStore'
 import { useColors, useThemeStore, spacing } from './theme'
 
 const TRANSITION = { duration: 0.26, ease: [0.4, 0, 0.1, 1] as const }
+const DEFAULT_BODY_HEIGHT = 400
+const DEFAULT_WIDE_BODY_HEIGHT = 520
+const MIN_BODY_HEIGHT = 300
+const MAX_BODY_HEIGHT = 590
 
 export default function App() {
   useClaudeEvents()
@@ -59,6 +63,8 @@ export default function App() {
 
   // Shared drag ref — must be declared before the setIgnoreMouseEvents effect so both closures can read it
   const dragRef = useRef<{ startX: number; startY: number } | null>(null)
+  const resizeRef = useRef<{ startY: number; startHeight: number } | null>(null)
+  const [customBodyHeight, setCustomBodyHeight] = useState<number | null>(null)
 
   // Vertical position tracking — window moves first (until macOS clamps it), then CSS overflows
   const PILL_HEIGHT_CONST = 720
@@ -75,7 +81,7 @@ export default function App() {
 
     const onMouseMove = (e: MouseEvent) => {
       // While dragging, keep full mouse capture — don't toggle ignore-events
-      if (dragRef.current) return
+      if (dragRef.current || resizeRef.current) return
       const el = document.elementFromPoint(e.clientX, e.clientY)
       const isUI = !!(el && el.closest('[data-clui-ui]'))
       const shouldIgnore = !isUI
@@ -90,7 +96,7 @@ export default function App() {
     }
 
     const onMouseLeave = () => {
-      if (dragRef.current) return
+      if (dragRef.current || resizeRef.current) return
       if (lastIgnored !== true) {
         lastIgnored = true
         window.clui.setIgnoreMouseEvents(true, { forward: true })
@@ -111,6 +117,7 @@ export default function App() {
 
     const onMouseDown = (e: MouseEvent) => {
       const el = e.target as HTMLElement
+      if (el.closest('[data-clui-resize-handle]')) return
       const isDragHandle = !!el.closest('[data-clui-drag-handle]')
       // The explicit handle is always draggable. Elsewhere, skip controls.
       if (!isDragHandle && el.closest('button, input, textarea, a, select, [role="button"], [contenteditable], .cm-editor')) return
@@ -184,6 +191,26 @@ export default function App() {
     }
   }, [])
 
+  useEffect(() => {
+    const onMouseMove = (e: MouseEvent) => {
+      if (!resizeRef.current) return
+      const next = resizeRef.current.startHeight + (resizeRef.current.startY - e.screenY)
+      setCustomBodyHeight(Math.max(MIN_BODY_HEIGHT, Math.min(MAX_BODY_HEIGHT, next)))
+    }
+    const onMouseUp = () => {
+      if (!resizeRef.current) return
+      resizeRef.current = null
+      document.body.style.cursor = ''
+      window.clui?.setIgnoreMouseEvents?.(false)
+    }
+    document.addEventListener('mousemove', onMouseMove)
+    document.addEventListener('mouseup', onMouseUp)
+    return () => {
+      document.removeEventListener('mousemove', onMouseMove)
+      document.removeEventListener('mouseup', onMouseUp)
+    }
+  }, [])
+
   const isExpanded = useSessionStore((s) => s.isExpanded)
   const marketplaceOpen = useSessionStore((s) => s.marketplaceOpen)
   const isRunning = activeTabStatus === 'running' || activeTabStatus === 'connecting'
@@ -193,7 +220,9 @@ export default function App() {
   const cardExpandedWidth = expandedUI ? 700 : 460
   const cardCollapsedWidth = expandedUI ? 670 : 430
   const cardCollapsedMargin = expandedUI ? 15 : 15
-  const bodyMaxHeight = expandedUI ? 520 : 400
+  const defaultBodyHeight = expandedUI ? DEFAULT_WIDE_BODY_HEIGHT : DEFAULT_BODY_HEIGHT
+  const bodyMaxHeight = customBodyHeight ?? defaultBodyHeight
+  const conversationMaxHeight = Math.max(220, bodyMaxHeight - 60)
 
   const handleScreenshot = useCallback(async () => {
     const result = await window.clui.takeScreenshot()
@@ -291,7 +320,42 @@ export default function App() {
               className="overflow-hidden no-drag"
             >
               <div style={{ maxHeight: bodyMaxHeight }}>
-                <ConversationView />
+                <ConversationView maxHeight={conversationMaxHeight} />
+                {isExpanded && (
+                  <div
+                    data-clui-resize-handle
+                    data-clui-ui
+                    className="no-drag flex items-center justify-center"
+                    style={{
+                      height: 10,
+                      cursor: 'ns-resize',
+                      color: colors.textMuted,
+                    }}
+                    title="Drag to resize chat height"
+                    onMouseDown={(e) => {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      window.clui?.setIgnoreMouseEvents?.(false)
+                      resizeRef.current = { startY: e.screenY, startHeight: bodyMaxHeight }
+                      document.body.style.cursor = 'ns-resize'
+                    }}
+                    onDoubleClick={(e) => {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      setCustomBodyHeight(null)
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: 38,
+                        height: 3,
+                        borderRadius: 999,
+                        background: colors.containerBorder,
+                        opacity: 0.9,
+                      }}
+                    />
+                  </div>
+                )}
                 <StatusBar />
               </div>
             </motion.div>

@@ -56,7 +56,7 @@ function groupMessages(messages: Message[]): GroupedItem[] {
 
 // ─── Main Component ───
 
-export function ConversationView() {
+export function ConversationView({ maxHeight }: { maxHeight?: number }) {
   const tabs = useSessionStore((s) => s.tabs)
   const activeTabId = useSessionStore((s) => s.activeTabId)
   const sendMessage = useSessionStore((s) => s.sendMessage)
@@ -150,7 +150,7 @@ export function ConversationView() {
       <div
         ref={scrollRef}
         className="overflow-y-auto overflow-x-hidden px-4 pt-2 conversation-selectable"
-        style={{ maxHeight: expandedUI ? 460 : 336, paddingBottom: 28 }}
+        style={{ maxHeight: maxHeight ?? (expandedUI ? 460 : 336), paddingBottom: 28 }}
         onScroll={handleScroll}
       >
         {/* Load older button */}
