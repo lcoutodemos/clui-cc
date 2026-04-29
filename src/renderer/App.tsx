@@ -61,153 +61,106 @@ export default function App() {
     })
   }, [])
 
-  // Shared drag ref — must be declared before the setIgnoreMouseEvents effect so both closures can read it
-  const dragRef = useRef<{ startX: number; startY: number } | null>(null)
-  const resizeRef = useRef<{ startY: number; startHeight: number } | null>(null)
+  const dragRef = useRef<{ pointerId: number; startX: number; startY: number; dragging: boolean } | null>(null)
+  const resizeRef = useRef<{ pointerId: number; startY: number; startHeight: number; edge: 'top' | 'bottom' } | null>(null)
   const [customBodyHeight, setCustomBodyHeight] = useState<number | null>(null)
 
-  // Vertical position tracking — window moves first (until macOS clamps it), then CSS overflows
-  const PILL_HEIGHT_CONST = 720
-  const PILL_BOTTOM_MARGIN_CONST = 24
-  const minWindowY = window.screen.availTop   // top of work area (below menu bar)
-  const initialWindowY = window.screen.availTop + window.screen.availHeight - PILL_HEIGHT_CONST - PILL_BOTTOM_MARGIN_CONST
-  const windowYRef = useRef(initialWindowY)
-  const cardYRef = useRef(0) // CSS translateY offset (only used after window hits its y constraint)
-
-  // OS-level click-through (RAF-throttled to avoid per-pixel IPC)
   useEffect(() => {
     if (!window.clui?.setIgnoreMouseEvents) return
     let lastIgnored: boolean | null = null
 
+    const setIgnored = (ignored: boolean) => {
+      if (lastIgnored === ignored) return
+      lastIgnored = ignored
+      window.clui.setIgnoreMouseEvents(ignored, ignored ? { forward: true } : undefined)
+    }
+
     const onMouseMove = (e: MouseEvent) => {
-      // While dragging, keep full mouse capture — don't toggle ignore-events
-      if (dragRef.current || resizeRef.current) return
-      const el = document.elementFromPoint(e.clientX, e.clientY)
-      const isUI = !!(el && el.closest('[data-clui-ui]'))
-      const shouldIgnore = !isUI
-      if (shouldIgnore !== lastIgnored) {
-        lastIgnored = shouldIgnore
-        if (shouldIgnore) {
-          window.clui.setIgnoreMouseEvents(true, { forward: true })
-        } else {
-          window.clui.setIgnoreMouseEvents(false)
-        }
-      }
-    }
-
-    const onMouseLeave = () => {
-      if (dragRef.current || resizeRef.current) return
-      if (lastIgnored !== true) {
-        lastIgnored = true
-        window.clui.setIgnoreMouseEvents(true, { forward: true })
-      }
-    }
-
-    document.addEventListener('mousemove', onMouseMove)
-    document.addEventListener('mouseleave', onMouseLeave)
-    return () => {
-      document.removeEventListener('mousemove', onMouseMove)
-      document.removeEventListener('mouseleave', onMouseLeave)
-    }
-  }, [])
-
-  // Manual window drag — bypasses -webkit-app-region conflicts with setIgnoreMouseEvents
-  useEffect(() => {
-    if (!window.clui?.startWindowDrag) return
-
-    const onMouseDown = (e: MouseEvent) => {
-      const el = e.target as HTMLElement
-      if (el.closest('[data-clui-resize-handle]')) return
-      const isDragHandle = !!el.closest('[data-clui-drag-handle]')
-      // The explicit handle is always draggable. Elsewhere, skip controls.
-      if (!isDragHandle && el.closest('button, input, textarea, a, select, [role="button"], [contenteditable], .cm-editor')) return
-      if (!isDragHandle && !el.closest('[data-clui-ui]')) return
-      e.preventDefault()
-      // Double-click: snap back to default position
-      if (e.detail >= 2) {
-        window.clui.resetWindowPosition()
-        windowYRef.current = initialWindowY
-        cardYRef.current = 0
-        document.documentElement.style.setProperty('--clui-card-y', '0px')
+      if (dragRef.current || resizeRef.current) {
+        setIgnored(false)
         return
       }
-      // Ensure full mouse capture for the duration of the drag
-      window.clui.setIgnoreMouseEvents(false)
-      dragRef.current = { startX: e.screenX, startY: e.screenY }
+      const el = document.elementFromPoint(e.clientX, e.clientY)
+      setIgnored(!el?.closest('[data-clui-ui]'))
     }
 
-    const onMouseMove = (e: MouseEvent) => {
-      if (!dragRef.current) return
-      const dx = e.screenX - dragRef.current.startX
-      const dy = e.screenY - dragRef.current.startY
-      if (dx !== 0 || dy !== 0) {
-        // Horizontal: always native window movement (full screen width range)
-        if (dx !== 0) window.clui.startWindowDrag(dx, 0)
-        // Vertical: move window first (until macOS y constraint), then CSS within window
-        if (dy !== 0) {
-          if (dy < 0) {
-            // Moving up — window first, then CSS overflow
-            const windowCanMove = windowYRef.current - minWindowY
-            const windowDy = Math.max(-windowCanMove, dy)
-            const cssDy = dy - windowDy
-            if (windowDy !== 0) {
-              window.clui.startWindowDrag(0, windowDy)
-              windowYRef.current += windowDy
-            }
-            if (cssDy !== 0) {
-              cardYRef.current += cssDy
-              document.documentElement.style.setProperty('--clui-card-y', `${cardYRef.current}px`)
-            }
-          } else {
-            // Moving down — undo CSS first, then move window
-            const cssUndo = Math.min(-cardYRef.current, dy)
-            const windowDy = dy - cssUndo
-            if (cssUndo !== 0) {
-              cardYRef.current += cssUndo
-              document.documentElement.style.setProperty('--clui-card-y', `${cardYRef.current}px`)
-            }
-            if (windowDy !== 0) {
-              window.clui.startWindowDrag(0, windowDy)
-              windowYRef.current += windowDy
-            }
-          }
-        }
-        dragRef.current.startX = e.screenX
-        dragRef.current.startY = e.screenY
-      }
-    }
-
-    const onMouseUp = () => {
-      dragRef.current = null
-    }
-
-    document.addEventListener('mousedown', onMouseDown)
     document.addEventListener('mousemove', onMouseMove)
-    document.addEventListener('mouseup', onMouseUp)
-    return () => {
-      document.removeEventListener('mousedown', onMouseDown)
-      document.removeEventListener('mousemove', onMouseMove)
-      document.removeEventListener('mouseup', onMouseUp)
-    }
+    return () => document.removeEventListener('mousemove', onMouseMove)
   }, [])
 
   useEffect(() => {
-    const onMouseMove = (e: MouseEvent) => {
+    const interactiveSelector = [
+      'button',
+      'input',
+      'textarea',
+      'select',
+      'a',
+      '[role="button"]',
+      '[contenteditable]',
+      '[data-clui-resize-handle]',
+      '[data-clui-interactive]',
+      '.cm-editor',
+      '.conversation-selectable',
+    ].join(', ')
+
+    const onPointerDown = (e: PointerEvent) => {
+      const el = e.target as HTMLElement | null
+      if (!el?.closest('[data-clui-ui]')) return
+      if (el.closest(interactiveSelector)) return
+      dragRef.current = { pointerId: e.pointerId, startX: e.screenX, startY: e.screenY, dragging: false }
+    }
+    const onPointerMove = (e: PointerEvent) => {
+      if (dragRef.current && e.pointerId === dragRef.current.pointerId) {
+        const dx = e.screenX - dragRef.current.startX
+        const dy = e.screenY - dragRef.current.startY
+        if (dx !== 0 || dy !== 0) {
+          if (!dragRef.current.dragging && Math.abs(dx) + Math.abs(dy) < 4) return
+          dragRef.current.dragging = true
+          e.preventDefault()
+          e.stopPropagation()
+          window.clui?.setIgnoreMouseEvents?.(false)
+          window.clui?.startWindowDrag?.(dx, dy)
+          dragRef.current.startX = e.screenX
+          dragRef.current.startY = e.screenY
+        }
+        return
+      }
+
       if (!resizeRef.current) return
-      const next = resizeRef.current.startHeight + (resizeRef.current.startY - e.screenY)
+      if (e.pointerId !== resizeRef.current.pointerId) return
+      const deltaY = e.screenY - resizeRef.current.startY
+      const next = resizeRef.current.edge === 'top'
+        ? resizeRef.current.startHeight - deltaY
+        : resizeRef.current.startHeight + deltaY
       setCustomBodyHeight(Math.max(MIN_BODY_HEIGHT, Math.min(MAX_BODY_HEIGHT, next)))
     }
-    const onMouseUp = () => {
-      if (!resizeRef.current) return
-      resizeRef.current = null
+    const onPointerUp = (e: PointerEvent) => {
+      if (dragRef.current && e.pointerId === dragRef.current.pointerId) {
+        const wasDragging = dragRef.current.dragging
+        dragRef.current = null
+        if (!wasDragging) {
+          const el = e.target as HTMLElement | null
+          if (el?.closest('[data-clui-ui]') && !el.closest(interactiveSelector)) {
+            window.clui?.hideWindow?.()
+          }
+        }
+      }
+      if (resizeRef.current && e.pointerId === resizeRef.current.pointerId) {
+        resizeRef.current = null
+      }
       document.body.style.cursor = ''
       window.clui?.setIgnoreMouseEvents?.(false)
     }
-    document.addEventListener('mousemove', onMouseMove)
-    document.addEventListener('mouseup', onMouseUp)
+
+    document.addEventListener('pointerdown', onPointerDown, true)
+    document.addEventListener('pointermove', onPointerMove, true)
+    document.addEventListener('pointerup', onPointerUp, true)
+    document.addEventListener('pointercancel', onPointerUp, true)
     return () => {
-      document.removeEventListener('mousemove', onMouseMove)
-      document.removeEventListener('mouseup', onMouseUp)
+      document.removeEventListener('pointerdown', onPointerDown, true)
+      document.removeEventListener('pointermove', onPointerMove, true)
+      document.removeEventListener('pointerup', onPointerUp, true)
+      document.removeEventListener('pointercancel', onPointerUp, true)
     }
   }, [])
 
@@ -222,7 +175,31 @@ export default function App() {
   const cardCollapsedMargin = expandedUI ? 15 : 15
   const defaultBodyHeight = expandedUI ? DEFAULT_WIDE_BODY_HEIGHT : DEFAULT_BODY_HEIGHT
   const bodyMaxHeight = customBodyHeight ?? defaultBodyHeight
-  const conversationMaxHeight = Math.max(220, bodyMaxHeight - 60)
+  const conversationMaxHeight = Math.max(220, bodyMaxHeight - 64)
+
+  useEffect(() => {
+    const nextHeight = isExpanded
+      ? Math.min(720, Math.max(520, bodyMaxHeight + 130))
+      : 142
+    window.clui?.resizeHeight?.(nextHeight)
+  }, [isExpanded, bodyMaxHeight])
+
+  useEffect(() => {
+    const nextWidth = Math.ceil(Math.max(
+      contentWidth + 190,
+      marketplaceOpen ? 900 : 0,
+    ))
+    window.clui?.setWindowWidth?.(nextWidth)
+  }, [contentWidth, marketplaceOpen])
+
+  const startResize = useCallback((e: React.PointerEvent<HTMLElement>, edge: 'top' | 'bottom') => {
+    e.preventDefault()
+    e.stopPropagation()
+    e.currentTarget.setPointerCapture(e.pointerId)
+    window.clui?.setIgnoreMouseEvents?.(false)
+    resizeRef.current = { pointerId: e.pointerId, startY: e.screenY, startHeight: bodyMaxHeight, edge }
+    document.body.style.cursor = 'ns-resize'
+  }, [bodyMaxHeight])
 
   const handleScreenshot = useCallback(async () => {
     const result = await window.clui.takeScreenshot()
@@ -241,7 +218,7 @@ export default function App() {
       <div className="flex flex-col justify-end h-full" style={{ background: 'transparent' }}>
 
         {/* ─── 460px content column, centered. Circles overflow left. ─── */}
-        <div style={{ width: contentWidth, position: 'relative', margin: '0 auto', transition: 'width 0.26s cubic-bezier(0.4, 0, 0.1, 1)', transform: 'translateY(var(--clui-card-y, 0px))' }}>
+        <div style={{ width: contentWidth, position: 'relative', margin: '0 0 0 auto', transition: 'width 0.26s cubic-bezier(0.4, 0, 0.1, 1)', transform: 'translateY(var(--clui-card-y, 0px))' }}>
 
           <AnimatePresence initial={false}>
             {marketplaceOpen && (
@@ -285,7 +262,7 @@ export default function App() {
           */}
           <motion.div
             data-clui-ui
-            className="overflow-hidden flex flex-col drag-region"
+            className="overflow-hidden flex flex-col"
             animate={{
               width: isExpanded ? cardExpandedWidth : cardCollapsedWidth,
               marginBottom: isExpanded ? 10 : -14,
@@ -304,8 +281,31 @@ export default function App() {
               zIndex: isExpanded ? 20 : 10,
             }}
           >
+            {isExpanded && (
+              <div
+                data-clui-resize-handle
+                data-clui-ui
+                className="no-drag"
+                title="Drag to resize chat height"
+                onPointerDown={(e) => startResize(e, 'top')}
+                onDoubleClick={(e) => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  setCustomBodyHeight(null)
+                }}
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 16,
+                  right: 16,
+                  height: 14,
+                  cursor: 'ns-resize',
+                  zIndex: 40,
+                }}
+              />
+            )}
             {/* Tab strip — always mounted */}
-            <div className="no-drag">
+            <div>
               <TabStrip />
             </div>
 
@@ -319,8 +319,17 @@ export default function App() {
               transition={TRANSITION}
               className="overflow-hidden no-drag"
             >
-              <div style={{ maxHeight: bodyMaxHeight }}>
-                <ConversationView maxHeight={conversationMaxHeight} />
+              <div
+                style={{
+                  height: bodyMaxHeight,
+                  maxHeight: bodyMaxHeight,
+                  display: 'flex',
+                  flexDirection: 'column',
+                }}
+              >
+                <div style={{ flex: '1 1 auto', minHeight: 0, overflow: 'hidden' }}>
+                  <ConversationView maxHeight={conversationMaxHeight} />
+                </div>
                 {isExpanded && (
                   <div
                     data-clui-resize-handle
@@ -335,13 +344,7 @@ export default function App() {
                       background: 'transparent',
                     }}
                     title="Drag to resize chat height"
-                    onMouseDown={(e) => {
-                      e.preventDefault()
-                      e.stopPropagation()
-                      window.clui?.setIgnoreMouseEvents?.(false)
-                      resizeRef.current = { startY: e.screenY, startHeight: bodyMaxHeight }
-                      document.body.style.cursor = 'ns-resize'
-                    }}
+                    onPointerDown={(e) => startResize(e, 'bottom')}
                     onDoubleClick={(e) => {
                       e.preventDefault()
                       e.stopPropagation()

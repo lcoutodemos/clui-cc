@@ -304,13 +304,12 @@ function createWindow(): void {
     height: PILL_HEIGHT,
     x: initialBounds.x,
     y: initialBounds.y,
-    ...(process.platform === 'darwin' ? { type: 'panel' as const } : {}),  // NSPanel — non-activating, joins all spaces
     frame: false,
     transparent: true,
     resizable: false,
     movable: true,
     alwaysOnTop: false,
-    skipTaskbar: true,
+    skipTaskbar: false,
     hasShadow: false,
     roundedCorners: true,
     backgroundColor: '#00000000',
@@ -327,8 +326,6 @@ function createWindow(): void {
   })
   lastWindowBounds = mainWindow.getBounds()
 
-  // Keep the app available across Spaces without forcing it above every app.
-  mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
   applyKeepOnTop()
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   mainWindow.webContents.on('will-navigate', (event) => {
@@ -374,10 +371,6 @@ function showWindow(source = 'unknown'): void {
     mainWindow.setBounds(lastWindowBounds)
   }
 
-  // Always re-assert space membership — the flag can be lost after hide/show cycles
-  // and must be set before show() so the window joins the active Space, not its
-  // last-known Space.
-  mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
   applyKeepOnTop()
 
   if (SPACES_DEBUG) {
@@ -385,8 +378,6 @@ function showWindow(source = 'unknown'): void {
     log(`[spaces] showWindow#${toggleId} source=${source} preserve-bounds=(${b.x},${b.y},${b.width}x${b.height})`)
     snapshotWindowState(`showWindow#${toggleId} pre-show`)
   }
-  // As an accessory app (app.dock.hide), show() + focus gives keyboard
-  // without deactivating the active app — hover preserved everywhere.
   mainWindow.show()
   mainWindow.setIgnoreMouseEvents(false)
   if (lastWindowBounds) {
@@ -453,12 +444,14 @@ function resetWindowPosition(): void {
   const display = screen.getDisplayNearestPoint(cursor)
   const { width: sw, height: sh } = display.workAreaSize
   const { x: dx, y: dy } = display.workArea
+  const currentHeight = mainWindow.getBounds().height || PILL_HEIGHT
+  const currentWidth = mainWindow.getBounds().width || BAR_WIDTH
 
   mainWindow.setBounds({
-    x: dx + Math.round((sw - BAR_WIDTH) / 2),
-    y: dy + sh - PILL_HEIGHT - PILL_BOTTOM_MARGIN,
-    width: BAR_WIDTH,
-    height: PILL_HEIGHT,
+    x: dx + Math.round((sw - currentWidth) / 2),
+    y: dy + sh - currentHeight - PILL_BOTTOM_MARGIN,
+    width: currentWidth,
+    height: currentHeight,
   })
   lastWindowBounds = mainWindow.getBounds()
 }
@@ -483,12 +476,44 @@ function toggleWindow(source = 'unknown'): void {
 // Fixed-height mode: ignore renderer resize events to prevent jank.
 // The native window stays at PILL_HEIGHT; all expand/collapse happens inside the renderer.
 
-ipcMain.on(IPC.RESIZE_HEIGHT, () => {
-  // No-op — fixed height window, no dynamic resize
+ipcMain.on(IPC.RESIZE_HEIGHT, (_event, height: number) => {
+  if (!mainWindow || mainWindow.isDestroyed()) return
+  if (!Number.isFinite(height)) return
+
+  const current = mainWindow.getBounds()
+  const display = screen.getDisplayMatching(current)
+  const minHeight = 120
+  const nextHeight = Math.max(minHeight, Math.min(PILL_HEIGHT, Math.round(height)))
+  const currentBottom = current.y + current.height
+  const minY = display.workArea.y
+  const nextY = Math.max(minY, currentBottom - nextHeight)
+
+  mainWindow.setBounds({
+    ...current,
+    y: nextY,
+    height: nextHeight,
+  })
+  lastWindowBounds = mainWindow.getBounds()
 })
 
-ipcMain.on(IPC.SET_WINDOW_WIDTH, () => {
-  // No-op — native width is fixed to keep expand/collapse animation smooth.
+ipcMain.on(IPC.SET_WINDOW_WIDTH, (_event, width: number) => {
+  if (!mainWindow || mainWindow.isDestroyed()) return
+  if (!Number.isFinite(width)) return
+
+  const current = mainWindow.getBounds()
+  const display = screen.getDisplayMatching(current)
+  const nextWidth = Math.max(520, Math.min(BAR_WIDTH, Math.round(width)))
+  const centerX = current.x + current.width / 2
+  const minX = display.workArea.x
+  const maxX = display.workArea.x + display.workArea.width - nextWidth
+  const nextX = Math.max(minX, Math.min(maxX, Math.round(centerX - nextWidth / 2)))
+
+  mainWindow.setBounds({
+    ...current,
+    x: nextX,
+    width: nextWidth,
+  })
+  lastWindowBounds = mainWindow.getBounds()
 })
 
 ipcMain.handle(IPC.ANIMATE_HEIGHT, () => {

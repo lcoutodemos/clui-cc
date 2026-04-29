@@ -1,6 +1,6 @@
 import React from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { DotsSixVertical, Plus, X } from '@phosphor-icons/react'
+import { Plus, X } from '@phosphor-icons/react'
 import { useSessionStore } from '../stores/sessionStore'
 import { HistoryPicker } from './HistoryPicker'
 import { SettingsPopover } from './SettingsPopover'
@@ -47,7 +47,7 @@ export function TabStrip() {
   return (
     <div
       data-clui-ui
-      className="flex items-center no-drag"
+      className="flex items-center"
       style={{ padding: '8px 0' }}
     >
       {/* Scrollable tabs area — clipped by master card edge */}
@@ -77,6 +77,9 @@ export function TabStrip() {
                   exit={{ opacity: 0, scale: 0.9 }}
                   transition={{ duration: 0.15 }}
                   onClick={() => selectTab(tab.id)}
+                  role="button"
+                  tabIndex={0}
+                  data-clui-interactive
                   className="group flex items-center gap-1.5 cursor-pointer select-none flex-shrink-0 max-w-[160px] transition-all duration-150"
                   style={{
                     background: isActive ? colors.tabActive : 'transparent',
@@ -113,16 +116,6 @@ export function TabStrip() {
 
       {/* Pinned action buttons — always visible on the right */}
       <div className="flex items-center gap-0.5 flex-shrink-0 ml-1 pr-2">
-        <div
-          data-clui-ui
-          data-clui-drag-handle
-          className="drag-region flex-shrink-0 w-6 h-6 flex items-center justify-center rounded-full"
-          style={{ color: colors.textTertiary, cursor: 'grab' }}
-          title="Drag to reposition"
-        >
-          <DotsSixVertical size={14} />
-        </div>
-
         <button
           onClick={() => createTab()}
           className="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded-full transition-colors"
