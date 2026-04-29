@@ -17,6 +17,10 @@ const DEFAULT_BODY_HEIGHT = 400
 const DEFAULT_WIDE_BODY_HEIGHT = 520
 const MIN_BODY_HEIGHT = 300
 const MAX_BODY_HEIGHT = 590
+const MARKETPLACE_WIDTH = 720
+const MARKETPLACE_HEIGHT = 470
+const ACTION_RAIL_WIDTH = 190
+const COLLAPSED_NATIVE_HEIGHT = 142
 
 export default function App() {
   useClaudeEvents()
@@ -170,6 +174,7 @@ export default function App() {
 
   // Layout dimensions — expandedUI widens and heightens the panel
   const contentWidth = expandedUI ? 700 : spacing.contentWidth
+  const shellWidth = marketplaceOpen ? Math.max(contentWidth, MARKETPLACE_WIDTH) : contentWidth
   const cardExpandedWidth = expandedUI ? 700 : 460
   const cardCollapsedWidth = expandedUI ? 670 : 430
   const cardCollapsedMargin = expandedUI ? 15 : 15
@@ -178,19 +183,18 @@ export default function App() {
   const conversationMaxHeight = Math.max(220, bodyMaxHeight - 64)
 
   useEffect(() => {
-    const nextHeight = isExpanded
-      ? Math.min(720, Math.max(520, bodyMaxHeight + 130))
-      : 142
+    const baseHeight = isExpanded
+      ? Math.max(520, bodyMaxHeight + 130)
+      : COLLAPSED_NATIVE_HEIGHT
+    const marketplaceHeight = marketplaceOpen ? MARKETPLACE_HEIGHT + 18 : 0
+    const nextHeight = Math.min(720, baseHeight + marketplaceHeight)
     window.clui?.resizeHeight?.(nextHeight)
-  }, [isExpanded, bodyMaxHeight])
+  }, [isExpanded, bodyMaxHeight, marketplaceOpen])
 
   useEffect(() => {
-    const nextWidth = Math.ceil(Math.max(
-      contentWidth + 190,
-      marketplaceOpen ? 900 : 0,
-    ))
+    const nextWidth = Math.ceil(shellWidth + ACTION_RAIL_WIDTH)
     window.clui?.setWindowWidth?.(nextWidth)
-  }, [contentWidth, marketplaceOpen])
+  }, [shellWidth])
 
   const startResize = useCallback((e: React.PointerEvent<HTMLElement>, edge: 'top' | 'bottom') => {
     e.preventDefault()
@@ -217,18 +221,17 @@ export default function App() {
     <PopoverLayerProvider>
       <div className="flex flex-col justify-end h-full" style={{ background: 'transparent' }}>
 
-        {/* ─── 460px content column, centered. Circles overflow left. ─── */}
-        <div style={{ width: contentWidth, position: 'relative', margin: '0 0 0 auto', transition: 'width 0.26s cubic-bezier(0.4, 0, 0.1, 1)', transform: 'translateY(var(--clui-card-y, 0px))' }}>
+        {/* ─── Content shell. Marketplace can be wider than the chat/input column. ─── */}
+        <div style={{ width: shellWidth, position: 'relative', margin: '0 0 0 auto', transition: 'width 0.26s cubic-bezier(0.4, 0, 0.1, 1)', transform: 'translateY(var(--clui-card-y, 0px))' }}>
 
           <AnimatePresence initial={false}>
             {marketplaceOpen && (
               <div
                 data-clui-ui
                 style={{
-                  width: 720,
-                  maxWidth: 720,
-                  marginLeft: '50%',
-                  transform: 'translateX(-50%)',
+                  width: MARKETPLACE_WIDTH,
+                  maxWidth: MARKETPLACE_WIDTH,
+                  marginLeft: 'auto',
                   marginBottom: 14,
                   position: 'relative',
                   zIndex: 30,
@@ -245,7 +248,7 @@ export default function App() {
                     className="glass-surface overflow-hidden no-drag"
                     style={{
                       borderRadius: 24,
-                      maxHeight: 470,
+                      maxHeight: MARKETPLACE_HEIGHT,
                     }}
                   >
                     <MarketplacePanel />
@@ -260,27 +263,28 @@ export default function App() {
             This always remains the chat shell. The marketplace is a separate
             panel rendered above it, never inside it.
           */}
-          <motion.div
-            data-clui-ui
-            className="overflow-hidden flex flex-col"
-            animate={{
-              width: isExpanded ? cardExpandedWidth : cardCollapsedWidth,
-              marginBottom: isExpanded ? 10 : -14,
-              marginLeft: isExpanded ? 0 : cardCollapsedMargin,
-              marginRight: isExpanded ? 0 : cardCollapsedMargin,
-              background: isExpanded ? colors.containerBg : colors.containerBgCollapsed,
-              borderColor: colors.containerBorder,
-              boxShadow: isExpanded ? colors.cardShadow : colors.cardShadowCollapsed,
-            }}
-            transition={TRANSITION}
-            style={{
-              borderWidth: 1,
-              borderStyle: 'solid',
-              borderRadius: 20,
-              position: 'relative',
-              zIndex: isExpanded ? 20 : 10,
-            }}
-          >
+          <div style={{ width: contentWidth, marginLeft: 'auto', position: 'relative' }}>
+            <motion.div
+              data-clui-ui
+              className="overflow-hidden flex flex-col"
+              animate={{
+                width: isExpanded ? cardExpandedWidth : cardCollapsedWidth,
+                marginBottom: isExpanded ? 10 : -14,
+                marginLeft: isExpanded ? 0 : cardCollapsedMargin,
+                marginRight: isExpanded ? 0 : cardCollapsedMargin,
+                background: isExpanded ? colors.containerBg : colors.containerBgCollapsed,
+                borderColor: colors.containerBorder,
+                boxShadow: isExpanded ? colors.cardShadow : colors.cardShadowCollapsed,
+              }}
+              transition={TRANSITION}
+              style={{
+                borderWidth: 1,
+                borderStyle: 'solid',
+                borderRadius: 20,
+                position: 'relative',
+                zIndex: isExpanded ? 20 : 10,
+              }}
+            >
             {isExpanded && (
               <div
                 data-clui-resize-handle
@@ -365,11 +369,11 @@ export default function App() {
                 <StatusBar />
               </div>
             </motion.div>
-          </motion.div>
+            </motion.div>
 
-          {/* ─── Input row — circles float outside left ─── */}
-          {/* marginBottom: shadow buffer so the glass-surface drop shadow isn't clipped at the native window edge */}
-          <div data-clui-ui className="relative" style={{ minHeight: 46, zIndex: 15, marginBottom: 10 }}>
+            {/* ─── Input row — circles float outside left ─── */}
+            {/* marginBottom: shadow buffer so the glass-surface drop shadow isn't clipped at the native window edge */}
+            <div data-clui-ui className="relative" style={{ minHeight: 46, zIndex: 15, marginBottom: 10 }}>
             {/* Stacked circle buttons — expand on hover */}
             <div
               data-clui-ui
@@ -413,6 +417,7 @@ export default function App() {
               style={{ minHeight: 50, borderRadius: 25, padding: '0 6px 0 16px', background: colors.inputPillBg }}
             >
               <InputBar />
+            </div>
             </div>
           </div>
         </div>
