@@ -34,7 +34,7 @@ Thanks for your interest in contributing! Clui CC is a desktop overlay for Claud
 - **Main process** changes (`src/main/`) require a full restart (`Ctrl+C` then `npm run dev`).
 - **Renderer** changes (`src/renderer/`) hot-reload automatically.
 - Set `CLUI_DEBUG=1` to enable verbose main-process logging to `~/.clui-debug.log`.
-- The app creates a transparent, click-through window. Use `Alt+Space` to toggle visibility.
+- The app creates a transparent, click-through window. Use `⌥ + Space` to toggle visibility (fallback: `Cmd+Shift+K`).
 
 ## Code Style
 

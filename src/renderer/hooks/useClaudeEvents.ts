@@ -42,7 +42,19 @@ export function useClaudeEvents() {
           rafIdRef.current = requestAnimationFrame(flushChunks)
         }
       } else {
-        // All other events pass through immediately
+        // task_update and task_complete contain fallback text logic that checks
+        // whether any assistant text has already been rendered. If a RAF flush is
+        // pending, those checks would see stale state and incorrectly conclude
+        // "no text yet" — causing duplicate messages once the RAF fires.
+        // Flush synchronously before handling these events so the store sees the
+        // correct message state.
+        if (
+          (event.type === 'task_update' || event.type === 'task_complete') &&
+          rafIdRef.current
+        ) {
+          cancelAnimationFrame(rafIdRef.current)
+          flushChunks()
+        }
         handleNormalizedEvent(tabId, event)
       }
     })

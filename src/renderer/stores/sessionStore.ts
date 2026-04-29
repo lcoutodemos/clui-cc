@@ -1,15 +1,53 @@
 import { create } from 'zustand'
-import type { TabStatus, NormalizedEvent, EnrichedError, Message, TabState, Attachment, CatalogPlugin, PluginStatus } from '../../shared/types'
+import type { TabStatus, NormalizedEvent, EnrichedError, Message, TabState, Attachment, CatalogPlugin, PluginStatus, ClaudeModelOption } from '../../shared/types'
 import { useThemeStore } from '../theme'
 import notificationSrc from '../../../resources/notification.mp3'
 
 // ─── Known models ───
 
-export const AVAILABLE_MODELS = [
+export const FALLBACK_MODELS: ClaudeModelOption[] = [
+  { id: 'default', label: 'Default' },
+  { id: 'sonnet', label: 'Sonnet' },
+  { id: 'opus', label: 'Opus' },
+  { id: 'haiku', label: 'Haiku' },
+  { id: 'sonnet[1m]', label: 'Sonnet 1M' },
+  { id: 'opusplan', label: 'Opus Plan' },
+]
+
+const MODEL_LABELS: ClaudeModelOption[] = [
+  ...FALLBACK_MODELS,
   { id: 'claude-opus-4-6', label: 'Opus 4.6' },
   { id: 'claude-sonnet-4-6', label: 'Sonnet 4.6' },
   { id: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5' },
-] as const
+]
+
+function normalizeModelId(modelId: string): string {
+  // Claude sometimes appends context window hints like "[1m]" to model IDs.
+  return modelId.replace(/\[[^\]]+\]/g, '').trim()
+}
+
+export function getModelDisplayLabel(modelId: string): string {
+  const normalizedId = normalizeModelId(modelId)
+  const has1MContext = /\[\s*1m\s*\]/i.test(modelId)
+
+  const known = MODEL_LABELS.find((m) => m.id === normalizedId)
+  if (known) {
+    return has1MContext ? `${known.label} (1M)` : known.label
+  }
+
+  // Fallback for future model IDs not yet listed in MODEL_LABELS.
+  const compact = normalizedId
+    .replace(/^claude-/, '')
+    .replace(/-\d{8}$/, '')
+  const familyMatch = compact.match(/^(opus|sonnet|haiku)-(\d+)-(\d+)$/i)
+  if (familyMatch) {
+    const family = familyMatch[1][0].toUpperCase() + familyMatch[1].slice(1).toLowerCase()
+    const label = `${family} ${familyMatch[2]}.${familyMatch[3]}`
+    return has1MContext ? `${label} (1M)` : label
+  }
+
+  return has1MContext ? `${normalizedId} (1M)` : normalizedId
+}
 
 // ─── Store ───
 
@@ -17,6 +55,8 @@ interface StaticInfo {
   version: string
   email: string | null
   subscriptionType: string | null
+  mcpServers: string[]
+  installedExtensions: string[]
   projectPath: string
   homePath: string
 }
@@ -30,6 +70,12 @@ interface State {
   staticInfo: StaticInfo | null
   /** User's preferred model override (null = use default) */
   preferredModel: string | null
+  /** Claude Code native --permission-mode override (null = default) */
+  preferredClaudePermissionMode: string | null
+  /** Claude Code native --effort override (null = default) */
+  preferredEffort: string | null
+  availableModels: ClaudeModelOption[]
+  draftPrompt: string | null
   /** Global permission mode: 'ask' shows cards, 'auto' auto-approves all tool calls */
   permissionMode: 'ask' | 'auto'
 
@@ -46,6 +92,10 @@ interface State {
   // Actions
   initStaticInfo: () => Promise<void>
   setPreferredModel: (model: string | null) => void
+  setPreferredClaudePermissionMode: (mode: string | null) => void
+  setPreferredEffort: (effort: string | null) => void
+  setDraftPrompt: (prompt: string) => void
+  clearDraftPrompt: () => void
   setPermissionMode: (mode: 'ask' | 'auto') => void
   createTab: () => Promise<string>
   selectTab: (tabId: string) => void
@@ -107,10 +157,15 @@ function makeLocalTab(): TabState {
     messages: [],
     title: 'New Tab',
     lastResult: null,
+    currentUsage: null,
     sessionModel: null,
     sessionTools: [],
     sessionMcpServers: [],
     sessionSkills: [],
+    sessionPlugins: [],
+    sessionAgents: [],
+    sessionPermissionMode: null,
+    sessionFastModeState: null,
     sessionVersion: null,
     queuedPrompts: [],
     workingDirectory: '~',
@@ -127,6 +182,10 @@ export const useSessionStore = create<State>((set, get) => ({
   isExpanded: false,
   staticInfo: null,
   preferredModel: null,
+  preferredClaudePermissionMode: null,
+  preferredEffort: null,
+  availableModels: FALLBACK_MODELS,
+  draftPrompt: null,
   permissionMode: 'ask',
 
   // Marketplace
@@ -147,15 +206,34 @@ export const useSessionStore = create<State>((set, get) => ({
           version: result.version || 'unknown',
           email: result.auth?.email || null,
           subscriptionType: result.auth?.subscriptionType || null,
+          mcpServers: result.mcpServers || [],
+          installedExtensions: result.installedExtensions || [],
           projectPath: result.projectPath || '~',
           homePath: result.homePath || '~',
         },
+        availableModels: result.availableModels?.length ? result.availableModels : FALLBACK_MODELS,
       })
     } catch {}
   },
 
   setPreferredModel: (model) => {
     set({ preferredModel: model })
+  },
+
+  setPreferredClaudePermissionMode: (mode) => {
+    set({ preferredClaudePermissionMode: mode })
+  },
+
+  setPreferredEffort: (effort) => {
+    set({ preferredEffort: effort })
+  },
+
+  setDraftPrompt: (prompt) => {
+    set({ draftPrompt: prompt })
+  },
+
+  clearDraftPrompt: () => {
+    set({ draftPrompt: null })
   },
 
   setPermissionMode: (mode) => {
@@ -344,7 +422,7 @@ export const useSessionStore = create<State>((set, get) => ({
     set((s) => ({
       tabs: s.tabs.map((t) =>
         t.id === activeTabId
-          ? { ...t, messages: [], lastResult: null, currentActivity: '', permissionQueue: [], permissionDenied: null, queuedPrompts: [] }
+          ? { ...t, messages: [], lastResult: null, currentUsage: null, currentActivity: '', permissionQueue: [], permissionDenied: null, queuedPrompts: [] }
           : t
       ),
     }))
@@ -571,6 +649,7 @@ export const useSessionStore = create<State>((set, get) => ({
           status: 'connecting' as TabStatus,
           activeRequestId: requestId,
           currentActivity: 'Starting...',
+          currentUsage: null,
           title,
           attachments: [],
           messages: [
@@ -582,12 +661,14 @@ export const useSessionStore = create<State>((set, get) => ({
     }))
 
     // Send to backend — ControlPlane will queue if a run is active
-    const { preferredModel } = get()
+    const { preferredModel, preferredClaudePermissionMode, preferredEffort } = get()
     window.clui.prompt(activeTabId, requestId, {
       prompt: fullPrompt,
       projectPath: resolvedPath,
       sessionId: tab.claudeSessionId || undefined,
       model: preferredModel || undefined,
+      permissionMode: preferredClaudePermissionMode || undefined,
+      effort: preferredEffort || undefined,
       addDirs: tab.additionalDirs.length > 0 ? tab.additionalDirs : undefined,
     }).catch((err: Error) => {
       get().handleError(activeTabId, {
@@ -616,6 +697,10 @@ export const useSessionStore = create<State>((set, get) => ({
             updated.sessionTools = event.tools
             updated.sessionMcpServers = event.mcpServers
             updated.sessionSkills = event.skills
+            updated.sessionPlugins = event.plugins
+            updated.sessionAgents = event.agents
+            updated.sessionPermissionMode = event.permissionMode
+            updated.sessionFastModeState = event.fastModeState
             updated.sessionVersion = event.version
             // Don't change status/activity for warmup inits — they're invisible
             if (!event.isWarmup) {
@@ -686,8 +771,37 @@ export const useSessionStore = create<State>((set, get) => ({
             break
           }
 
-          case 'task_update':
+          case 'task_update': {
+            // ── Text fallback ──
+            // text_chunk events (from stream_event deltas) are the primary render path.
+            // If they didn't arrive for this run (timing, partial stream, etc.), the
+            // assembled assistant event still has the full text — extract it here.
+            // "This run" = everything after the last user message.
             if (event.message?.content) {
+              const lastUserIdx = (() => {
+                for (let i = updated.messages.length - 1; i >= 0; i--) {
+                  if (updated.messages[i].role === 'user') return i
+                }
+                return -1
+              })()
+              const hasStreamedText = updated.messages
+                .slice(lastUserIdx + 1)
+                .some((m) => m.role === 'assistant' && !m.toolName)
+
+              if (!hasStreamedText) {
+                const textContent = event.message.content
+                  .filter((b) => b.type === 'text' && b.text)
+                  .map((b) => b.text!)
+                  .join('')
+                if (textContent) {
+                  updated.messages = [
+                    ...updated.messages,
+                    { id: nextMsgId(), role: 'assistant' as const, content: textContent, timestamp: Date.now() },
+                  ]
+                }
+              }
+
+              // ── Tool card deduplication (unchanged) ──
               for (const block of event.message.content) {
                 if (block.type === 'tool_use' && block.name) {
                   const exists = updated.messages.find(
@@ -711,18 +825,44 @@ export const useSessionStore = create<State>((set, get) => ({
               }
             }
             break
+          }
+
+          case 'usage':
+            updated.currentUsage = event.usage
+            break
 
           case 'task_complete':
             updated.status = 'completed'
             updated.activeRequestId = null
             updated.currentActivity = ''
             updated.permissionQueue = []
+            updated.currentUsage = event.usage
             updated.lastResult = {
               totalCostUsd: event.costUsd,
               durationMs: event.durationMs,
               numTurns: event.numTurns,
               usage: event.usage,
               sessionId: event.sessionId,
+            }
+            // ── Final text fallback ──
+            // If neither text_chunks nor task_update text produced an assistant message,
+            // use event.result (the CLI's assembled final output) as last resort.
+            if (event.result) {
+              const lastUserIdx2 = (() => {
+                for (let i = updated.messages.length - 1; i >= 0; i--) {
+                  if (updated.messages[i].role === 'user') return i
+                }
+                return -1
+              })()
+              const hasAnyText = updated.messages
+                .slice(lastUserIdx2 + 1)
+                .some((m) => m.role === 'assistant' && !m.toolName)
+              if (!hasAnyText) {
+                updated.messages = [
+                  ...updated.messages,
+                  { id: nextMsgId(), role: 'assistant' as const, content: event.result, timestamp: Date.now() },
+                ]
+              }
             }
             // Mark as unread unless the user is actively viewing this tab
             // (active tab with card expanded). A collapsed active tab still
@@ -801,10 +941,24 @@ export const useSessionStore = create<State>((set, get) => ({
             break
         }
 
-        return updated
-      })
+      return updated
+    })
 
-      return { tabs }
+      const availableModels = event.type === 'session_init' && event.model && event.model !== 'unknown' && !s.availableModels.some((m) => m.id === event.model)
+        ? [
+          ...s.availableModels,
+          {
+            id: event.model,
+            label: event.model
+              .replace(/^claude-/, '')
+              .split('-')
+              .map((part) => part.length === 1 ? part.toUpperCase() : part.charAt(0).toUpperCase() + part.slice(1))
+              .join(' '),
+          },
+        ]
+        : s.availableModels
+
+      return { tabs, availableModels }
     })
   },
 

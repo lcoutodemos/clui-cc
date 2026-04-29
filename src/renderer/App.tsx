@@ -1,4 +1,4 @@
-import React, { useEffect, useCallback } from 'react'
+import React, { useEffect, useCallback, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Paperclip, Camera, HeadCircuit } from '@phosphor-icons/react'
 import { TabStrip } from './components/TabStrip'
@@ -57,12 +57,25 @@ export default function App() {
     })
   }, [])
 
+  // Shared drag ref — must be declared before the setIgnoreMouseEvents effect so both closures can read it
+  const dragRef = useRef<{ startX: number; startY: number } | null>(null)
+
+  // Vertical position tracking — window moves first (until macOS clamps it), then CSS overflows
+  const PILL_HEIGHT_CONST = 720
+  const PILL_BOTTOM_MARGIN_CONST = 24
+  const minWindowY = window.screen.availTop   // top of work area (below menu bar)
+  const initialWindowY = window.screen.availTop + window.screen.availHeight - PILL_HEIGHT_CONST - PILL_BOTTOM_MARGIN_CONST
+  const windowYRef = useRef(initialWindowY)
+  const cardYRef = useRef(0) // CSS translateY offset (only used after window hits its y constraint)
+
   // OS-level click-through (RAF-throttled to avoid per-pixel IPC)
   useEffect(() => {
     if (!window.clui?.setIgnoreMouseEvents) return
     let lastIgnored: boolean | null = null
 
     const onMouseMove = (e: MouseEvent) => {
+      // While dragging, keep full mouse capture — don't toggle ignore-events
+      if (dragRef.current) return
       const el = document.elementFromPoint(e.clientX, e.clientY)
       const isUI = !!(el && el.closest('[data-clui-ui]'))
       const shouldIgnore = !isUI
@@ -77,6 +90,7 @@ export default function App() {
     }
 
     const onMouseLeave = () => {
+      if (dragRef.current) return
       if (lastIgnored !== true) {
         lastIgnored = true
         window.clui.setIgnoreMouseEvents(true, { forward: true })
@@ -88,6 +102,85 @@ export default function App() {
     return () => {
       document.removeEventListener('mousemove', onMouseMove)
       document.removeEventListener('mouseleave', onMouseLeave)
+    }
+  }, [])
+
+  // Manual window drag — bypasses -webkit-app-region conflicts with setIgnoreMouseEvents
+  useEffect(() => {
+    if (!window.clui?.startWindowDrag) return
+
+    const onMouseDown = (e: MouseEvent) => {
+      const el = e.target as HTMLElement
+      const isDragHandle = !!el.closest('[data-clui-drag-handle]')
+      // The explicit handle is always draggable. Elsewhere, skip controls.
+      if (!isDragHandle && el.closest('button, input, textarea, a, select, [role="button"], [contenteditable], .cm-editor')) return
+      if (!isDragHandle && !el.closest('[data-clui-ui]')) return
+      e.preventDefault()
+      // Double-click: snap back to default position
+      if (e.detail >= 2) {
+        window.clui.resetWindowPosition()
+        windowYRef.current = initialWindowY
+        cardYRef.current = 0
+        document.documentElement.style.setProperty('--clui-card-y', '0px')
+        return
+      }
+      // Ensure full mouse capture for the duration of the drag
+      window.clui.setIgnoreMouseEvents(false)
+      dragRef.current = { startX: e.screenX, startY: e.screenY }
+    }
+
+    const onMouseMove = (e: MouseEvent) => {
+      if (!dragRef.current) return
+      const dx = e.screenX - dragRef.current.startX
+      const dy = e.screenY - dragRef.current.startY
+      if (dx !== 0 || dy !== 0) {
+        // Horizontal: always native window movement (full screen width range)
+        if (dx !== 0) window.clui.startWindowDrag(dx, 0)
+        // Vertical: move window first (until macOS y constraint), then CSS within window
+        if (dy !== 0) {
+          if (dy < 0) {
+            // Moving up — window first, then CSS overflow
+            const windowCanMove = windowYRef.current - minWindowY
+            const windowDy = Math.max(-windowCanMove, dy)
+            const cssDy = dy - windowDy
+            if (windowDy !== 0) {
+              window.clui.startWindowDrag(0, windowDy)
+              windowYRef.current += windowDy
+            }
+            if (cssDy !== 0) {
+              cardYRef.current += cssDy
+              document.documentElement.style.setProperty('--clui-card-y', `${cardYRef.current}px`)
+            }
+          } else {
+            // Moving down — undo CSS first, then move window
+            const cssUndo = Math.min(-cardYRef.current, dy)
+            const windowDy = dy - cssUndo
+            if (cssUndo !== 0) {
+              cardYRef.current += cssUndo
+              document.documentElement.style.setProperty('--clui-card-y', `${cardYRef.current}px`)
+            }
+            if (windowDy !== 0) {
+              window.clui.startWindowDrag(0, windowDy)
+              windowYRef.current += windowDy
+            }
+          }
+        }
+        dragRef.current.startX = e.screenX
+        dragRef.current.startY = e.screenY
+      }
+    }
+
+    const onMouseUp = () => {
+      dragRef.current = null
+    }
+
+    document.addEventListener('mousedown', onMouseDown)
+    document.addEventListener('mousemove', onMouseMove)
+    document.addEventListener('mouseup', onMouseUp)
+    return () => {
+      document.removeEventListener('mousedown', onMouseDown)
+      document.removeEventListener('mousemove', onMouseMove)
+      document.removeEventListener('mouseup', onMouseUp)
     }
   }, [])
 
@@ -119,7 +212,7 @@ export default function App() {
       <div className="flex flex-col justify-end h-full" style={{ background: 'transparent' }}>
 
         {/* ─── 460px content column, centered. Circles overflow left. ─── */}
-        <div style={{ width: contentWidth, position: 'relative', margin: '0 auto', transition: 'width 0.26s cubic-bezier(0.4, 0, 0.1, 1)' }}>
+        <div style={{ width: contentWidth, position: 'relative', margin: '0 auto', transition: 'width 0.26s cubic-bezier(0.4, 0, 0.1, 1)', transform: 'translateY(var(--clui-card-y, 0px))' }}>
 
           <AnimatePresence initial={false}>
             {marketplaceOpen && (

@@ -1,7 +1,7 @@
 import React, { useState, useRef, useCallback, useEffect, useLayoutEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Microphone, ArrowUp, SpinnerGap, X, Check } from '@phosphor-icons/react'
-import { useSessionStore, AVAILABLE_MODELS } from '../stores/sessionStore'
+import { useSessionStore, FALLBACK_MODELS } from '../stores/sessionStore'
 import { AttachmentChips } from './AttachmentChips'
 import { SlashCommandMenu, getFilteredCommandsWithExtras, type SlashCommand } from './SlashCommandMenu'
 import { useColors } from '../theme'
@@ -38,6 +38,9 @@ export function InputBar() {
   const removeAttachment = useSessionStore((s) => s.removeAttachment)
 
   const setPreferredModel = useSessionStore((s) => s.setPreferredModel)
+  const availableModels = useSessionStore((s) => s.availableModels)
+  const draftPrompt = useSessionStore((s) => s.draftPrompt)
+  const clearDraftPrompt = useSessionStore((s) => s.clearDraftPrompt)
   const staticInfo = useSessionStore((s) => s.staticInfo)
   const preferredModel = useSessionStore((s) => s.preferredModel)
   const activeTabId = useSessionStore((s) => s.activeTabId)
@@ -49,7 +52,11 @@ export function InputBar() {
   const canSend = !!tab && !isConnecting && hasContent
   const attachments = tab?.attachments || []
   const showSlashMenu = slashFilter !== null && !isConnecting
-  const skillCommands: SlashCommand[] = (tab?.sessionSkills || []).map((skill) => ({
+  const models = availableModels.length ? availableModels : FALLBACK_MODELS
+  const installedCommandNames = (staticInfo?.installedExtensions || [])
+    .filter((name) => /^[a-zA-Z][\w-]*$/.test(name))
+  const skillNames = [...new Set([...(tab?.sessionSkills || []), ...installedCommandNames])]
+  const skillCommands: SlashCommand[] = skillNames.map((skill) => ({
     command: `/${skill}`,
     description: `Run skill: ${skill}`,
     icon: <span className="text-[11px]">✦</span>,
@@ -157,6 +164,14 @@ export function InputBar() {
     }
   }, [])
 
+  useEffect(() => {
+    if (!draftPrompt) return
+    setInput(draftPrompt)
+    updateSlashFilter(draftPrompt)
+    clearDraftPrompt()
+    requestAnimationFrame(() => textareaRef.current?.focus())
+  }, [draftPrompt, clearDraftPrompt, updateSlashFilter])
+
   // ─── Handle slash commands ───
   const executeCommand = useCallback((cmd: SlashCommand) => {
     switch (cmd.command) {
@@ -181,7 +196,7 @@ export function InputBar() {
         const model = tab?.sessionModel || null
         const version = tab?.sessionVersion || staticInfo?.version || null
         const current = preferredModel || model || 'default'
-        const lines = AVAILABLE_MODELS.map((m) => {
+        const lines = models.map((m) => {
           const active = m.id === current || (!preferredModel && m.id === model)
           return `  ${active ? '\u25CF' : '\u25CB'} ${m.label} (${m.id})`
         })
@@ -196,21 +211,23 @@ export function InputBar() {
             return `  ${icon} ${s.name} — ${s.status}`
           })
           addSystemMessage(`MCP Servers (${tab.sessionMcpServers.length}):\n${lines.join('\n')}`)
+        } else if (staticInfo?.mcpServers && staticInfo.mcpServers.length > 0) {
+          addSystemMessage(`Configured MCP servers (${staticInfo.mcpServers.length}):\n${staticInfo.mcpServers.map((s) => `  ${s}`).join('\n')}`)
         } else if (tab?.claudeSessionId) {
           addSystemMessage('No MCP servers connected in this session.')
         } else {
-          addSystemMessage('No MCP data yet — send a message to start a session.')
+          addSystemMessage('No MCP servers configured.')
         }
         break
       }
       case '/skills': {
-        if (tab?.sessionSkills && tab.sessionSkills.length > 0) {
-          const lines = tab.sessionSkills.map((s) => `/${s}`)
-          addSystemMessage(`Available skills (${tab.sessionSkills.length}):\n${lines.join('\n')}`)
+        if (skillNames.length > 0) {
+          const lines = skillNames.map((s) => `/${s}`)
+          addSystemMessage(`Available skills and plugins (${skillNames.length}):\n${lines.join('\n')}`)
         } else if (tab?.claudeSessionId) {
           addSystemMessage('No skills available in this session.')
         } else {
-          addSystemMessage('No session metadata yet — send a message first.')
+          addSystemMessage('No installed skills found.')
         }
         break
       }
@@ -227,10 +244,10 @@ export function InputBar() {
         break
       }
     }
-  }, [tab, clearTab, addSystemMessage, staticInfo, preferredModel])
+  }, [tab, clearTab, addSystemMessage, staticInfo, preferredModel, models, skillNames])
 
   const handleSlashSelect = useCallback((cmd: SlashCommand) => {
-    const isSkillCommand = !!tab?.sessionSkills?.includes(cmd.command.replace(/^\//, ''))
+    const isSkillCommand = skillNames.includes(cmd.command.replace(/^\//, ''))
     if (isSkillCommand) {
       setInput(`${cmd.command} `)
       setSlashFilter(null)
@@ -240,7 +257,7 @@ export function InputBar() {
     setInput('')
     setSlashFilter(null)
     executeCommand(cmd)
-  }, [executeCommand, tab?.sessionSkills])
+  }, [executeCommand, skillNames])
 
   // ─── Send ───
   const handleSend = useCallback(() => {
@@ -255,7 +272,7 @@ export function InputBar() {
     const modelMatch = prompt.match(/^\/model\s+(\S+)/i)
     if (modelMatch) {
       const query = modelMatch[1].toLowerCase()
-      const match = AVAILABLE_MODELS.find((m: { id: string; label: string }) =>
+      const match = models.find((m: { id: string; label: string }) =>
         m.id.toLowerCase().includes(query) || m.label.toLowerCase().includes(query)
       )
       if (match) {
@@ -266,7 +283,7 @@ export function InputBar() {
       } else {
         setInput('')
         setSlashFilter(null)
-        addSystemMessage(`Unknown model "${modelMatch[1]}". Available: opus, sonnet, haiku`)
+        addSystemMessage(`Unknown model "${modelMatch[1]}". Available: ${models.map((m) => m.id).join(', ')}`)
       }
       return
     }
@@ -280,7 +297,7 @@ export function InputBar() {
     sendMessage(prompt || 'See attached files')
     // Refocus after React re-renders from the state update
     requestAnimationFrame(() => textareaRef.current?.focus())
-  }, [input, isBusy, sendMessage, attachments.length, showSlashMenu, slashFilter, slashIndex, handleSlashSelect])
+  }, [input, isBusy, sendMessage, attachments.length, showSlashMenu, slashFilter, slashIndex, handleSlashSelect, models])
 
   // ─── Keyboard ───
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -603,12 +620,68 @@ function VoiceButtons({ voiceState, isConnecting, colors, onToggle, onCancel, on
 
 async function blobToWavBase64(blob: Blob): Promise<string> {
   const arrayBuffer = await blob.arrayBuffer()
-  const audioCtx = new AudioContext({ sampleRate: 16000 })
+  const audioCtx = new AudioContext()
   const decoded = await audioCtx.decodeAudioData(arrayBuffer)
   audioCtx.close()
-  const samples = decoded.getChannelData(0)
-  const wavBuffer = encodeWav(samples, 16000)
+  const mono = mixToMono(decoded)
+  const inputRms = rmsLevel(mono)
+  if (inputRms < 0.003) {
+    throw new Error('No voice detected. Check microphone permission and speak closer to the mic.')
+  }
+  const resampled = resampleLinear(mono, decoded.sampleRate, 16000)
+  const normalized = normalizePcm(resampled)
+  const wavBuffer = encodeWav(normalized, 16000)
   return bufferToBase64(wavBuffer)
+}
+
+function mixToMono(buffer: AudioBuffer): Float32Array {
+  const { numberOfChannels, length } = buffer
+  if (numberOfChannels <= 1) return buffer.getChannelData(0)
+
+  const mono = new Float32Array(length)
+  for (let ch = 0; ch < numberOfChannels; ch++) {
+    const channel = buffer.getChannelData(ch)
+    for (let i = 0; i < length; i++) mono[i] += channel[i]
+  }
+  const inv = 1 / numberOfChannels
+  for (let i = 0; i < length; i++) mono[i] *= inv
+  return mono
+}
+
+function resampleLinear(input: Float32Array, inRate: number, outRate: number): Float32Array {
+  if (inRate === outRate) return input
+  const ratio = inRate / outRate
+  const outLength = Math.max(1, Math.floor(input.length / ratio))
+  const output = new Float32Array(outLength)
+  for (let i = 0; i < outLength; i++) {
+    const pos = i * ratio
+    const i0 = Math.floor(pos)
+    const i1 = Math.min(i0 + 1, input.length - 1)
+    const t = pos - i0
+    output[i] = input[i0] * (1 - t) + input[i1] * t
+  }
+  return output
+}
+
+function normalizePcm(samples: Float32Array): Float32Array {
+  let peak = 0
+  for (let i = 0; i < samples.length; i++) {
+    const a = Math.abs(samples[i])
+    if (a > peak) peak = a
+  }
+  if (peak < 1e-4 || peak > 0.95) return samples
+
+  const gain = Math.min(0.95 / peak, 8)
+  const out = new Float32Array(samples.length)
+  for (let i = 0; i < samples.length; i++) out[i] = samples[i] * gain
+  return out
+}
+
+function rmsLevel(samples: Float32Array): number {
+  if (samples.length === 0) return 0
+  let sumSq = 0
+  for (let i = 0; i < samples.length; i++) sumSq += samples[i] * samples[i]
+  return Math.sqrt(sumSq / samples.length)
 }
 
 function encodeWav(samples: Float32Array, sampleRate: number): ArrayBuffer {

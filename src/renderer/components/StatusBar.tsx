@@ -1,16 +1,26 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react'
 import { createPortal } from 'react-dom'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion } from 'framer-motion'
 import { Terminal, CaretDown, Check, FolderOpen, Plus, X, ShieldCheck } from '@phosphor-icons/react'
-import { useSessionStore, AVAILABLE_MODELS } from '../stores/sessionStore'
+import { useSessionStore, FALLBACK_MODELS, getModelDisplayLabel } from '../stores/sessionStore'
 import { usePopoverLayer } from './PopoverLayer'
 import { useColors } from '../theme'
+
+const CLAUDE_PERMISSION_MODES = [
+  { id: null, label: 'Default' },
+  { id: 'plan', label: 'Plan' },
+  { id: 'acceptEdits', label: 'Accept edits' },
+  { id: 'auto', label: 'Auto' },
+  { id: 'dontAsk', label: 'Do not ask' },
+  { id: 'bypassPermissions', label: 'Bypass' },
+] as const
 
 /* ─── Model Picker (inline — tightly coupled to StatusBar) ─── */
 
 function ModelPicker() {
   const preferredModel = useSessionStore((s) => s.preferredModel)
   const setPreferredModel = useSessionStore((s) => s.setPreferredModel)
+  const availableModels = useSessionStore((s) => s.availableModels)
   const tab = useSessionStore(
     (s) => s.tabs.find((t) => t.id === s.activeTabId),
     (a, b) => a === b || (!!a && !!b && a.status === b.status && a.sessionModel === b.sessionModel),
@@ -24,6 +34,7 @@ function ModelPicker() {
   const [pos, setPos] = useState({ bottom: 0, left: 0 })
 
   const isBusy = tab?.status === 'running' || tab?.status === 'connecting'
+  const models = availableModels.length ? availableModels : FALLBACK_MODELS
 
   const updatePos = useCallback(() => {
     if (!triggerRef.current) return
@@ -54,14 +65,14 @@ function ModelPicker() {
 
   const activeLabel = (() => {
     if (preferredModel) {
-      const m = AVAILABLE_MODELS.find((m) => m.id === preferredModel)
-      return m?.label || preferredModel
+      const m = models.find((m) => m.id === preferredModel)
+      return m?.label || getModelDisplayLabel(preferredModel)
     }
     if (tab?.sessionModel) {
-      const m = AVAILABLE_MODELS.find((m) => m.id === tab.sessionModel)
-      return m?.label || tab.sessionModel
+      const m = models.find((m) => m.id === tab.sessionModel)
+      return m?.label || getModelDisplayLabel(tab.sessionModel)
     }
-    return AVAILABLE_MODELS[0].label
+    return models[0]?.label || 'Default'
   })()
 
   return (
@@ -103,8 +114,8 @@ function ModelPicker() {
           }}
         >
           <div className="py-1">
-            {AVAILABLE_MODELS.map((m) => {
-              const isSelected = preferredModel === m.id || (!preferredModel && m.id === AVAILABLE_MODELS[0].id)
+            {models.map((m) => {
+              const isSelected = preferredModel === m.id || (!preferredModel && (tab?.sessionModel ? m.id === tab.sessionModel : m.id === 'default'))
               return (
                 <button
                   key={m.id}
@@ -128,11 +139,15 @@ function ModelPicker() {
   )
 }
 
-/* ─── Permission Mode Picker (global — affects all tabs) ─── */
+/* ─── Claude Code Mode Picker ─── */
 
-function PermissionModePicker() {
-  const permissionMode = useSessionStore((s) => s.permissionMode)
-  const setPermissionMode = useSessionStore((s) => s.setPermissionMode)
+function ClaudeModePicker() {
+  const preferredClaudePermissionMode = useSessionStore((s) => s.preferredClaudePermissionMode)
+  const setPreferredClaudePermissionMode = useSessionStore((s) => s.setPreferredClaudePermissionMode)
+  const tab = useSessionStore(
+    (s) => s.tabs.find((t) => t.id === s.activeTabId),
+    (a, b) => a === b || (!!a && !!b && a.status === b.status && a.sessionPermissionMode === b.sessionPermissionMode),
+  )
   const popoverLayer = usePopoverLayer()
   const colors = useColors()
 
@@ -163,11 +178,14 @@ function PermissionModePicker() {
   }, [open])
 
   const handleToggle = () => {
+    if (isBusy) return
     if (!open) updatePos()
     setOpen((o) => !o)
   }
 
-  const isAuto = permissionMode === 'auto'
+  const isBusy = tab?.status === 'running' || tab?.status === 'connecting'
+  const activeMode = preferredClaudePermissionMode || tab?.sessionPermissionMode || 'default'
+  const activeLabel = CLAUDE_PERMISSION_MODES.find((mode) => (mode.id || 'default') === activeMode)?.label || activeMode
 
   return (
     <>
@@ -177,12 +195,12 @@ function PermissionModePicker() {
         className="flex items-center gap-0.5 text-[10px] rounded-full px-1.5 py-0.5 transition-colors"
         style={{
           color: colors.textTertiary,
-          cursor: 'pointer',
+          cursor: isBusy ? 'not-allowed' : 'pointer',
         }}
-        title="Permission mode (global)"
+        title={isBusy ? 'Stop the task to change Claude Code mode' : 'Claude Code permission mode'}
       >
-        <ShieldCheck size={11} weight={isAuto ? 'fill' : 'regular'} />
-        {isAuto ? 'Auto' : 'Ask'}
+        <ShieldCheck size={11} weight={activeMode === 'default' ? 'regular' : 'fill'} />
+        {activeLabel}
         <CaretDown size={10} style={{ opacity: 0.6 }} />
       </button>
 
@@ -209,37 +227,189 @@ function PermissionModePicker() {
           }}
         >
           <div className="py-1">
-            <button
-              onClick={() => { setPermissionMode('ask'); setOpen(false) }}
-              className="w-full flex items-center justify-between px-3 py-1.5 text-[11px] transition-colors"
-              style={{
-                color: !isAuto ? colors.textPrimary : colors.textSecondary,
-                fontWeight: !isAuto ? 600 : 400,
-              }}
-            >
-              <span className="flex items-center gap-1.5">
-                <ShieldCheck size={12} />
-                Ask
-              </span>
-              {!isAuto && <Check size={12} style={{ color: colors.accent }} />}
-            </button>
+            {CLAUDE_PERMISSION_MODES.map((mode) => {
+              const modeValue = mode.id || 'default'
+              const isSelected = activeMode === modeValue
+              return (
+                <button
+                  key={modeValue}
+                  onClick={() => {
+                    setPreferredClaudePermissionMode(mode.id)
+                    setOpen(false)
+                  }}
+                  className="w-full flex items-center justify-between px-3 py-1.5 text-[11px] transition-colors"
+                  style={{
+                    color: isSelected ? colors.textPrimary : colors.textSecondary,
+                    fontWeight: isSelected ? 600 : 400,
+                  }}
+                >
+                  <span className="flex items-center gap-1.5">
+                    <ShieldCheck size={12} weight={modeValue === 'default' ? 'regular' : 'fill'} />
+                    {mode.label}
+                  </span>
+                  {isSelected && <Check size={12} style={{ color: colors.accent }} />}
+                </button>
+              )
+            })}
+          </div>
+        </motion.div>,
+        popoverLayer,
+      )}
+    </>
+  )
+}
 
-            <div className="mx-2 my-0.5" style={{ height: 1, background: colors.popoverBorder }} />
+function formatTokens(n?: number): string {
+  return typeof n === 'number' ? n.toLocaleString() : '0'
+}
 
-            <button
-              onClick={() => { setPermissionMode('auto'); setOpen(false) }}
-              className="w-full flex items-center justify-between px-3 py-1.5 text-[11px] transition-colors"
-              style={{
-                color: isAuto ? colors.textPrimary : colors.textSecondary,
-                fontWeight: isAuto ? 600 : 400,
-              }}
-            >
-              <span className="flex items-center gap-1.5">
-                <ShieldCheck size={12} weight="fill" />
-                Auto
-              </span>
-              {isAuto && <Check size={12} style={{ color: colors.accent }} />}
-            </button>
+function compactTokens(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}m`
+  if (n >= 1_000) return `${Math.round(n / 1_000)}k`
+  return `${n}`
+}
+
+function inferContextLimit(modelId?: string | null): number {
+  return modelId && /\[\s*1m\s*\]/i.test(modelId) ? 1_000_000 : 200_000
+}
+
+function ContextRing() {
+  const tab = useSessionStore((s) => s.tabs.find((t) => t.id === s.activeTabId))
+  const popoverLayer = usePopoverLayer()
+  const colors = useColors()
+  const [open, setOpen] = useState(false)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const popoverRef = useRef<HTMLDivElement>(null)
+  const closeTimerRef = useRef<number | null>(null)
+  const [pos, setPos] = useState({ bottom: 0, right: 0 })
+
+  const usage = tab?.currentUsage || tab?.lastResult?.usage
+  const inputTokens = usage?.input_tokens || 0
+  const cacheReadTokens = usage?.cache_read_input_tokens || 0
+  const cacheWriteTokens = usage?.cache_creation_input_tokens || 0
+  const outputTokens = usage?.output_tokens || 0
+  const contextTokens = inputTokens + cacheReadTokens + cacheWriteTokens
+  const contextLimit = inferContextLimit(tab?.sessionModel)
+  const percent = Math.min(100, Math.round((contextTokens / contextLimit) * 100))
+  const radius = 6
+  const circumference = 2 * Math.PI * radius
+  const offset = circumference - (circumference * percent) / 100
+
+  const updatePos = useCallback(() => {
+    if (!triggerRef.current) return
+    const rect = triggerRef.current.getBoundingClientRect()
+    setPos({
+      bottom: window.innerHeight - rect.top + 6,
+      right: window.innerWidth - rect.right,
+    })
+  }, [])
+
+  useEffect(() => {
+    if (!open) return
+    const handler = (e: MouseEvent) => {
+      const target = e.target as Node
+      if (triggerRef.current?.contains(target)) return
+      if (popoverRef.current?.contains(target)) return
+      setOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [open])
+
+  useEffect(() => {
+    return () => {
+      if (closeTimerRef.current) window.clearTimeout(closeTimerRef.current)
+    }
+  }, [])
+
+  if (!tab) return null
+
+  const showPopover = () => {
+    if (closeTimerRef.current) window.clearTimeout(closeTimerRef.current)
+    updatePos()
+    setOpen(true)
+  }
+
+  const scheduleClose = () => {
+    if (closeTimerRef.current) window.clearTimeout(closeTimerRef.current)
+    closeTimerRef.current = window.setTimeout(() => setOpen(false), 120)
+  }
+
+  return (
+    <>
+      <button
+        ref={triggerRef}
+        onMouseEnter={showPopover}
+        onMouseLeave={scheduleClose}
+        onFocus={showPopover}
+        onClick={() => { updatePos(); setOpen((next) => !next) }}
+        className="flex items-center justify-center rounded-full transition-colors"
+        style={{ width: 20, height: 20, color: colors.textTertiary }}
+        title="Claude Code context usage"
+      >
+        <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+          <circle
+            cx="8"
+            cy="8"
+            r={radius}
+            fill="none"
+            stroke={colors.surfaceSecondary}
+            strokeWidth="2"
+          />
+          <circle
+            cx="8"
+            cy="8"
+            r={radius}
+            fill="none"
+            stroke={contextTokens ? colors.accent : colors.textMuted}
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeDasharray={circumference}
+            strokeDashoffset={offset}
+            transform="rotate(-90 8 8)"
+          />
+        </svg>
+      </button>
+
+      {popoverLayer && open && createPortal(
+        <motion.div
+          ref={popoverRef}
+          data-clui-ui
+          onMouseEnter={showPopover}
+          onMouseLeave={scheduleClose}
+          initial={{ opacity: 0, y: 4 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: 4 }}
+          transition={{ duration: 0.12 }}
+          className="rounded-xl"
+          style={{
+            position: 'fixed',
+            bottom: pos.bottom,
+            right: pos.right,
+            width: 210,
+            pointerEvents: 'auto',
+            background: colors.popoverBg,
+            backdropFilter: 'blur(20px)',
+            WebkitBackdropFilter: 'blur(20px)',
+            boxShadow: colors.popoverShadow,
+            border: `1px solid ${colors.popoverBorder}`,
+          }}
+        >
+          <div className="px-3 py-2">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-[11px] font-semibold" style={{ color: colors.textPrimary }}>Context</span>
+              <span className="text-[10px]" style={{ color: colors.textTertiary }}>{percent}%</span>
+            </div>
+            <div className="text-[10px] mb-2" style={{ color: colors.textTertiary }}>
+              {compactTokens(contextTokens)} of {compactTokens(contextLimit)} input context
+            </div>
+            <div className="flex flex-col gap-1 text-[10px]">
+              <div className="flex justify-between gap-3"><span style={{ color: colors.textTertiary }}>Input</span><span style={{ color: colors.textSecondary }}>{formatTokens(inputTokens)}</span></div>
+              <div className="flex justify-between gap-3"><span style={{ color: colors.textTertiary }}>Cache read</span><span style={{ color: colors.textSecondary }}>{formatTokens(cacheReadTokens)}</span></div>
+              <div className="flex justify-between gap-3"><span style={{ color: colors.textTertiary }}>Cache write</span><span style={{ color: colors.textSecondary }}>{formatTokens(cacheWriteTokens)}</span></div>
+              <div className="flex justify-between gap-3"><span style={{ color: colors.textTertiary }}>Output</span><span style={{ color: colors.textSecondary }}>{formatTokens(outputTokens)}</span></div>
+              <div className="flex justify-between gap-3"><span style={{ color: colors.textTertiary }}>Cost</span><span style={{ color: colors.textSecondary }}>{tab.lastResult ? `$${tab.lastResult.totalCostUsd.toFixed(4)}` : 'none yet'}</span></div>
+            </div>
           </div>
         </motion.div>,
         popoverLayer,
@@ -433,11 +603,12 @@ export function StatusBar() {
 
         <span style={{ color: colors.textMuted, fontSize: 10 }}>|</span>
 
-        <PermissionModePicker />
+        <ClaudeModePicker />
       </div>
 
       {/* Right — Open in CLI */}
       <div className="flex items-center gap-1.5 flex-shrink-0">
+        <ContextRing />
         <button
           onClick={handleOpenInTerminal}
           className="flex items-center gap-1 text-[11px] rounded-full px-2 py-0.5 transition-colors"

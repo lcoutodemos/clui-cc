@@ -21,6 +21,7 @@ import { join } from 'path'
 import { execSync } from 'child_process'
 import { appendFileSync, chmodSync, existsSync, statSync } from 'fs'
 import type { NormalizedEvent, RunOptions, EnrichedError } from '../../shared/types'
+import { getCliEnv } from '../cli-env'
 
 // node-pty is a native module — require at runtime to avoid Vite bundling issues
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -275,7 +276,6 @@ export class PtyRunManager extends EventEmitter {
   private activeRuns = new Map<string, PtyRunHandle>()
   private _finishedRuns = new Map<string, PtyRunHandle>()
   private claudeBinary: string
-  private _loginShellPath = ''
 
   constructor() {
     super()
@@ -325,31 +325,18 @@ export class PtyRunManager extends EventEmitter {
     }
 
     try {
-      return execSync('/bin/zsh -lc "whence -p claude"', { encoding: 'utf-8' }).trim()
+      return execSync('/bin/zsh -ilc "whence -p claude"', { encoding: 'utf-8', env: getCliEnv() }).trim()
     } catch {}
 
     try {
-      return execSync('/bin/bash -lc "which claude"', { encoding: 'utf-8' }).trim()
+      return execSync('/bin/bash -lc "which claude"', { encoding: 'utf-8', env: getCliEnv() }).trim()
     } catch {}
 
     return 'claude'
   }
 
   private _getEnv(): NodeJS.ProcessEnv {
-    const env = { ...process.env }
-    delete env.CLAUDECODE
-
-    if (!this._loginShellPath) {
-      try {
-        this._loginShellPath = execSync('/bin/zsh -lc "echo $PATH"', { encoding: 'utf-8' }).trim()
-      } catch {
-        this._loginShellPath = ''
-      }
-    }
-    if (this._loginShellPath) {
-      env.PATH = this._loginShellPath
-    }
-
+    const env = getCliEnv()
     const binDir = this.claudeBinary.substring(0, this.claudeBinary.lastIndexOf('/'))
     if (env.PATH && !env.PATH.includes(binDir)) {
       env.PATH = `${binDir}:${env.PATH}`
@@ -367,7 +354,7 @@ export class PtyRunManager extends EventEmitter {
 
     // Build args for interactive mode (no -p flag)
     const args: string[] = [
-      '--permission-mode', 'default',
+      '--permission-mode', options.permissionMode || 'default',
     ]
 
     if (options.sessionId) {
@@ -375,6 +362,9 @@ export class PtyRunManager extends EventEmitter {
     }
     if (options.model) {
       args.push('--model', options.model)
+    }
+    if (options.effort) {
+      args.push('--effort', options.effort)
     }
     if (options.allowedTools?.length) {
       args.push('--allowedTools', options.allowedTools.join(','))
@@ -552,6 +542,10 @@ export class PtyRunManager extends EventEmitter {
           model: '',
           mcpServers: [],
           skills: [],
+          plugins: [],
+          agents: [],
+          permissionMode: null,
+          fastModeState: null,
           version: '',
         } as NormalizedEvent)
       }

@@ -1,17 +1,53 @@
-import { app, BrowserWindow, ipcMain, dialog, screen, globalShortcut, Tray, Menu, nativeImage, nativeTheme, shell } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, screen, globalShortcut, Tray, Menu, nativeImage, nativeTheme, shell, systemPreferences, session } from 'electron'
 import { join } from 'path'
-import { existsSync, readdirSync, statSync, createReadStream } from 'fs'
+import { existsSync, readdirSync, statSync, createReadStream, readFileSync } from 'fs'
 import { createInterface } from 'readline'
 import { homedir } from 'os'
 import { ControlPlane } from './claude/control-plane'
 import { ensureSkills, type SkillStatus } from './skills/installer'
 import { fetchCatalog, listInstalled, installPlugin, uninstallPlugin } from './marketplace/catalog'
 import { log as _log, LOG_FILE, flushLogs } from './logger'
+import { getCliEnv } from './cli-env'
 import { IPC } from '../shared/types'
-import type { RunOptions, NormalizedEvent, EnrichedError } from '../shared/types'
+import type { RunOptions, NormalizedEvent, EnrichedError, ClaudeModelOption } from '../shared/types'
 
 const DEBUG_MODE = process.env.CLUI_DEBUG === '1'
 const SPACES_DEBUG = DEBUG_MODE || process.env.CLUI_SPACES_DEBUG === '1'
+
+function getContentSecurityPolicy(): string {
+  const isDev = !!process.env.ELECTRON_RENDERER_URL
+  const connectSrc = isDev
+    ? "connect-src 'self' ws://localhost:* http://localhost:*;"
+    : "connect-src 'self';"
+  const scriptSrc = isDev
+    ? "script-src 'self' 'unsafe-inline' 'unsafe-eval';"
+    : "script-src 'self';"
+
+  return [
+    "default-src 'none'",
+    scriptSrc,
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data: blob:",
+    "media-src 'self' data: blob:",
+    "font-src 'self'",
+    connectSrc,
+    "object-src 'none'",
+    "base-uri 'none'",
+    "frame-src 'none'",
+  ].join('; ')
+}
+
+function installContentSecurityPolicy(): void {
+  const csp = getContentSecurityPolicy()
+  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        'Content-Security-Policy': [csp],
+      },
+    })
+  })
+}
 
 function log(msg: string): void {
   _log('main', msg)
@@ -21,6 +57,8 @@ let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 let screenshotCounter = 0
 let toggleSequence = 0
+let lastWindowBounds: Electron.Rectangle | null = null
+let blurHideTimer: NodeJS.Timeout | null = null
 
 // Feature flag: enable PTY interactive permissions transport
 const INTERACTIVE_PTY = process.env.CLUI_INTERACTIVE_PERMISSIONS_PTY === '1'
@@ -32,6 +70,173 @@ const controlPlane = new ControlPlane(INTERACTIVE_PTY)
 const BAR_WIDTH = 1040
 const PILL_HEIGHT = 720  // Fixed native window height — extra room for expanded UI + shadow buffers
 const PILL_BOTTOM_MARGIN = 24
+
+const CLAUDE_MODEL_ALIASES: ClaudeModelOption[] = [
+  { id: 'default', label: 'Default', description: 'Claude Code recommended model for this account' },
+  { id: 'sonnet', label: 'Sonnet', description: 'Latest Sonnet model alias' },
+  { id: 'opus', label: 'Opus', description: 'Most capable Opus model alias' },
+  { id: 'haiku', label: 'Haiku', description: 'Fast Haiku model alias' },
+  { id: 'sonnet[1m]', label: 'Sonnet 1M', description: 'Sonnet with 1M context where available' },
+  { id: 'opusplan', label: 'Opus Plan', description: 'Opus in plan mode, Sonnet for execution' },
+]
+
+function discoverClaudeModels(): ClaudeModelOption[] {
+  const models = [...CLAUDE_MODEL_ALIASES]
+  try {
+    const { execFileSync } = require('child_process')
+    const help = execFileSync('claude', ['--help'], { encoding: 'utf-8', timeout: 5000 })
+    const matches = help.match(/\bclaude-[a-z0-9-]+(?:\[[^\]]+\])?/gi) || []
+    for (const id of matches) {
+      if (models.some((m) => m.id === id)) continue
+      models.push({ id, label: labelForClaudeModel(id), description: 'Model name found in Claude Code help' })
+    }
+  } catch {}
+  return models
+}
+
+function labelForClaudeModel(id: string): string {
+  if (id === 'default') return 'Default'
+  return id
+    .replace(/^claude-/, '')
+    .replace(/\[(.+)\]$/, ' $1')
+    .split('-')
+    .map((part) => part.length === 1 ? part.toUpperCase() : part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ')
+}
+
+function discoverConfiguredMcpServers(cliServers: string[]): string[] {
+  const servers = new Set(cliServers)
+
+  const addServer = (name: string, status: string) => {
+    const trimmed = name.trim()
+    if (!trimmed) return
+    servers.add(`${trimmed} — ${status}`)
+  }
+
+  const serverEntriesFromConfig = (parsed: Record<string, unknown>): Array<[string, any]> => {
+    const maybeWrapped = parsed.mcpServers
+    if (maybeWrapped && typeof maybeWrapped === 'object' && !Array.isArray(maybeWrapped)) {
+      return Object.entries(maybeWrapped as Record<string, unknown>)
+    }
+    return Object.entries(parsed)
+  }
+
+  const addSettingsServers = (filePath: string) => {
+    if (!existsSync(filePath)) return
+    try {
+      const parsed = JSON.parse(readFileSync(filePath, 'utf-8')) as {
+        enabledMcpjsonServers?: unknown
+        mcpServers?: Record<string, { disabled?: boolean }>
+      }
+      if (Array.isArray(parsed.enabledMcpjsonServers)) {
+        for (const name of parsed.enabledMcpjsonServers) {
+          if (typeof name === 'string') addServer(name, 'enabled from settings')
+        }
+      }
+      if (parsed.mcpServers && typeof parsed.mcpServers === 'object') {
+        for (const [name, config] of Object.entries(parsed.mcpServers)) {
+          addServer(name, config?.disabled ? 'disabled' : 'configured')
+        }
+      }
+    } catch (err: any) {
+      log(`MCP settings parse failed for ${filePath}: ${err.message}`)
+    }
+  }
+
+  const addMcpConfigServers = (filePath: string, sourceLabel?: string) => {
+    if (!existsSync(filePath)) return
+    try {
+      const parsed = JSON.parse(readFileSync(filePath, 'utf-8')) as Record<string, unknown>
+      const source = sourceLabel || filePath.replace(homedir(), '~')
+      for (const [name, config] of serverEntriesFromConfig(parsed)) {
+        const disabled = !!(config && typeof config === 'object' && 'disabled' in config && (config as any).disabled)
+        addServer(name, disabled ? `disabled in ${source}` : `configured in ${source}`)
+      }
+    } catch (err: any) {
+      log(`MCP json parse failed for ${filePath}: ${err.message}`)
+    }
+  }
+
+  const addExtensionManifests = (dirPath: string) => {
+    if (!existsSync(dirPath)) return
+    try {
+      for (const entry of readdirSync(dirPath, { withFileTypes: true })) {
+        if (!entry.isDirectory()) continue
+        const manifestPath = join(dirPath, entry.name, 'manifest.mcpb.json')
+        if (!existsSync(manifestPath)) continue
+        try {
+          const manifest = JSON.parse(readFileSync(manifestPath, 'utf-8')) as {
+            name?: unknown
+            display_name?: unknown
+            displayName?: unknown
+            server?: unknown
+            mcpServers?: unknown
+          }
+          if (manifest.mcpServers && typeof manifest.mcpServers === 'object' && !Array.isArray(manifest.mcpServers)) {
+            for (const name of Object.keys(manifest.mcpServers as Record<string, unknown>)) {
+              addServer(name, 'configured as Claude Desktop extension')
+            }
+            continue
+          }
+          if (manifest.server && typeof manifest.server === 'object') {
+            const name =
+              typeof manifest.display_name === 'string' ? manifest.display_name :
+              typeof manifest.displayName === 'string' ? manifest.displayName :
+              typeof manifest.name === 'string' ? manifest.name :
+              entry.name
+            addServer(name, 'configured as Claude Desktop extension')
+          }
+        } catch (err: any) {
+          log(`MCP extension manifest parse failed for ${manifestPath}: ${err.message}`)
+        }
+      }
+    } catch (err: any) {
+      log(`MCP extension scan failed for ${dirPath}: ${err.message}`)
+    }
+  }
+
+  addSettingsServers(join(homedir(), '.claude', 'settings.json'))
+  addSettingsServers(join(homedir(), '.claude', 'settings.local.json'))
+  addMcpConfigServers(join(process.cwd(), '.mcp.json'))
+
+  const claudeDesktopDir = join(homedir(), 'Library', 'Application Support', 'Claude')
+  addMcpConfigServers(join(claudeDesktopDir, 'claude_desktop_config.json'), 'Claude Desktop config')
+  addMcpConfigServers(join(claudeDesktopDir, 'mcp.json'), 'Claude Desktop MCP config')
+  addExtensionManifests(join(claudeDesktopDir, 'Claude Extensions'))
+
+  const projectsDir = join(homedir(), '.claude', 'projects')
+  if (existsSync(projectsDir)) {
+    try {
+      for (const entry of readdirSync(projectsDir, { withFileTypes: true })) {
+        if (!entry.isDirectory()) continue
+        addMcpConfigServers(join(projectsDir, entry.name, '.mcp.json'))
+      }
+    } catch (err: any) {
+      log(`MCP projects scan failed: ${err.message}`)
+    }
+  }
+
+  return [...servers].sort((a, b) => a.localeCompare(b))
+}
+
+function bottomCenterBoundsForCursor(): Electron.Rectangle {
+  const cursor = screen.getCursorScreenPoint()
+  const display = screen.getDisplayNearestPoint(cursor)
+  const { width: sw, height: sh } = display.workAreaSize
+  const { x: dx, y: dy } = display.workArea
+  return {
+    x: dx + Math.round((sw - BAR_WIDTH) / 2),
+    y: dy + sh - PILL_HEIGHT - PILL_BOTTOM_MARGIN,
+    width: BAR_WIDTH,
+    height: PILL_HEIGHT,
+  }
+}
+
+function setWindowBounds(bounds: Electron.Rectangle): void {
+  if (!mainWindow || mainWindow.isDestroyed()) return
+  mainWindow.setBounds(bounds)
+  lastWindowBounds = mainWindow.getBounds()
+}
 
 // ─── Broadcast to renderer ───
 
@@ -92,19 +297,13 @@ controlPlane.on('error', (tabId: string, error: EnrichedError) => {
 // ─── Window Creation ───
 
 function createWindow(): void {
-  const cursor = screen.getCursorScreenPoint()
-  const display = screen.getDisplayNearestPoint(cursor)
-  const { width: screenWidth, height: screenHeight } = display.workAreaSize
-  const { x: dx, y: dy } = display.workArea
-
-  const x = dx + Math.round((screenWidth - BAR_WIDTH) / 2)
-  const y = dy + screenHeight - PILL_HEIGHT - PILL_BOTTOM_MARGIN
+  const initialBounds = bottomCenterBoundsForCursor()
 
   mainWindow = new BrowserWindow({
     width: BAR_WIDTH,
     height: PILL_HEIGHT,
-    x,
-    y,
+    x: initialBounds.x,
+    y: initialBounds.y,
     ...(process.platform === 'darwin' ? { type: 'panel' as const } : {}),  // NSPanel — non-activating, joins all spaces
     frame: false,
     transparent: true,
@@ -119,22 +318,29 @@ function createWindow(): void {
     icon: join(__dirname, '../../resources/icon.icns'),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
+      sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
+      webSecurity: true,
+      allowRunningInsecureContent: false,
     },
   })
+  lastWindowBounds = mainWindow.getBounds()
 
   // Belt-and-suspenders: panel already joins all spaces and floats,
   // but explicit flags ensure correct behavior on older Electron builds.
   mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
   mainWindow.setAlwaysOnTop(true, 'screen-saver')
+  mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+  mainWindow.webContents.on('will-navigate', (event) => {
+    event.preventDefault()
+  })
 
   mainWindow.once('ready-to-show', () => {
     mainWindow?.show()
-    // Enable OS-level click-through for transparent regions.
-    // { forward: true } ensures mousemove events still reach the renderer
-    // so it can toggle click-through off when cursor enters interactive UI.
-    mainWindow?.setIgnoreMouseEvents(true, { forward: true })
+    // Start interactive; the renderer enables click-through when the cursor
+    // moves over transparent regions. Starting ignored can drop the first drag.
+    mainWindow?.setIgnoreMouseEvents(false)
     if (process.env.ELECTRON_RENDERER_URL) {
       mainWindow?.webContents.openDevTools({ mode: 'detach' })
     }
@@ -149,11 +355,82 @@ function createWindow(): void {
     }
   })
 
+  mainWindow.on('move', () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return
+    lastWindowBounds = mainWindow.getBounds()
+  })
+
+  mainWindow.on('blur', () => {
+    if (process.env.CLUI_HIDE_ON_BLUR === '0') return
+    if (blurHideTimer) clearTimeout(blurHideTimer)
+    blurHideTimer = setTimeout(() => {
+      blurHideTimer = null
+      if (!mainWindow || mainWindow.isDestroyed()) return
+      if (!mainWindow.isFocused() && mainWindow.isVisible()) {
+        mainWindow.hide()
+      }
+    }, 160)
+  })
+
+  mainWindow.on('focus', () => {
+    if (blurHideTimer) {
+      clearTimeout(blurHideTimer)
+      blurHideTimer = null
+    }
+  })
+
   if (process.env.ELECTRON_RENDERER_URL) {
     mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL)
   } else {
     mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
   }
+}
+
+function showWindow(source = 'unknown'): void {
+  if (!mainWindow) return
+  const toggleId = ++toggleSequence
+
+  if (lastWindowBounds) {
+    mainWindow.setBounds(lastWindowBounds)
+  }
+
+  // Always re-assert space membership — the flag can be lost after hide/show cycles
+  // and must be set before show() so the window joins the active Space, not its
+  // last-known Space.
+  mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+
+  if (SPACES_DEBUG) {
+    const b = mainWindow.getBounds()
+    log(`[spaces] showWindow#${toggleId} source=${source} preserve-bounds=(${b.x},${b.y},${b.width}x${b.height})`)
+    snapshotWindowState(`showWindow#${toggleId} pre-show`)
+  }
+  // As an accessory app (app.dock.hide), show() + focus gives keyboard
+  // without deactivating the active app — hover preserved everywhere.
+  mainWindow.show()
+  mainWindow.setIgnoreMouseEvents(false)
+  if (lastWindowBounds) {
+    mainWindow.setBounds(lastWindowBounds)
+  }
+  mainWindow.webContents.focus()
+  broadcast(IPC.WINDOW_SHOWN)
+  if (SPACES_DEBUG) scheduleToggleSnapshots(toggleId, 'show')
+}
+
+function resetWindowPosition(): void {
+  if (!mainWindow) return
+
+  const cursor = screen.getCursorScreenPoint()
+  const display = screen.getDisplayNearestPoint(cursor)
+  const { width: sw, height: sh } = display.workAreaSize
+  const { x: dx, y: dy } = display.workArea
+
+  mainWindow.setBounds({
+    x: dx + Math.round((sw - BAR_WIDTH) / 2),
+    y: dy + sh - PILL_HEIGHT - PILL_BOTTOM_MARGIN,
+    width: BAR_WIDTH,
+    height: PILL_HEIGHT,
+  })
+  lastWindowBounds = mainWindow.getBounds()
 }
 
 function toggleWindow(source = 'unknown'): void {
@@ -164,32 +441,11 @@ function toggleWindow(source = 'unknown'): void {
     snapshotWindowState(`toggle#${toggleId} pre`)
   }
 
-  // Pure toggle: visible → hide, not visible → show. No focus-based branching.
   if (mainWindow.isVisible()) {
     mainWindow.hide()
     if (SPACES_DEBUG) scheduleToggleSnapshots(toggleId, 'hide')
   } else {
-    // Position on the display where the cursor currently is (not always primary)
-    const cursor = screen.getCursorScreenPoint()
-    const display = screen.getDisplayNearestPoint(cursor)
-    const { width: sw, height: sh } = display.workAreaSize
-    const { x: dx, y: dy } = display.workArea
-    mainWindow.setBounds({
-      x: dx + Math.round((sw - BAR_WIDTH) / 2),
-      y: dy + sh - PILL_HEIGHT - PILL_BOTTOM_MARGIN,
-      width: BAR_WIDTH,
-      height: PILL_HEIGHT,
-    })
-    if (SPACES_DEBUG) {
-      log(`[spaces] toggle#${toggleId} move-to-display id=${display.id}`)
-      snapshotWindowState(`toggle#${toggleId} pre-show`)
-    }
-    // As an accessory app (app.dock.hide), show() + focus gives keyboard
-    // without deactivating the active app — hover preserved everywhere.
-    mainWindow.show()
-    mainWindow.webContents.focus()
-    broadcast(IPC.WINDOW_SHOWN)
-    if (SPACES_DEBUG) scheduleToggleSnapshots(toggleId, 'show')
+    showWindow(source)
   }
 }
 
@@ -213,6 +469,10 @@ ipcMain.on(IPC.HIDE_WINDOW, () => {
   mainWindow?.hide()
 })
 
+ipcMain.on(IPC.QUIT_APP, () => {
+  app.quit()
+})
+
 ipcMain.handle(IPC.IS_VISIBLE, () => {
   return mainWindow?.isVisible() ?? false
 })
@@ -226,6 +486,22 @@ ipcMain.on(IPC.SET_IGNORE_MOUSE_EVENTS, (event, ignore: boolean, options?: { for
   }
 })
 
+// Manual window drag — works reliably with frameless + setIgnoreMouseEvents
+ipcMain.on(IPC.START_WINDOW_DRAG, (event, deltaX: number, deltaY: number) => {
+  const win = BrowserWindow.fromWebContents(event.sender)
+  if (win && !win.isDestroyed()) {
+    const [x, y] = win.getPosition()
+    // Vertical is handled in two phases in the renderer: window first (until macOS clamps),
+    // then CSS translateY within the window — so deltaY here is always within allowed range
+    win.setPosition(Math.round(x + deltaX), Math.round(y + deltaY))
+    lastWindowBounds = win.getBounds()
+  }
+})
+
+ipcMain.on(IPC.RESET_WINDOW_POSITION, () => {
+  resetWindowPosition()
+})
+
 // ─── IPC Handlers (typed, strict) ───
 
 ipcMain.handle(IPC.START, async () => {
@@ -234,22 +510,34 @@ ipcMain.handle(IPC.START, async () => {
 
   let version = 'unknown'
   try {
-    version = execSync('claude -v', { encoding: 'utf-8', timeout: 5000 }).trim()
+    version = execSync('claude -v', { encoding: 'utf-8', timeout: 5000, env: getCliEnv() }).trim()
   } catch {}
 
   let auth: { email?: string; subscriptionType?: string; authMethod?: string } = {}
   try {
-    const raw = execSync('claude auth status', { encoding: 'utf-8', timeout: 5000 }).trim()
+    const raw = execSync('claude auth status', { encoding: 'utf-8', timeout: 5000, env: getCliEnv() }).trim()
     auth = JSON.parse(raw)
   } catch {}
 
   let mcpServers: string[] = []
   try {
-    const raw = execSync('claude mcp list', { encoding: 'utf-8', timeout: 5000 }).trim()
+    const raw = execSync('claude mcp list', { encoding: 'utf-8', timeout: 5000, env: getCliEnv() }).trim()
     if (raw) mcpServers = raw.split('\n').filter(Boolean)
   } catch {}
+  mcpServers = discoverConfiguredMcpServers(mcpServers)
 
-  return { version, auth, mcpServers, projectPath: process.cwd(), homePath: require('os').homedir() }
+  const installedExtensions = await listInstalled().catch(() => [])
+  const availableModels = discoverClaudeModels()
+
+  return {
+    version,
+    auth,
+    mcpServers,
+    installedExtensions,
+    availableModels,
+    projectPath: process.cwd(),
+    homePath: require('os').homedir(),
+  }
 })
 
 ipcMain.handle(IPC.CREATE_TAB, () => {
@@ -337,6 +625,11 @@ ipcMain.handle(IPC.LIST_SESSIONS, async (_e, projectPath?: string) => {
   log(`IPC LIST_SESSIONS ${projectPath ? `(path=${projectPath})` : ''}`)
   try {
     const cwd = projectPath || process.cwd()
+    // Validate projectPath — reject null bytes, newlines, non-absolute paths
+    if (/[\0\r\n]/.test(cwd) || !cwd.startsWith('/')) {
+      log(`LIST_SESSIONS: rejected invalid projectPath: ${cwd}`)
+      return []
+    }
     // Claude stores project sessions at ~/.claude/projects/<encoded-path>/
     // Path encoding: replace all '/' with '-' (leading '/' becomes leading '-')
     const encodedPath = cwd.replace(/\//g, '-')
@@ -417,8 +710,21 @@ ipcMain.handle(IPC.LOAD_SESSION, async (_e, arg: { sessionId: string; projectPat
   const sessionId = typeof arg === 'string' ? arg : arg.sessionId
   const projectPath = typeof arg === 'string' ? undefined : arg.projectPath
   log(`IPC LOAD_SESSION ${sessionId}${projectPath ? ` (path=${projectPath})` : ''}`)
+
+  // Validate sessionId — must be strict UUID to prevent path traversal via crafted filenames
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+  if (!UUID_RE.test(sessionId)) {
+    log(`LOAD_SESSION: rejected invalid sessionId: ${sessionId}`)
+    return []
+  }
+
   try {
     const cwd = projectPath || process.cwd()
+    // Validate projectPath — reject null bytes, newlines, non-absolute paths
+    if (/[\0\r\n]/.test(cwd) || !cwd.startsWith('/')) {
+      log(`LOAD_SESSION: rejected invalid projectPath: ${cwd}`)
+      return []
+    }
     const encodedPath = cwd.replace(/\//g, '-')
     const filePath = join(homedir(), '.claude', 'projects', encodedPath, `${sessionId}.jsonl`)
     if (!existsSync(filePath)) return []
@@ -486,9 +792,11 @@ ipcMain.handle(IPC.SELECT_DIRECTORY, async () => {
 
 ipcMain.handle(IPC.OPEN_EXTERNAL, async (_event, url: string) => {
   try {
-    // Only allow http(s) links from markdown content.
-    if (!/^https?:\/\//i.test(url)) return false
-    await shell.openExternal(url)
+    // Parse with URL constructor to reject malformed/ambiguous payloads
+    const parsed = new URL(url)
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false
+    if (!parsed.hostname) return false
+    await shell.openExternal(parsed.href)
     return true
   } catch {
     return false
@@ -634,17 +942,38 @@ ipcMain.handle(IPC.PASTE_IMAGE, async (_event, dataUrl: string) => {
 
 ipcMain.handle(IPC.TRANSCRIBE_AUDIO, async (_event, audioBase64: string) => {
   const { writeFileSync, existsSync, unlinkSync, readFileSync } = require('fs')
-  const { execSync } = require('child_process')
-  const { join } = require('path')
+  const { execFile } = require('child_process')
+  const { join, basename } = require('path')
   const { tmpdir } = require('os')
+
+  const startedAt = Date.now()
+  const phaseMs: Record<string, number> = {}
+  const mark = (name: string, t0: number) => { phaseMs[name] = Date.now() - t0 }
 
   const tmpWav = join(tmpdir(), `clui-voice-${Date.now()}.wav`)
   try {
+    const runExecFile = (bin: string, args: string[], timeout: number): Promise<string> =>
+      new Promise((resolve, reject) => {
+        execFile(bin, args, { encoding: 'utf-8', timeout }, (err: any, stdout: string, stderr: string) => {
+          if (err) {
+            const detail = stderr?.trim() || stdout?.trim() || err.message
+            reject(new Error(detail))
+            return
+          }
+          resolve(stdout || '')
+        })
+      })
+
+    let t0 = Date.now()
     const buf = Buffer.from(audioBase64, 'base64')
     writeFileSync(tmpWav, buf)
+    mark('decode+write_wav', t0)
 
-    // Find whisper-cli (whisper-cpp homebrew) or whisper (python)
+    // Find whisper backend in priority order: whisperkit-cli (Apple Silicon CoreML) → whisper-cli (whisper-cpp) → whisper (python)
+    t0 = Date.now()
     const candidates = [
+      '/opt/homebrew/bin/whisperkit-cli',
+      '/usr/local/bin/whisperkit-cli',
       '/opt/homebrew/bin/whisper-cli',
       '/usr/local/bin/whisper-cli',
       '/opt/homebrew/bin/whisper',
@@ -656,88 +985,157 @@ ipcMain.handle(IPC.TRANSCRIBE_AUDIO, async (_event, audioBase64: string) => {
     for (const c of candidates) {
       if (existsSync(c)) { whisperBin = c; break }
     }
+    mark('probe_binary_paths', t0)
 
     if (!whisperBin) {
-      try {
-        whisperBin = execSync('/bin/zsh -lc "whence -p whisper-cli"', { encoding: 'utf-8' }).trim()
-      } catch {}
-    }
-    if (!whisperBin) {
-      try {
-        whisperBin = execSync('/bin/zsh -lc "whence -p whisper"', { encoding: 'utf-8' }).trim()
-      } catch {}
+      t0 = Date.now()
+      for (const name of ['whisperkit-cli', 'whisper-cli', 'whisper']) {
+        try {
+          whisperBin = await runExecFile('/bin/zsh', ['-lc', `whence -p ${name}`], 5000).then((s) => s.trim())
+          if (whisperBin) break
+        } catch {}
+      }
+      mark('probe_binary_whence', t0)
     }
 
     if (!whisperBin) {
+      const hint = process.arch === 'arm64'
+        ? 'brew install whisperkit-cli   (or: brew install whisper-cpp)'
+        : 'brew install whisper-cpp'
       return {
-        error: 'Whisper not found. Install with: brew install whisper-cpp',
+        error: `Whisper not found. Install with:\n  ${hint}`,
         transcript: null,
       }
     }
 
-    const isWhisperCpp = whisperBin.includes('whisper-cli')
+    const isWhisperKit = whisperBin.includes('whisperkit-cli')
+    const isWhisperCpp = !isWhisperKit && whisperBin.includes('whisper-cli')
 
-    // Find model file — prefer multilingual (auto-detect language) over .en (English-only)
-    const modelCandidates = [
-      join(homedir(), '.local/share/whisper/ggml-tiny.bin'),
-      join(homedir(), '.local/share/whisper/ggml-base.bin'),
-      '/opt/homebrew/share/whisper-cpp/models/ggml-tiny.bin',
-      '/opt/homebrew/share/whisper-cpp/models/ggml-base.bin',
-      // Fall back to English-only models if multilingual not available
-      join(homedir(), '.local/share/whisper/ggml-tiny.en.bin'),
-      join(homedir(), '.local/share/whisper/ggml-base.en.bin'),
-      '/opt/homebrew/share/whisper-cpp/models/ggml-tiny.en.bin',
-      '/opt/homebrew/share/whisper-cpp/models/ggml-base.en.bin',
-    ]
-
-    let modelPath = ''
-    for (const m of modelCandidates) {
-      if (existsSync(m)) { modelPath = m; break }
-    }
-
-    // Detect if using an English-only model (.en suffix) — force English if so
-    const isEnglishOnly = modelPath.includes('.en.')
-    log(`Transcribing with: ${whisperBin} (model: ${modelPath || 'default'}, lang: ${isEnglishOnly ? 'en' : 'auto'})`)
+    log(`Transcribing with: ${whisperBin} (backend: ${isWhisperKit ? 'WhisperKit' : isWhisperCpp ? 'whisper-cpp' : 'Python whisper'})`)
 
     let output: string
-    if (isWhisperCpp) {
+    if (isWhisperKit) {
+      // WhisperKit (Apple Silicon CoreML) — auto-downloads models on first run
+      // Use --report to produce a JSON file with a top-level "text" field for deterministic parsing
+      const reportDir = tmpdir()
+      t0 = Date.now()
+      output = await runExecFile(
+        whisperBin,
+        ['transcribe', '--audio-path', tmpWav, '--model', 'tiny', '--without-timestamps', '--skip-special-tokens', '--report', '--report-path', reportDir],
+        60000
+      )
+      mark('whisperkit_transcribe_report', t0)
+
+      // WhisperKit writes <audioFileName>.json (filename without extension)
+      const wavBasename = basename(tmpWav, '.wav')
+      const reportPath = join(reportDir, `${wavBasename}.json`)
+      if (existsSync(reportPath)) {
+        try {
+          t0 = Date.now()
+          const report = JSON.parse(readFileSync(reportPath, 'utf-8'))
+          const transcript = (report.text || '').trim()
+          mark('whisperkit_parse_report_json', t0)
+          try { unlinkSync(reportPath) } catch {}
+          // Also clean up .srt that --report creates
+          const srtPath = join(reportDir, `${wavBasename}.srt`)
+          try { unlinkSync(srtPath) } catch {}
+          log(`Transcription timing(ms): ${JSON.stringify({ ...phaseMs, total: Date.now() - startedAt })}`)
+          return { error: null, transcript }
+        } catch (parseErr: any) {
+          log(`WhisperKit JSON parse failed: ${parseErr.message}, falling back to stdout`)
+          try { unlinkSync(reportPath) } catch {}
+        }
+      }
+
+      // Performance fallback: avoid a second full transcription if report file is missing/invalid.
+      // Use stdout from the first run to keep latency close to pre-report behavior.
+      if (!output || !output.trim()) {
+        t0 = Date.now()
+        output = await runExecFile(
+          whisperBin,
+          ['transcribe', '--audio-path', tmpWav, '--model', 'tiny', '--without-timestamps', '--skip-special-tokens'],
+          60000
+        )
+        mark('whisperkit_transcribe_stdout_rerun', t0)
+      }
+    } else if (isWhisperCpp) {
       // whisper-cpp: whisper-cli -m model -f file --no-timestamps
+      // Find model file — prefer multilingual (auto-detect language) over .en (English-only)
+      const modelCandidates = [
+        join(homedir(), '.local/share/whisper/ggml-base.bin'),
+        join(homedir(), '.local/share/whisper/ggml-tiny.bin'),
+        '/opt/homebrew/share/whisper-cpp/models/ggml-base.bin',
+        '/opt/homebrew/share/whisper-cpp/models/ggml-tiny.bin',
+        join(homedir(), '.local/share/whisper/ggml-base.en.bin'),
+        join(homedir(), '.local/share/whisper/ggml-tiny.en.bin'),
+        '/opt/homebrew/share/whisper-cpp/models/ggml-base.en.bin',
+        '/opt/homebrew/share/whisper-cpp/models/ggml-tiny.en.bin',
+      ]
+
+      let modelPath = ''
+      for (const m of modelCandidates) {
+        if (existsSync(m)) { modelPath = m; break }
+      }
+
       if (!modelPath) {
         return {
-          error: 'Whisper model not found. Download with:\nmkdir -p ~/.local/share/whisper && curl -L -o ~/.local/share/whisper/ggml-tiny.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin',
+          error: 'Whisper model not found. Download with:\n  mkdir -p ~/.local/share/whisper && curl -L -o ~/.local/share/whisper/ggml-tiny.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin',
           transcript: null,
         }
       }
+
+      const isEnglishOnly = modelPath.includes('.en.')
       const langFlag = isEnglishOnly ? '-l en' : '-l auto'
-      output = execSync(
-        `"${whisperBin}" -m "${modelPath}" -f "${tmpWav}" --no-timestamps ${langFlag}`,
-        { encoding: 'utf-8', timeout: 30000 }
+      t0 = Date.now()
+      output = await runExecFile(
+        whisperBin,
+        ['-m', modelPath, '-f', tmpWav, '--no-timestamps', '-l', isEnglishOnly ? 'en' : 'auto'],
+        30000
       )
+      mark('whisper_cpp_transcribe', t0)
     } else {
-      // Python whisper: auto-detect language unless English-only model
-      const langFlag = isEnglishOnly ? '--language en' : ''
-      output = execSync(
-        `"${whisperBin}" "${tmpWav}" --model tiny ${langFlag} --output_format txt --output_dir "${tmpdir()}"`,
-        { encoding: 'utf-8', timeout: 30000 }
+      // Python whisper
+      t0 = Date.now()
+      output = await runExecFile(
+        whisperBin,
+        [tmpWav, '--model', 'tiny', '--output_format', 'txt', '--output_dir', tmpdir()],
+        30000
       )
+      mark('python_whisper_transcribe', t0)
       // Python whisper writes .txt file
       const txtPath = tmpWav.replace('.wav', '.txt')
       if (existsSync(txtPath)) {
+        t0 = Date.now()
         const transcript = readFileSync(txtPath, 'utf-8').trim()
+        mark('python_whisper_read_txt', t0)
         try { unlinkSync(txtPath) } catch {}
+        log(`Transcription timing(ms): ${JSON.stringify({ ...phaseMs, total: Date.now() - startedAt })}`)
         return { error: null, transcript }
+      }
+      // File not created — Python whisper failed silently
+      return {
+        error: `Whisper output file not found at ${txtPath}. Check disk space and permissions.`,
+        transcript: null,
       }
     }
 
-    // whisper-cpp prints to stdout directly
-    // Strip any leading [timestamp] patterns and whitespace
+    // WhisperKit (stdout fallback) and whisper-cpp print to stdout directly
+    // Strip timestamp patterns and known hallucination outputs
+    const HALLUCINATIONS = /^\s*(\[BLANK_AUDIO\]|you\.?|thank you\.?|thanks\.?)\s*$/i
     const transcript = output
       .replace(/\[[\d:.]+\s*-->\s*[\d:.]+\]\s*/g, '')
       .trim()
 
+    if (HALLUCINATIONS.test(transcript)) {
+      log(`Transcription timing(ms): ${JSON.stringify({ ...phaseMs, total: Date.now() - startedAt })}`)
+      return { error: null, transcript: '' }
+    }
+
+    log(`Transcription timing(ms): ${JSON.stringify({ ...phaseMs, total: Date.now() - startedAt })}`)
     return { error: null, transcript: transcript || '' }
   } catch (err: any) {
     log(`Transcription error: ${err.message}`)
+    log(`Transcription timing(ms): ${JSON.stringify({ ...phaseMs, total: Date.now() - startedAt, failed: true })}`)
     return {
       error: `Transcription failed: ${err.message}`,
       transcript: null,
@@ -777,6 +1175,8 @@ ipcMain.handle(IPC.OPEN_IN_TERMINAL, (_event, arg: string | null | { sessionId?:
   const { execFile } = require('child_process')
   const claudeBin = 'claude'
 
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
   // Support both old (string) and new ({ sessionId, projectPath }) calling convention
   let sessionId: string | null = null
   let projectPath: string = process.cwd()
@@ -787,13 +1187,32 @@ ipcMain.handle(IPC.OPEN_IN_TERMINAL, (_event, arg: string | null | { sessionId?:
     projectPath = arg.projectPath && arg.projectPath !== '~' ? arg.projectPath : process.cwd()
   }
 
-  // Escape for AppleScript: double quotes → backslash-escaped, backslashes doubled
-  const projectDir = projectPath.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+  // Validate sessionId — must be a strict UUID to prevent injection into the shell command
+  if (sessionId && !UUID_RE.test(sessionId)) {
+    log(`OPEN_IN_TERMINAL: rejected invalid sessionId: ${sessionId}`)
+    return false
+  }
+
+  // Sanitize projectPath — reject null bytes, newlines, and non-absolute paths
+  if (/[\0\r\n]/.test(projectPath) || !projectPath.startsWith('/')) {
+    log(`OPEN_IN_TERMINAL: rejected invalid projectPath: ${projectPath}`)
+    return false
+  }
+
+  // Shell-safe single-quote escaping: replace ' with '\'' (end quote, escaped literal quote, reopen quote)
+  // Single quotes block all shell expansion ($, `, \, etc.) — unlike double quotes which allow $() and backticks
+  const shellSingleQuote = (s: string): string => "'" + s.replace(/'/g, "'\\''") + "'"
+  // AppleScript string escaping: backslashes doubled, double quotes escaped
+  const escapeAppleScript = (s: string): string => s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+
+  const safeDir = escapeAppleScript(shellSingleQuote(projectPath))
+
   let cmd: string
   if (sessionId) {
-    cmd = `cd \\"${projectDir}\\" && ${claudeBin} --resume ${sessionId}`
+    // sessionId is UUID-validated above, safe to embed directly
+    cmd = `cd ${safeDir} && ${claudeBin} --resume ${sessionId}`
   } else {
-    cmd = `cd \\"${projectDir}\\" && ${claudeBin}`
+    cmd = `cd ${safeDir} && ${claudeBin}`
   }
 
   const script = `tell application "Terminal"
@@ -845,15 +1264,43 @@ nativeTheme.on('updated', () => {
   broadcast(IPC.THEME_CHANGED, nativeTheme.shouldUseDarkColors)
 })
 
+// ─── Permission Preflight ───
+// Request all required macOS permissions upfront on first launch so the user
+// is never interrupted mid-session by a permission prompt.
+
+async function requestPermissions(): Promise<void> {
+  if (process.platform !== 'darwin') return
+
+  // ── Microphone (for voice input via Whisper) ──
+  try {
+    const micStatus = systemPreferences.getMediaAccessStatus('microphone')
+    if (micStatus === 'not-determined') {
+      await systemPreferences.askForMediaAccess('microphone')
+    }
+  } catch (err: any) {
+    log(`Permission preflight: microphone check failed — ${err.message}`)
+  }
+
+  // ── Accessibility (for global ⌥+Space shortcut) ──
+  // globalShortcut works without it on modern macOS; Cmd+Shift+K is always the fallback.
+  // Screen Recording: not requested upfront — macOS 15 Sequoia shows an alarming
+  // "bypass private window picker" dialog. Let the OS prompt naturally if/when
+  // the screenshot feature is actually used.
+}
+
 // ─── App Lifecycle ───
 
-app.whenReady().then(() => {
-  // macOS: become an accessory app. Accessory apps can have key windows (keyboard works)
-  // without deactivating the currently active app (hover preserved in browsers).
-  // This is how Spotlight, Alfred, Raycast work.
+app.whenReady().then(async () => {
   if (process.platform === 'darwin' && app.dock) {
-    app.dock.hide()
+    const dockIcon = nativeImage.createFromPath(join(__dirname, '../../resources/icon.png'))
+    if (!dockIcon.isEmpty()) app.dock.setIcon(dockIcon)
+    void app.dock.show()
   }
+
+  // Request permissions upfront so the user is never interrupted mid-session.
+  await requestPermissions()
+
+  installContentSecurityPolicy()
 
   // Skill provisioning — non-blocking, streams status to renderer
   ensureSkills((status: SkillStatus) => {
@@ -906,12 +1353,18 @@ app.whenReady().then(() => {
   tray.on('click', () => toggleWindow('tray click'))
   tray.setContextMenu(
     Menu.buildFromTemplate([
-      { label: 'Show Clui CC', click: () => toggleWindow('tray menu Show Clui CC') },
+      { label: 'Show Clui CC', click: () => showWindow('tray menu') },
+      { label: 'Hide Clui CC', click: () => mainWindow?.hide() },
+      { type: 'separator' },
       { label: 'Quit', click: () => { app.quit() } },
     ])
   )
 
-  app.on('activate', () => toggleWindow('app activate'))
+  // app 'activate' fires when macOS brings the app to the foreground (e.g. after
+  // webContents.focus() triggers applicationDidBecomeActive on some macOS versions).
+  // Using showWindow here instead of toggleWindow prevents the re-entry race where
+  // a summon immediately hides itself because activate fires mid-show.
+  app.on('activate', () => showWindow('app activate'))
 })
 
 app.on('will-quit', () => {

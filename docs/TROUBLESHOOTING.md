@@ -114,7 +114,7 @@ claude --version
 claude
 ```
 
-## `Alt+Space` Does Not Toggle
+## `⌥ + Space` Does Not Toggle
 
 Grant Accessibility permissions:
 
@@ -124,6 +124,75 @@ Fallback shortcut:
 
 - `Cmd+Shift+K`
 
+## Packaged App Won't Open (Security Warning)
+
+The `.app` built by `npm run dist` is unsigned. macOS Gatekeeper blocks unsigned apps by default.
+
+To allow it:
+
+1. Open **System Settings → Privacy & Security**
+2. Scroll to the security section
+3. Click **Open Anyway** next to the Clui CC message
+
+You only need to do this once. This is a local build, not App Store distribution.
+
+## Install Fails at Whisper Step
+
+The installer requires Whisper for voice input. If it fails:
+
+1. Make sure Homebrew is installed:
+
+```bash
+brew --version
+```
+
+If not, install it:
+
+```bash
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+```
+
+2. Install Whisper manually:
+
+```bash
+# Apple Silicon (M1/M2/M3/M4) — preferred:
+brew install whisperkit-cli
+# Apple Silicon fallback, or Intel Mac:
+brew install whisper-cpp
+```
+
+3. Rerun the installer:
+
+```bash
+./install-app.command
+```
+
+## Install Fails at Build Step
+
+Run the steps manually to see the detailed error:
+
+```bash
+./commands/setup.command
+```
+
+```bash
+npm run dist
+```
+
+If `npm run dist` fails, try a clean reinstall:
+
+```bash
+rm -rf node_modules
+```
+
+```bash
+npm install
+```
+
+```bash
+npm run dist
+```
+
 ## Marketplace Shows "Failed to Load"
 
 Expected when offline. Marketplace needs internet access; core app features continue to work.
@@ -132,5 +201,6 @@ Expected when offline. Marketplace needs internet access; core app features cont
 
 Try:
 
+- `⌥ + Space`
 - `Cmd+Shift+K`
 - Confirm app is running from the menu bar tray

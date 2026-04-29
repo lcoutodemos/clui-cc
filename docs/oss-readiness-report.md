@@ -91,7 +91,7 @@
 - Node.js 18+ (for Electron 33)
 - macOS (primary platform — Electron transparent window, tray, node-pty)
 - `claude` CLI installed and authenticated (core dependency)
-- Optional: `whisper-cli` or `whisper` + model for voice transcription
+- Optional: `whisperkit-cli` (Apple Silicon preferred, CoreML) or `whisper-cpp` (Apple Silicon & Intel, ggml) or `whisper` (Python) for voice transcription
 
 ### Build System
 - `npm install` → `npm run dev` (hot-reload) or `npm run build` (production)

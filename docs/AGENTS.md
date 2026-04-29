@@ -14,7 +14,7 @@ Clui CC is a **macOS-only Electron overlay** that wraps the Claude Code CLI (`cl
 | Install deps | `npm install` |
 | Dev mode (hot-reload) | `npm run dev` |
 | Type-check / build | `npm run build` |
-| Toggle overlay | `Alt+Space` |
+| Toggle overlay | `⌥ + Space` (fallback: `Cmd+Shift+K`) |
 | Debug logging | `CLUI_DEBUG=1 npm run dev` (writes to `~/.clui-debug.log`) |
 
 **Main process changes require full restart.** Renderer changes hot-reload.

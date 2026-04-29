@@ -124,7 +124,7 @@ echo
 if [ "$fail" -ne 0 ]; then
   echo "Some checks failed. Fix them above, then rerun:"
   echo
-  echo "  ./start.command"
+  echo "  ./commands/setup.command"
 else
   echo "Environment looks good."
 fi

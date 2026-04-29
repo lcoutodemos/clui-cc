@@ -5,7 +5,7 @@
 ### Fresh Clone Bootstrap
 
 ```bash
-git clone https://github.com/lcoutodemos/clui-cc.git
+git clone https://github.com/adamking77/clui-cc.git
 cd clui-cc
 npm run doctor     # verify environment — all checks should pass
 npm install        # installs deps + runs postinstall (electron-builder install-app-deps + icon patch)
@@ -42,9 +42,9 @@ npm run build      # production build — must exit 0 with no errors
 - [ ] `claude` CLI installed and authenticated (`claude --version` returns 2.1+)
 
 ### Startup
-- [ ] `npm run dev` or `./start.command` launches the app
+- [ ] `npm run dev` or `./commands/start.command` launches the app
 - [ ] Floating pill appears at bottom-center of screen
-- [ ] `Alt+Space` toggles visibility
+- [ ] `⌥ + Space` toggles visibility (fallback: `Cmd+Shift+K`)
 - [ ] Tray icon appears in menu bar
 - [ ] Tray menu shows Quit option
 
@@ -89,11 +89,10 @@ npm run build      # production build — must exit 0 with no errors
 - [ ] Install flow shows confirmation with exact CLI commands
 - [ ] Graceful error state when offline
 
-### Voice Input (requires Whisper)
+### Voice Input (Whisper required — installed by install-app.command)
 - [ ] Microphone button starts recording
 - [ ] Stop button ends recording and transcribes
 - [ ] Transcribed text appears in input bar
-- [ ] Error message if whisper not installed
 
 ### Attachments
 - [ ] Paperclip button opens file picker

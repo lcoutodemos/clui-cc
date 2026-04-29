@@ -156,11 +156,17 @@ export interface TabState {
   title: string
   /** Last run's result data (cost, tokens, duration) */
   lastResult: RunResult | null
+  /** Current or most recent Claude Code usage payload */
+  currentUsage: UsageData | null
   /** Session metadata from init event */
   sessionModel: string | null
   sessionTools: string[]
   sessionMcpServers: Array<{ name: string; status: string }>
   sessionSkills: string[]
+  sessionPlugins: string[]
+  sessionAgents: string[]
+  sessionPermissionMode: string | null
+  sessionFastModeState: string | null
   sessionVersion: string | null
   /** Prompts waiting behind the current run (display text only) */
   queuedPrompts: string[]
@@ -190,10 +196,16 @@ export interface RunResult {
   sessionId: string
 }
 
+export interface ClaudeModelOption {
+  id: string
+  label: string
+  description?: string
+}
+
 // ─── Canonical Events (normalized from raw stream) ───
 
 export type NormalizedEvent =
-  | { type: 'session_init'; sessionId: string; tools: string[]; model: string; mcpServers: Array<{ name: string; status: string }>; skills: string[]; version: string; isWarmup?: boolean }
+  | { type: 'session_init'; sessionId: string; tools: string[]; model: string; mcpServers: Array<{ name: string; status: string }>; skills: string[]; plugins: string[]; agents: string[]; permissionMode: string | null; fastModeState: string | null; version: string; isWarmup?: boolean }
   | { type: 'text_chunk'; text: string }
   | { type: 'tool_call'; toolName: string; toolId: string; index: number }
   | { type: 'tool_call_update'; toolId: string; partialInput: string }
@@ -217,6 +229,8 @@ export interface RunOptions {
   maxBudgetUsd?: number
   systemPrompt?: string
   model?: string
+  permissionMode?: string
+  effort?: string
   /** Path to CLUI-scoped settings file with hook config (passed via --settings) */
   hookSettingsPath?: string
   /** Extra directories to add via --add-dir (session-preserving) */
@@ -338,8 +352,11 @@ export const IPC = {
   RESIZE_HEIGHT: 'clui:resize-height',
   SET_WINDOW_WIDTH: 'clui:set-window-width',
   HIDE_WINDOW: 'clui:hide-window',
+  QUIT_APP: 'clui:quit-app',
   WINDOW_SHOWN: 'clui:window-shown',
   SET_IGNORE_MOUSE_EVENTS: 'clui:set-ignore-mouse-events',
+  START_WINDOW_DRAG: 'clui:start-window-drag',
+  RESET_WINDOW_POSITION: 'clui:reset-window-position',
   IS_VISIBLE: 'clui:is-visible',
 
   // Skill provisioning (main → renderer)

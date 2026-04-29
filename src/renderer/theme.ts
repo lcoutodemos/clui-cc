@@ -1,6 +1,6 @@
 /**
- * CLUI Design Tokens — Dual theme (dark + light)
- * Colors derived from ChatCN oklch system and design-fixed.html reference.
+ * CLUI Design Tokens.
+ * Light/Dark are the original CLUI palettes. Latte/Mocha use Catppuccin palette anchors.
  */
 import { create } from 'zustand'
 
@@ -134,6 +134,10 @@ const darkColors = {
   // Permission denied card
   permissionDeniedBorder: 'rgba(196, 112, 96, 0.3)',
   permissionDeniedHeaderBorder: 'rgba(196, 112, 96, 0.12)',
+
+  // Diff (Edit tool inline diff)
+  diffRemovedBg: 'rgba(248, 81, 73, 0.1)',
+  diffAddedBg: 'rgba(63, 185, 80, 0.1)',
 } as const
 
 const lightColors = {
@@ -264,13 +268,173 @@ const lightColors = {
   // Permission denied card
   permissionDeniedBorder: 'rgba(196, 112, 96, 0.3)',
   permissionDeniedHeaderBorder: 'rgba(196, 112, 96, 0.12)',
+
+  // Diff (Edit tool inline diff)
+  diffRemovedBg: 'rgba(248, 81, 73, 0.15)',
+  diffAddedBg: 'rgba(63, 185, 80, 0.15)',
+} as const
+
+const latteColors = {
+  ...lightColors,
+  containerBg: '#eff1f5',
+  containerBgCollapsed: '#e6e9ef',
+  containerBorder: '#ccd0da',
+  containerShadow: '0 8px 28px rgba(76, 79, 105, 0.14), 0 1px 6px rgba(76, 79, 105, 0.08)',
+  cardShadow: '0 2px 8px rgba(76, 79, 105, 0.10)',
+  cardShadowCollapsed: '0 2px 6px rgba(76, 79, 105, 0.12)',
+  surfacePrimary: '#e6e9ef',
+  surfaceSecondary: '#ccd0da',
+  surfaceHover: 'rgba(76, 79, 105, 0.06)',
+  surfaceActive: 'rgba(76, 79, 105, 0.09)',
+  inputBorder: '#bcc0cc',
+  inputFocusBorder: 'rgba(254, 100, 11, 0.38)',
+  inputPillBg: '#eff1f5',
+  textPrimary: '#4c4f69',
+  textSecondary: '#5c5f77',
+  textTertiary: '#7c7f93',
+  textMuted: '#bcc0cc',
+  accent: '#fe640b',
+  accentLight: 'rgba(254, 100, 11, 0.10)',
+  accentSoft: 'rgba(254, 100, 11, 0.14)',
+  statusIdle: '#8c8fa1',
+  statusRunning: '#fe640b',
+  statusRunningBg: 'rgba(254, 100, 11, 0.10)',
+  statusComplete: '#40a02b',
+  statusCompleteBg: 'rgba(64, 160, 43, 0.10)',
+  statusError: '#d20f39',
+  statusErrorBg: 'rgba(210, 15, 57, 0.07)',
+  statusDead: '#d20f39',
+  statusPermission: '#fe640b',
+  statusPermissionGlow: 'rgba(254, 100, 11, 0.30)',
+  tabActive: '#e6e9ef',
+  tabActiveBorder: '#bcc0cc',
+  tabHover: 'rgba(76, 79, 105, 0.06)',
+  userBubble: '#e6e9ef',
+  userBubbleBorder: '#bcc0cc',
+  userBubbleText: '#4c4f69',
+  toolBg: '#e6e9ef',
+  toolBorder: '#bcc0cc',
+  toolRunningBorder: 'rgba(254, 100, 11, 0.28)',
+  toolRunningBg: 'rgba(254, 100, 11, 0.06)',
+  timelineLine: '#ccd0da',
+  timelineNode: 'rgba(254, 100, 11, 0.20)',
+  timelineNodeActive: '#fe640b',
+  sendBg: '#fe640b',
+  sendHover: '#df8e1d',
+  sendDisabled: 'rgba(254, 100, 11, 0.30)',
+  popoverBg: '#eff1f5',
+  popoverBorder: '#ccd0da',
+  popoverShadow: '0 4px 20px rgba(76, 79, 105, 0.16), 0 1px 4px rgba(76, 79, 105, 0.08)',
+  codeBg: '#e6e9ef',
+  micBg: '#e6e9ef',
+  micColor: '#5c5f77',
+  micDisabled: '#ccd0da',
+  placeholder: '#9ca0b0',
+  btnDisabled: '#bcc0cc',
+  textOnAccent: '#eff1f5',
+  btnHoverColor: '#4c4f69',
+  btnHoverBg: '#e6e9ef',
+  accentBorder: 'rgba(254, 100, 11, 0.19)',
+  accentBorderMedium: 'rgba(254, 100, 11, 0.25)',
+  permissionBorder: 'rgba(223, 142, 29, 0.30)',
+  permissionShadow: '0 2px 12px rgba(223, 142, 29, 0.08)',
+  permissionHeaderBg: 'rgba(223, 142, 29, 0.08)',
+  permissionHeaderBorder: 'rgba(223, 142, 29, 0.15)',
+  permissionAllowBg: 'rgba(64, 160, 43, 0.10)',
+  permissionAllowHoverBg: 'rgba(64, 160, 43, 0.20)',
+  permissionAllowBorder: 'rgba(64, 160, 43, 0.25)',
+  permissionDenyBg: 'rgba(210, 15, 57, 0.08)',
+  permissionDenyHoverBg: 'rgba(210, 15, 57, 0.16)',
+  permissionDenyBorder: 'rgba(210, 15, 57, 0.22)',
+  permissionDeniedBorder: 'rgba(210, 15, 57, 0.30)',
+  permissionDeniedHeaderBorder: 'rgba(210, 15, 57, 0.12)',
+  diffRemovedBg: 'rgba(210, 15, 57, 0.12)',
+  diffAddedBg: 'rgba(64, 160, 43, 0.12)',
+} as const
+
+const mochaColors = {
+  ...darkColors,
+  containerBg: '#1e1e2e',
+  containerBgCollapsed: '#181825',
+  containerBorder: '#45475a',
+  containerShadow: '0 8px 28px rgba(17, 17, 27, 0.55), 0 1px 6px rgba(17, 17, 27, 0.35)',
+  cardShadow: '0 2px 8px rgba(17, 17, 27, 0.45)',
+  cardShadowCollapsed: '0 2px 6px rgba(17, 17, 27, 0.50)',
+  surfacePrimary: '#313244',
+  surfaceSecondary: '#45475a',
+  surfaceHover: 'rgba(205, 214, 244, 0.06)',
+  surfaceActive: 'rgba(205, 214, 244, 0.09)',
+  inputBorder: '#45475a',
+  inputFocusBorder: 'rgba(250, 179, 135, 0.42)',
+  inputPillBg: '#181825',
+  textPrimary: '#cdd6f4',
+  textSecondary: '#bac2de',
+  textTertiary: '#9399b2',
+  textMuted: '#585b70',
+  accent: '#fab387',
+  accentLight: 'rgba(250, 179, 135, 0.10)',
+  accentSoft: 'rgba(250, 179, 135, 0.15)',
+  statusIdle: '#9399b2',
+  statusRunning: '#fab387',
+  statusRunningBg: 'rgba(250, 179, 135, 0.10)',
+  statusComplete: '#a6e3a1',
+  statusCompleteBg: 'rgba(166, 227, 161, 0.10)',
+  statusError: '#f38ba8',
+  statusErrorBg: 'rgba(243, 139, 168, 0.09)',
+  statusDead: '#f38ba8',
+  statusPermission: '#fab387',
+  statusPermissionGlow: 'rgba(250, 179, 135, 0.38)',
+  tabActive: '#313244',
+  tabActiveBorder: '#585b70',
+  tabHover: 'rgba(205, 214, 244, 0.06)',
+  userBubble: '#313244',
+  userBubbleBorder: '#585b70',
+  userBubbleText: '#cdd6f4',
+  toolBg: '#313244',
+  toolBorder: '#585b70',
+  toolRunningBorder: 'rgba(250, 179, 135, 0.30)',
+  toolRunningBg: 'rgba(250, 179, 135, 0.06)',
+  timelineLine: '#313244',
+  timelineNode: 'rgba(250, 179, 135, 0.22)',
+  timelineNodeActive: '#fab387',
+  sendBg: '#fab387',
+  sendHover: '#f9e2af',
+  sendDisabled: 'rgba(250, 179, 135, 0.30)',
+  popoverBg: '#1e1e2e',
+  popoverBorder: '#45475a',
+  popoverShadow: '0 4px 20px rgba(17, 17, 27, 0.48), 0 1px 4px rgba(17, 17, 27, 0.32)',
+  codeBg: '#11111b',
+  micBg: '#313244',
+  micColor: '#bac2de',
+  micDisabled: '#45475a',
+  placeholder: '#7f849c',
+  btnDisabled: '#45475a',
+  textOnAccent: '#1e1e2e',
+  btnHoverColor: '#cdd6f4',
+  btnHoverBg: '#313244',
+  accentBorder: 'rgba(250, 179, 135, 0.20)',
+  accentBorderMedium: 'rgba(250, 179, 135, 0.28)',
+  permissionBorder: 'rgba(249, 226, 175, 0.30)',
+  permissionShadow: '0 2px 12px rgba(249, 226, 175, 0.08)',
+  permissionHeaderBg: 'rgba(249, 226, 175, 0.07)',
+  permissionHeaderBorder: 'rgba(249, 226, 175, 0.14)',
+  permissionAllowBg: 'rgba(166, 227, 161, 0.10)',
+  permissionAllowHoverBg: 'rgba(166, 227, 161, 0.20)',
+  permissionAllowBorder: 'rgba(166, 227, 161, 0.25)',
+  permissionDenyBg: 'rgba(243, 139, 168, 0.08)',
+  permissionDenyHoverBg: 'rgba(243, 139, 168, 0.17)',
+  permissionDenyBorder: 'rgba(243, 139, 168, 0.22)',
+  permissionDeniedBorder: 'rgba(243, 139, 168, 0.30)',
+  permissionDeniedHeaderBorder: 'rgba(243, 139, 168, 0.12)',
+  diffRemovedBg: 'rgba(243, 139, 168, 0.11)',
+  diffAddedBg: 'rgba(166, 227, 161, 0.11)',
 } as const
 
 export type ColorPalette = { [K in keyof typeof darkColors]: string }
 
 // ─── Theme store ───
 
-export type ThemeMode = 'system' | 'light' | 'dark'
+export type ThemeMode = 'system' | 'light' | 'latte' | 'dark' | 'mocha'
 
 interface ThemeState {
   isDark: boolean
@@ -300,10 +464,29 @@ function syncTokensToCss(tokens: ColorPalette): void {
   }
 }
 
-function applyTheme(isDark: boolean): void {
+const themePalettes = {
+  light: lightColors,
+  latte: latteColors,
+  dark: darkColors,
+  mocha: mochaColors,
+} as const
+
+function paletteForMode(mode: ThemeMode, systemIsDark: boolean): ColorPalette {
+  if (mode === 'system') return systemIsDark ? darkColors : lightColors
+  return themePalettes[mode]
+}
+
+function isDarkTheme(mode: ThemeMode, systemIsDark: boolean): boolean {
+  if (mode === 'system') return systemIsDark
+  return mode === 'dark' || mode === 'mocha'
+}
+
+function applyTheme(mode: ThemeMode, systemIsDark: boolean): void {
+  const isDark = isDarkTheme(mode, systemIsDark)
   document.documentElement.classList.toggle('dark', isDark)
   document.documentElement.classList.toggle('light', !isDark)
-  syncTokensToCss(isDark ? darkColors : lightColors)
+  document.documentElement.dataset.theme = mode === 'system' ? (systemIsDark ? 'dark' : 'light') : mode
+  syncTokensToCss(paletteForMode(mode, systemIsDark))
 }
 
 const SETTINGS_KEY = 'clui-settings'
@@ -314,7 +497,7 @@ function loadSettings(): { themeMode: ThemeMode; soundEnabled: boolean; expanded
     if (raw) {
       const parsed = JSON.parse(raw)
       return {
-        themeMode: ['light', 'dark'].includes(parsed.themeMode) ? parsed.themeMode : 'dark',
+        themeMode: ['light', 'latte', 'dark', 'mocha', 'system'].includes(parsed.themeMode) ? parsed.themeMode : 'dark',
         soundEnabled: typeof parsed.soundEnabled === 'boolean' ? parsed.soundEnabled : true,
         expandedUI: typeof parsed.expandedUI === 'boolean' ? parsed.expandedUI : false,
       }
@@ -331,19 +514,21 @@ function saveSettings(s: { themeMode: ThemeMode; soundEnabled: boolean; expanded
 const saved = { ...loadSettings(), expandedUI: false }
 
 export const useThemeStore = create<ThemeState>((set, get) => ({
-  isDark: saved.themeMode === 'dark' ? true : saved.themeMode === 'light' ? false : true,
+  isDark: isDarkTheme(saved.themeMode, true),
   themeMode: saved.themeMode,
   soundEnabled: saved.soundEnabled,
   expandedUI: saved.expandedUI,
   _systemIsDark: true,
   setIsDark: (isDark) => {
-    set({ isDark })
-    applyTheme(isDark)
+    const themeMode = isDark ? 'dark' : 'light'
+    set({ themeMode, isDark })
+    applyTheme(themeMode, get()._systemIsDark)
+    saveSettings({ themeMode, soundEnabled: get().soundEnabled, expandedUI: get().expandedUI })
   },
   setThemeMode: (mode) => {
-    const resolved = mode === 'system' ? get()._systemIsDark : mode === 'dark'
+    const resolved = isDarkTheme(mode, get()._systemIsDark)
     set({ themeMode: mode, isDark: resolved })
-    applyTheme(resolved)
+    applyTheme(mode, get()._systemIsDark)
     saveSettings({ themeMode: mode, soundEnabled: get().soundEnabled, expandedUI: get().expandedUI })
   },
   setSoundEnabled: (enabled) => {
@@ -359,18 +544,19 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
     // Only apply if following system
     if (get().themeMode === 'system') {
       set({ isDark })
-      applyTheme(isDark)
+      applyTheme('system', isDark)
     }
   },
 }))
 
 // Initialize CSS vars with saved theme
-syncTokensToCss(saved.themeMode === 'light' ? lightColors : darkColors)
+applyTheme(saved.themeMode, true)
 
 /** Reactive hook — returns the active color palette */
 export function useColors(): ColorPalette {
-  const isDark = useThemeStore((s) => s.isDark)
-  return isDark ? darkColors : lightColors
+  const themeMode = useThemeStore((s) => s.themeMode)
+  const systemIsDark = useThemeStore((s) => s._systemIsDark)
+  return paletteForMode(themeMode, systemIsDark)
 }
 
 /** Non-reactive getter — use outside React components */

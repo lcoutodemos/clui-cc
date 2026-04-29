@@ -53,6 +53,10 @@ function normalizeSystem(event: InitEvent): NormalizedEvent[] {
     model: event.model || 'unknown',
     mcpServers: event.mcp_servers || [],
     skills: event.skills || [],
+    plugins: event.plugins || [],
+    agents: event.agents || [],
+    permissionMode: event.permissionMode || null,
+    fastModeState: event.fast_mode_state || null,
     version: event.claude_code_version || 'unknown',
   }]
 }
@@ -97,8 +101,10 @@ function normalizeStreamEvent(event: StreamEvent): NormalizedEvent[] {
       }]
     }
 
-    case 'message_start':
     case 'message_delta':
+      return sub.usage ? [{ type: 'usage', usage: sub.usage }] : []
+
+    case 'message_start':
     case 'message_stop':
       // These are structural events — the assembled `assistant` event handles message completion
       return []

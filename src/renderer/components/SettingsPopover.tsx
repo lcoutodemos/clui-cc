@@ -1,8 +1,8 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { motion } from 'framer-motion'
-import { DotsThree, Bell, ArrowsOutSimple, Moon } from '@phosphor-icons/react'
-import { useThemeStore } from '../theme'
+import { DotsThree, Bell, ArrowsOutSimple, Moon, EyeSlash, Power, Check } from '@phosphor-icons/react'
+import { useThemeStore, type ThemeMode } from '../theme'
 import { useSessionStore } from '../stores/sessionStore'
 import { usePopoverLayer } from './PopoverLayer'
 import { useColors } from '../theme'
@@ -38,6 +38,47 @@ function RowToggle({
         }}
       />
     </button>
+  )
+}
+
+const THEME_OPTIONS: Array<{ mode: ThemeMode; label: string }> = [
+  { mode: 'light', label: 'Light' },
+  { mode: 'latte', label: 'Latte' },
+  { mode: 'dark', label: 'Dark' },
+  { mode: 'mocha', label: 'Mocha' },
+]
+
+function ThemePicker({
+  value,
+  onChange,
+  colors,
+}: {
+  value: ThemeMode
+  onChange: (mode: ThemeMode) => void
+  colors: ReturnType<typeof useColors>
+}) {
+  return (
+    <div className="grid grid-cols-4 gap-1 rounded-lg p-1" style={{ background: colors.surfaceHover }}>
+      {THEME_OPTIONS.map((option) => {
+        const selected = value === option.mode
+        return (
+          <button
+            key={option.mode}
+            type="button"
+            onClick={() => onChange(option.mode)}
+            className="flex items-center justify-center gap-1 rounded-md px-1.5 py-1 text-[10px] font-medium transition-colors"
+            style={{
+              color: selected ? colors.textPrimary : colors.textTertiary,
+              background: selected ? colors.surfaceActive : 'transparent',
+              border: `1px solid ${selected ? colors.containerBorder : 'transparent'}`,
+            }}
+          >
+            {selected && <Check size={10} style={{ color: colors.accent }} />}
+            {option.label}
+          </button>
+        )
+      })}
+    </div>
   )
 }
 
@@ -206,20 +247,51 @@ export function SettingsPopover() {
 
             {/* Theme */}
             <div>
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2 min-w-0">
-                  <Moon size={14} style={{ color: colors.textTertiary }} />
-                  <div className="text-[12px] font-medium" style={{ color: colors.textPrimary }}>
-                    Dark theme
-                  </div>
+              <div className="flex items-center gap-2 min-w-0 mb-2">
+                <Moon size={14} style={{ color: colors.textTertiary }} />
+                <div className="text-[12px] font-medium" style={{ color: colors.textPrimary }}>
+                  Theme
                 </div>
-                <RowToggle
-                  checked={themeMode === 'dark'}
-                  onChange={(next) => setThemeMode(next ? 'dark' : 'light')}
-                  colors={colors}
-                  label="Toggle dark theme"
-                />
               </div>
+              <ThemePicker
+                value={themeMode === 'system' ? 'dark' : themeMode}
+                onChange={setThemeMode}
+                colors={colors}
+              />
+            </div>
+
+            <div style={{ height: 1, background: colors.popoverBorder }} />
+
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setOpen(false)
+                  window.clui.hideWindow()
+                }}
+                className="flex items-center justify-center gap-1.5 rounded-lg px-2 py-1.5 text-[11px] font-medium"
+                style={{
+                  color: colors.textSecondary,
+                  border: `1px solid ${colors.containerBorder}`,
+                  background: 'transparent',
+                }}
+              >
+                <EyeSlash size={13} />
+                Hide
+              </button>
+              <button
+                type="button"
+                onClick={() => window.clui.quitApp()}
+                className="flex items-center justify-center gap-1.5 rounded-lg px-2 py-1.5 text-[11px] font-medium"
+                style={{
+                  color: colors.statusError,
+                  border: `1px solid ${colors.containerBorder}`,
+                  background: colors.statusErrorBg,
+                }}
+              >
+                <Power size={13} />
+                Quit
+              </button>
             </div>
           </div>
         </motion.div>,

@@ -1,10 +1,10 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { IPC } from '../shared/types'
-import type { RunOptions, NormalizedEvent, HealthReport, EnrichedError, Attachment, SessionMeta, CatalogPlugin, SessionLoadMessage } from '../shared/types'
+import type { RunOptions, NormalizedEvent, HealthReport, EnrichedError, Attachment, SessionMeta, CatalogPlugin, SessionLoadMessage, ClaudeModelOption } from '../shared/types'
 
 export interface CluiAPI {
   // ─── Request-response (renderer → main) ───
-  start(): Promise<{ version: string; auth: { email?: string; subscriptionType?: string; authMethod?: string }; mcpServers: string[]; projectPath: string; homePath: string }>
+  start(): Promise<{ version: string; auth: { email?: string; subscriptionType?: string; authMethod?: string }; mcpServers: string[]; installedExtensions: string[]; availableModels: ClaudeModelOption[]; projectPath: string; homePath: string }>
   createTab(): Promise<{ tabId: string }>
   prompt(tabId: string, requestId: string, options: RunOptions): Promise<void>
   cancel(requestId: string): Promise<boolean>
@@ -39,9 +39,14 @@ export interface CluiAPI {
   setWindowWidth(width: number): void
   animateHeight(from: number, to: number, durationMs: number): Promise<void>
   hideWindow(): void
+  quitApp(): void
   isVisible(): Promise<boolean>
   /** OS-level click-through for transparent window regions */
   setIgnoreMouseEvents(ignore: boolean, options?: { forward?: boolean }): void
+  /** Manual window drag for frameless windows */
+  startWindowDrag(deltaX: number, deltaY: number): void
+  /** Reset overlay to its default bottom-center position */
+  resetWindowPosition(): void
 
   // ─── Event listeners (main → renderer) ───
   onEvent(callback: (tabId: string, event: NormalizedEvent) => void): () => void
@@ -95,9 +100,13 @@ const api: CluiAPI = {
   animateHeight: (from, to, durationMs) =>
     ipcRenderer.invoke(IPC.ANIMATE_HEIGHT, { from, to, durationMs }),
   hideWindow: () => ipcRenderer.send(IPC.HIDE_WINDOW),
+  quitApp: () => ipcRenderer.send(IPC.QUIT_APP),
   isVisible: () => ipcRenderer.invoke(IPC.IS_VISIBLE),
   setIgnoreMouseEvents: (ignore, options) =>
     ipcRenderer.send(IPC.SET_IGNORE_MOUSE_EVENTS, ignore, options || {}),
+  startWindowDrag: (deltaX, deltaY) =>
+    ipcRenderer.send(IPC.START_WINDOW_DRAG, deltaX, deltaY),
+  resetWindowPosition: () => ipcRenderer.send(IPC.RESET_WINDOW_POSITION),
   setWindowWidth: (width) => ipcRenderer.send(IPC.SET_WINDOW_WIDTH, width),
 
   // ─── Event listeners ───

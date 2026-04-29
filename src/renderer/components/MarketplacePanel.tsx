@@ -13,14 +13,25 @@ export function MarketplacePanel() {
   const pluginStates = useSessionStore((s) => s.marketplacePluginStates)
   const search = useSessionStore((s) => s.marketplaceSearch)
   const filter = useSessionStore((s) => s.marketplaceFilter)
+  const installedNames = useSessionStore((s) => s.marketplaceInstalledNames)
+  const staticInfo = useSessionStore((s) => s.staticInfo)
   const closeMarketplace = useSessionStore((s) => s.closeMarketplace)
   const setSearch = useSessionStore((s) => s.setMarketplaceSearch)
   const setFilter = useSessionStore((s) => s.setMarketplaceFilter)
   const loadMarketplace = useSessionStore((s) => s.loadMarketplace)
   const buildYourOwn = useSessionStore((s) => s.buildYourOwn)
+  const setDraftPrompt = useSessionStore((s) => s.setDraftPrompt)
 
   const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [view, setView] = useState<'browse' | 'installed'>('browse')
   const scrollContainerRef = useRef<HTMLDivElement>(null)
+  const installedSkillNames = useMemo(() => {
+    const names = [...installedNames, ...(staticInfo?.installedExtensions || [])]
+    return [...new Set(names)]
+      .filter((name) => /^[a-zA-Z][\w-]*$/.test(name))
+      .sort((a, b) => a.localeCompare(b))
+  }, [installedNames, staticInfo?.installedExtensions])
+  const mcpServers = staticInfo?.mcpServers || []
 
   // Derive filter chips dynamically from catalog semantic tags, sorted by frequency
   const filters = useMemo(() => {
@@ -39,15 +50,15 @@ export function MarketplacePanel() {
 
   // Debounced search
   const [localSearch, setLocalSearch] = useState(search)
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>()
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const handleSearchChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value
     setLocalSearch(val)
-    clearTimeout(debounceRef.current)
+    if (debounceRef.current) clearTimeout(debounceRef.current)
     debounceRef.current = setTimeout(() => setSearch(val), 200)
   }, [setSearch])
 
-  useEffect(() => () => clearTimeout(debounceRef.current), [])
+  useEffect(() => () => { if (debounceRef.current) clearTimeout(debounceRef.current) }, [])
 
   // Filtered plugins
   const lowerSearch = localSearch.toLowerCase()
@@ -117,7 +128,9 @@ export function MarketplacePanel() {
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <span style={{ fontSize: 11, color: colors.textTertiary }}>
-            {filtered.length} result{filtered.length === 1 ? '' : 's'}
+            {view === 'browse'
+              ? `${filtered.length} result${filtered.length === 1 ? '' : 's'}`
+              : `${installedSkillNames.length} installed / ${mcpServers.length} MCP`}
           </span>
           <button
             onClick={() => loadMarketplace(true)}
@@ -151,6 +164,31 @@ export function MarketplacePanel() {
         </div>
       </div>
 
+      <div style={{ padding: '10px 18px 0', display: 'flex', gap: 6 }}>
+        {(['browse', 'installed'] as const).map((mode) => (
+          <button
+            key={mode}
+            onClick={() => setView(mode)}
+            style={{
+              fontSize: 11,
+              fontWeight: 600,
+              padding: '6px 11px',
+              borderRadius: 999,
+              border: `1px solid ${view === mode ? colors.accent : colors.containerBorder}`,
+              background: view === mode ? colors.accentLight : 'transparent',
+              color: view === mode ? colors.accent : colors.textSecondary,
+              cursor: 'pointer',
+              fontFamily: 'inherit',
+              textTransform: 'capitalize',
+            }}
+          >
+            {mode}
+          </button>
+        ))}
+      </div>
+
+      {view === 'browse' && (
+        <>
       {/* Search + Build your own */}
       <div style={{ padding: '12px 18px 10px', display: 'flex', gap: 8, alignItems: 'center' }}>
         <div style={{
@@ -234,10 +272,26 @@ export function MarketplacePanel() {
           </button>
         ))}
       </div>
+        </>
+      )}
 
       {/* Body */}
       <div ref={scrollContainerRef} style={{ flex: 1, overflowY: 'auto', padding: '0 18px', scrollbarWidth: 'thin' }}>
-        {loading ? (
+        {view === 'installed' ? (
+          <InstalledInventory
+            skills={installedSkillNames}
+            mcpServers={mcpServers}
+            colors={colors}
+            onUseSkill={(name) => {
+              setDraftPrompt(`/${name} `)
+              closeMarketplace()
+            }}
+            onShowMcp={() => {
+              setDraftPrompt('/mcp')
+              closeMarketplace()
+            }}
+          />
+        ) : loading ? (
           <LoadingState colors={colors} />
         ) : error ? (
           <ErrorState error={error} colors={colors} onRetry={() => loadMarketplace(true)} />
@@ -270,6 +324,120 @@ export function MarketplacePanel() {
       </div>
 
     </div>
+  )
+}
+
+function InstalledInventory({ skills, mcpServers, colors, onUseSkill, onShowMcp }: {
+  skills: string[]
+  mcpServers: string[]
+  colors: ReturnType<typeof useColors>
+  onUseSkill: (name: string) => void
+  onShowMcp: () => void
+}) {
+  return (
+    <div style={{ padding: '12px 0 8px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <InventorySection
+        title={`Installed skills and plugins (${skills.length})`}
+        empty="No installed skills or plugins found"
+        isEmpty={skills.length === 0}
+        colors={colors}
+      >
+        {skills.map((name) => (
+          <div key={name} style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 10,
+            padding: '9px 10px',
+            borderRadius: 10,
+            border: `1px solid ${colors.containerBorder}`,
+            background: colors.surfaceHover,
+          }}>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: colors.textPrimary }}>{name}</div>
+              <div style={{ fontSize: 10, color: colors.textTertiary, marginTop: 2 }}>/{name}</div>
+            </div>
+            <button
+              onClick={() => onUseSkill(name)}
+              style={{
+                flexShrink: 0,
+                fontSize: 10,
+                fontWeight: 600,
+                padding: '4px 9px',
+                borderRadius: 8,
+                border: `1px solid ${colors.accentBorder}`,
+                background: colors.accentLight,
+                color: colors.accent,
+                cursor: 'pointer',
+                fontFamily: 'inherit',
+              }}
+            >
+              Use
+            </button>
+          </div>
+        ))}
+      </InventorySection>
+
+      <InventorySection
+        title={`Configured MCP servers (${mcpServers.length})`}
+        empty="No MCP servers configured"
+        isEmpty={mcpServers.length === 0}
+        colors={colors}
+      >
+        {mcpServers.map((server, index) => (
+          <div key={`${server}-${index}`} style={{
+            padding: '9px 10px',
+            borderRadius: 10,
+            border: `1px solid ${colors.containerBorder}`,
+            background: colors.surfaceHover,
+          }}>
+            <div style={{ fontSize: 11, color: colors.textSecondary, lineHeight: 1.45, overflowWrap: 'anywhere' }}>
+              {server}
+            </div>
+          </div>
+        ))}
+        {mcpServers.length > 0 && (
+          <button
+            onClick={onShowMcp}
+            style={{
+              alignSelf: 'flex-start',
+              fontSize: 10,
+              fontWeight: 600,
+              padding: '5px 10px',
+              borderRadius: 8,
+              border: `1px solid ${colors.containerBorder}`,
+              background: 'transparent',
+              color: colors.textSecondary,
+              cursor: 'pointer',
+              fontFamily: 'inherit',
+            }}
+          >
+            Insert /mcp
+          </button>
+        )}
+      </InventorySection>
+    </div>
+  )
+}
+
+function InventorySection({ title, empty, isEmpty, colors, children }: {
+  title: string
+  empty: string
+  isEmpty: boolean
+  colors: ReturnType<typeof useColors>
+  children: React.ReactNode
+}) {
+  return (
+    <section>
+      <div style={{ fontSize: 11, fontWeight: 700, color: colors.textPrimary, marginBottom: 8 }}>
+        {title}
+      </div>
+      {isEmpty ? (
+        <div style={{ fontSize: 11, color: colors.textTertiary, padding: '10px 0' }}>{empty}</div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>{children}</div>
+      )}
+    </section>
   )
 }
 

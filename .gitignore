@@ -3,6 +3,7 @@ node_modules/
 dist/
 out/
 build/
+release/
 *.tsbuildinfo
 
 # OS artifacts
@@ -28,6 +29,9 @@ Desktop.ini
 # Logs
 *.log
 ~/.clui-debug.log
+
+# Runtime
+.clui.pid
 
 # Temporary files
 *.tmp

@@ -132,9 +132,9 @@ Single Zustand store (`stores/sessionStore.ts`) holds all application state:
 
 ### Theme System (`theme.ts`)
 
-Dual color palette (dark + light) defined as JS objects. `useColors()` hook returns the active palette reactively. All tokens are synced to CSS custom properties via `syncTokensToCss()` so CSS files can reference `var(--clui-*)`.
+Four color palettes (Light, Latte, Dark, Mocha) are defined as JS objects. `useColors()` hook returns the active palette reactively. All tokens are synced to CSS custom properties via `syncTokensToCss()` so CSS files can reference `var(--clui-*)`.
 
-Theme mode state machine: `system | light | dark` with separate `_systemIsDark` tracking for OS value.
+Theme mode state machine: `system | light | latte | dark | mocha` with separate `_systemIsDark` tracking for OS value.
 
 ### Key Components
 
