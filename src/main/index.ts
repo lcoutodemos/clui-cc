@@ -1,6 +1,6 @@
 import { app, BrowserWindow, ipcMain, dialog, screen, globalShortcut, Tray, Menu, nativeImage, nativeTheme, shell, systemPreferences, session } from 'electron'
 import { join } from 'path'
-import { existsSync, readdirSync, statSync, createReadStream, readFileSync } from 'fs'
+import { existsSync, readdirSync, statSync, createReadStream, readFileSync, writeFileSync } from 'fs'
 import { createInterface } from 'readline'
 import { homedir } from 'os'
 import { ControlPlane } from './claude/control-plane'
@@ -58,6 +58,7 @@ let tray: Tray | null = null
 let screenshotCounter = 0
 let toggleSequence = 0
 let lastWindowBounds: Electron.Rectangle | null = null
+let keepOnTop = false
 
 // Feature flag: enable PTY interactive permissions transport
 const INTERACTIVE_PTY = process.env.CLUI_INTERACTIVE_PERMISSIONS_PTY === '1'
@@ -328,6 +329,7 @@ function createWindow(): void {
 
   // Keep the app available across Spaces without forcing it above every app.
   mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+  applyKeepOnTop()
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   mainWindow.webContents.on('will-navigate', (event) => {
     event.preventDefault()
@@ -376,6 +378,7 @@ function showWindow(source = 'unknown'): void {
   // and must be set before show() so the window joins the active Space, not its
   // last-known Space.
   mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+  applyKeepOnTop()
 
   if (SPACES_DEBUG) {
     const b = mainWindow.getBounds()
@@ -392,6 +395,55 @@ function showWindow(source = 'unknown'): void {
   mainWindow.webContents.focus()
   broadcast(IPC.WINDOW_SHOWN)
   if (SPACES_DEBUG) scheduleToggleSnapshots(toggleId, 'show')
+}
+
+function windowPrefsPath(): string {
+  return join(app.getPath('userData'), 'window-prefs.json')
+}
+
+function loadWindowPrefs(): void {
+  try {
+    const raw = readFileSync(windowPrefsPath(), 'utf-8')
+    const parsed = JSON.parse(raw) as { keepOnTop?: unknown }
+    keepOnTop = parsed.keepOnTop === true
+  } catch {}
+}
+
+function saveWindowPrefs(): void {
+  try {
+    writeFileSync(windowPrefsPath(), JSON.stringify({ keepOnTop }, null, 2))
+  } catch {}
+}
+
+function applyKeepOnTop(): void {
+  if (!mainWindow || mainWindow.isDestroyed()) return
+  mainWindow.setAlwaysOnTop(keepOnTop, keepOnTop ? 'floating' : 'normal')
+}
+
+function setKeepOnTop(next: boolean): void {
+  keepOnTop = next
+  applyKeepOnTop()
+  saveWindowPrefs()
+  refreshTrayMenu()
+}
+
+function refreshTrayMenu(): void {
+  if (!tray) return
+  tray.setContextMenu(
+    Menu.buildFromTemplate([
+      { label: 'Show Clui CC', click: () => showWindow('tray menu') },
+      { label: 'Hide Clui CC', click: () => mainWindow?.hide() },
+      { type: 'separator' },
+      {
+        label: 'Keep on Top',
+        type: 'checkbox',
+        checked: keepOnTop,
+        click: () => setKeepOnTop(!keepOnTop),
+      },
+      { type: 'separator' },
+      { label: 'Quit', click: () => { app.quit() } },
+    ])
+  )
 }
 
 function resetWindowPosition(): void {
@@ -1279,6 +1331,7 @@ app.whenReady().then(async () => {
   await requestPermissions()
 
   installContentSecurityPolicy()
+  loadWindowPrefs()
 
   // Skill provisioning — non-blocking, streams status to renderer
   ensureSkills((status: SkillStatus) => {
@@ -1329,14 +1382,7 @@ app.whenReady().then(async () => {
   tray = new Tray(trayIcon)
   tray.setToolTip('Clui CC — Claude Code UI')
   tray.on('click', () => toggleWindow('tray click'))
-  tray.setContextMenu(
-    Menu.buildFromTemplate([
-      { label: 'Show Clui CC', click: () => showWindow('tray menu') },
-      { label: 'Hide Clui CC', click: () => mainWindow?.hide() },
-      { type: 'separator' },
-      { label: 'Quit', click: () => { app.quit() } },
-    ])
-  )
+  refreshTrayMenu()
 
   // app 'activate' fires when macOS brings the app to the foreground (e.g. after
   // webContents.focus() triggers applicationDidBecomeActive on some macOS versions).
