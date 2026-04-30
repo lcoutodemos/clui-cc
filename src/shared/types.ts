@@ -223,6 +223,10 @@ export type NormalizedEvent =
 export interface RunOptions {
   prompt: string
   projectPath: string
+  /** Renderer timestamp for send-click/send-key latency measurement */
+  clientSentAt?: number
+  /** Main-process IPC receipt timestamp for wrapper overhead measurement */
+  ipcReceivedAt?: number
   sessionId?: string
   allowedTools?: string[]
   maxTurns?: number

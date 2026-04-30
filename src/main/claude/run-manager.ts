@@ -1,5 +1,6 @@
 import { spawn, execSync, ChildProcess } from 'child_process'
 import { EventEmitter } from 'events'
+import { writeFileSync } from 'fs'
 import { homedir } from 'os'
 import { join } from 'path'
 import { StreamParser } from '../stream-parser'
@@ -10,30 +11,11 @@ import type { ClaudeEvent, NormalizedEvent, RunOptions, EnrichedError } from '..
 
 const MAX_RING_LINES = 100
 const DEBUG = process.env.CLUI_DEBUG === '1'
+const LAST_RUN_DIAGNOSTICS_FILE = join(homedir(), '.clui-last-run.json')
 
-// Appended to Claude's default system prompt so it knows it's running inside CLUI.
-// Uses --append-system-prompt (additive) not --system-prompt (replacement).
-const CLUI_SYSTEM_HINT = [
-  'IMPORTANT: You are NOT running in a terminal. You are running inside CLUI,',
-  'a desktop chat application with a rich UI that renders full markdown.',
-  'CLUI is a GUI wrapper around Claude Code — the user sees your output in a',
-  'styled conversation view, not a raw terminal.',
-  '',
-  'Because CLUI renders markdown natively, you MUST use rich formatting when it helps:',
-  '- Always use clickable markdown links: [label](https://url) — they render as real buttons.',
-  '- When the user asks for images, and public web images are appropriate, proactively find and render them in CLUI.',
-  '- Workflow: WebSearch for relevant public pages -> WebFetch those pages -> extract real image URLs -> render with markdown ![alt](url).',
-  '- Do not guess, fabricate, or construct image URLs from memory.',
-  '- Only embed images when the URL is a real publicly accessible image URL found through tools or explicitly provided by the user.',
-  '- If real image URLs cannot be obtained confidently, fall back to clickable links and briefly say so.',
-  '- Do not ask whether CLUI can render images; assume it can.',
-  '- Use tables, bold, headers, and bullet lists freely — they all render beautifully.',
-  '- Use code blocks with language tags for syntax highlighting.',
-  '',
-  'You are still a software engineering assistant. Keep using your tools (Read, Edit, Bash, etc.)',
-  'normally. But when presenting information, links, resources, or explanations to the user,',
-  'take full advantage of the rich UI. The user expects a polished chat experience, not raw terminal text.',
-].join('\n')
+// Default to native Claude Code behavior. Set CLUI_SYSTEM_HINT to append an
+// explicit, measurable wrapper hint for local experiments.
+const CLUI_SYSTEM_HINT = (process.env.CLUI_SYSTEM_HINT || '').trim()
 
 // Tools auto-approved via --allowedTools (never trigger the permission card).
 // Includes routine internal agent mechanics (Agent, Task, TaskOutput, TodoWrite,
@@ -66,6 +48,8 @@ export interface RunHandle {
   process: ChildProcess
   pid: number | null
   startedAt: number
+  spawnedAt: number
+  diagnostics: RunDiagnostics
   /** Ring buffer of last N stderr lines */
   stderrTail: string[]
   /** Ring buffer of last N stdout lines */
@@ -76,6 +60,50 @@ export interface RunHandle {
   sawPermissionRequest: boolean
   /** Permission denials from result event */
   permissionDenials: Array<{ tool_name: string; tool_use_id: string }>
+}
+
+interface RunDiagnostics {
+  schemaVersion: 1
+  runId: string
+  claudeBinary: string
+  cwd: string
+  args: string[]
+  promptChars: number
+  promptBytes: number
+  usedResume: boolean
+  model: string | null
+  permissionMode: string
+  effort: string | null
+  addDirCount: number
+  appendedSystemPromptChars: number
+  appendedSystemPromptApproxTokens: number
+  timings: {
+    clientSentAt: number | null
+    ipcReceivedAt: number | null
+    runManagerStartAt: number
+    spawnedAt: number | null
+    stdinWrittenAt: number | null
+    firstRawEventAt: number | null
+    firstTextChunkAt: number | null
+    resultAt: number | null
+    processClosedAt: number | null
+    clientToIpcMs: number | null
+    ipcToSpawnMs: number | null
+    spawnToFirstRawEventMs: number | null
+    spawnToFirstTextChunkMs: number | null
+    wallTimeMs: number | null
+    claudeDurationMs: number | null
+  }
+  sessionId: string | null
+  usage: Record<string, unknown> | null
+  costUsd: number | null
+  numTurns: number | null
+  toolCallCount: number
+  sawPermissionRequest: boolean
+  permissionDenials: Array<{ tool_name: string; tool_use_id: string }>
+  exitCode: number | null
+  signal: NodeJS.Signals | null
+  updatedAt: string
 }
 
 /**
@@ -190,8 +218,9 @@ export class RunManager extends EventEmitter {
     if (options.systemPrompt) {
       args.push('--system-prompt', options.systemPrompt)
     }
-    // Always tell Claude it's inside CLUI (additive, doesn't replace base prompt)
-    args.push('--append-system-prompt', CLUI_SYSTEM_HINT)
+    if (CLUI_SYSTEM_HINT) {
+      args.push('--append-system-prompt', CLUI_SYSTEM_HINT)
+    }
 
     if (DEBUG) {
       log(`Starting run ${requestId}: ${this.claudeBinary} ${args.join(' ')}`)
@@ -200,12 +229,14 @@ export class RunManager extends EventEmitter {
       log(`Starting run ${requestId}`)
     }
 
+    const runManagerStartAt = Date.now()
     const child = spawn(this.claudeBinary, args, {
       stdio: ['pipe', 'pipe', 'pipe'],
       cwd,
       env: this._getEnv(),
     })
 
+    const spawnedAt = Date.now()
     log(`Spawned PID: ${child.pid}`)
 
     const handle: RunHandle = {
@@ -213,7 +244,51 @@ export class RunManager extends EventEmitter {
       sessionId: options.sessionId || null,
       process: child,
       pid: child.pid || null,
-      startedAt: Date.now(),
+      startedAt: runManagerStartAt,
+      spawnedAt,
+      diagnostics: {
+        schemaVersion: 1,
+        runId: requestId,
+        claudeBinary: this.claudeBinary,
+        cwd,
+        args: this._redactArgs(args),
+        promptChars: options.prompt.length,
+        promptBytes: Buffer.byteLength(options.prompt, 'utf-8'),
+        usedResume: !!options.sessionId,
+        model: options.model || null,
+        permissionMode: options.permissionMode || 'default',
+        effort: options.effort || null,
+        addDirCount: options.addDirs?.length || 0,
+        appendedSystemPromptChars: CLUI_SYSTEM_HINT.length,
+        appendedSystemPromptApproxTokens: this._approxTokens(CLUI_SYSTEM_HINT),
+        timings: {
+          clientSentAt: options.clientSentAt || null,
+          ipcReceivedAt: options.ipcReceivedAt || null,
+          runManagerStartAt,
+          spawnedAt,
+          stdinWrittenAt: null,
+          firstRawEventAt: null,
+          firstTextChunkAt: null,
+          resultAt: null,
+          processClosedAt: null,
+          clientToIpcMs: this._delta(options.clientSentAt, options.ipcReceivedAt),
+          ipcToSpawnMs: this._delta(options.ipcReceivedAt, spawnedAt),
+          spawnToFirstRawEventMs: null,
+          spawnToFirstTextChunkMs: null,
+          wallTimeMs: null,
+          claudeDurationMs: null,
+        },
+        sessionId: options.sessionId || null,
+        usage: null,
+        costUsd: null,
+        numTurns: null,
+        toolCallCount: 0,
+        sawPermissionRequest: false,
+        permissionDenials: [],
+        exitCode: null,
+        signal: null,
+        updatedAt: new Date().toISOString(),
+      },
       stderrTail: [],
       stdoutTail: [],
       toolCallCount: 0,
@@ -228,11 +303,17 @@ export class RunManager extends EventEmitter {
       // Track session ID
       if (raw.type === 'system' && 'subtype' in raw && raw.subtype === 'init') {
         handle.sessionId = (raw as any).session_id
+        handle.diagnostics.sessionId = handle.sessionId
+      }
+      if (!handle.diagnostics.timings.firstRawEventAt) {
+        handle.diagnostics.timings.firstRawEventAt = Date.now()
+        handle.diagnostics.timings.spawnToFirstRawEventMs = this._delta(handle.spawnedAt, handle.diagnostics.timings.firstRawEventAt)
       }
 
       // Track permission_request events
       if (raw.type === 'permission_request' || (raw.type === 'system' && 'subtype' in raw && (raw as any).subtype === 'permission_request')) {
         handle.sawPermissionRequest = true
+        handle.diagnostics.sawPermissionRequest = true
         log(`Permission request seen [${requestId}]`)
       }
 
@@ -244,8 +325,15 @@ export class RunManager extends EventEmitter {
             tool_name: d.tool_name || '',
             tool_use_id: d.tool_use_id || '',
           }))
+          handle.diagnostics.permissionDenials = handle.permissionDenials
           log(`Permission denials [${requestId}]: ${JSON.stringify(handle.permissionDenials)}`)
         }
+        handle.diagnostics.timings.resultAt = Date.now()
+        handle.diagnostics.timings.wallTimeMs = this._delta(handle.startedAt, handle.diagnostics.timings.resultAt)
+        handle.diagnostics.timings.claudeDurationMs = (raw as any).duration_ms || null
+        handle.diagnostics.usage = (raw as any).usage || null
+        handle.diagnostics.costUsd = (raw as any).total_cost_usd ?? null
+        handle.diagnostics.numTurns = (raw as any).num_turns ?? null
       }
 
       // Ring buffer stdout lines (raw JSON for diagnostics)
@@ -258,8 +346,14 @@ export class RunManager extends EventEmitter {
       const normalized = normalize(raw)
       for (const evt of normalized) {
         if (evt.type === 'tool_call') handle.toolCallCount++
+        if (evt.type === 'text_chunk' && !handle.diagnostics.timings.firstTextChunkAt) {
+          handle.diagnostics.timings.firstTextChunkAt = Date.now()
+          handle.diagnostics.timings.spawnToFirstTextChunkMs = this._delta(handle.spawnedAt, handle.diagnostics.timings.firstTextChunkAt)
+        }
         this.emit('normalized', requestId, evt)
       }
+      handle.diagnostics.toolCallCount = handle.toolCallCount
+      this._writeDiagnostics(handle)
 
       // Close stdin after result event — with stream-json input the process
       // stays alive waiting for more input; closing stdin triggers clean exit.
@@ -288,6 +382,11 @@ export class RunManager extends EventEmitter {
     // Snapshot diagnostics BEFORE deleting the handle so callers can still read them.
     child.on('close', (code, signal) => {
       log(`Process closed [${requestId}]: code=${code} signal=${signal}`)
+      handle.diagnostics.exitCode = code
+      handle.diagnostics.signal = signal
+      handle.diagnostics.timings.processClosedAt = Date.now()
+      handle.diagnostics.timings.wallTimeMs = this._delta(handle.startedAt, handle.diagnostics.timings.processClosedAt)
+      this._writeDiagnostics(handle)
       // Move handle to finished map so getEnrichedError still works after exit
       this._finishedRuns.set(requestId, handle)
       this.activeRuns.delete(requestId)
@@ -298,6 +397,9 @@ export class RunManager extends EventEmitter {
 
     child.on('error', (err) => {
       log(`Process error [${requestId}]: ${err.message}`)
+      handle.diagnostics.timings.processClosedAt = Date.now()
+      handle.diagnostics.timings.wallTimeMs = this._delta(handle.startedAt, handle.diagnostics.timings.processClosedAt)
+      this._writeDiagnostics(handle)
       this._finishedRuns.set(requestId, handle)
       this.activeRuns.delete(requestId)
       this.emit('error', requestId, err)
@@ -315,6 +417,8 @@ export class RunManager extends EventEmitter {
       },
     })
     child.stdin!.write(userMessage + '\n')
+    handle.diagnostics.timings.stdinWrittenAt = Date.now()
+    this._writeDiagnostics(handle)
 
     this.activeRuns.set(requestId, handle)
     return handle
@@ -384,6 +488,39 @@ export class RunManager extends EventEmitter {
 
   getActiveRunIds(): string[] {
     return Array.from(this.activeRuns.keys())
+  }
+
+  private _delta(start?: number | null, end?: number | null): number | null {
+    if (!start || !end) return null
+    return end - start
+  }
+
+  private _approxTokens(text: string): number {
+    if (!text) return 0
+    return Math.ceil(text.length / 4)
+  }
+
+  private _redactArgs(args: string[]): string[] {
+    const redactValueAfter = new Set(['--settings'])
+    const redacted: string[] = []
+    for (let i = 0; i < args.length; i++) {
+      const arg = args[i]
+      redacted.push(arg)
+      if (redactValueAfter.has(arg) && i + 1 < args.length) {
+        redacted.push('[redacted-path]')
+        i++
+      }
+    }
+    return redacted
+  }
+
+  private _writeDiagnostics(handle: RunHandle): void {
+    try {
+      handle.diagnostics.updatedAt = new Date().toISOString()
+      writeFileSync(LAST_RUN_DIAGNOSTICS_FILE, JSON.stringify(handle.diagnostics, null, 2))
+    } catch (err) {
+      if (DEBUG) log(`Failed to write diagnostics: ${(err as Error).message}`)
+    }
   }
 
   private _ringPush(buffer: string[], line: string): void {
