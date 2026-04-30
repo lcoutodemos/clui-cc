@@ -140,14 +140,7 @@ export default function App() {
     }
     const onPointerUp = (e: PointerEvent) => {
       if (dragRef.current && e.pointerId === dragRef.current.pointerId) {
-        const wasDragging = dragRef.current.dragging
         dragRef.current = null
-        if (!wasDragging) {
-          const el = e.target as HTMLElement | null
-          if (el?.closest('[data-clui-ui]') && !el.closest(interactiveSelector)) {
-            window.clui?.hideWindow?.()
-          }
-        }
       }
       if (resizeRef.current && e.pointerId === resizeRef.current.pointerId) {
         resizeRef.current = null
