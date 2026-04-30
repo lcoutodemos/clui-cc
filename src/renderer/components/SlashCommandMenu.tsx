@@ -2,7 +2,13 @@ import React, { useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { motion } from 'framer-motion'
 import {
-  Trash, Cpu, CurrencyDollar, Question, HardDrives, Sparkle,
+  Trash, CurrencyDollar, Question, Sparkle,
+  Pulse, FirstAid, ArrowsIn, FilePlus,
+  Cpu, HardDrives, Robot, Brain, ShieldCheck,
+  ArrowCounterClockwise, Export, Bug, GitPullRequest,
+  Eye, Note, Lock, ArrowFatUp,
+  Cube, SignIn, SignOut, ListChecks, Lightning,
+  Gear, Terminal as TerminalIcon, ListBullets,
 } from '@phosphor-icons/react'
 import { usePopoverLayer } from './PopoverLayer'
 import { useColors } from '../theme'
@@ -14,12 +20,35 @@ export interface SlashCommand {
 }
 
 export const SLASH_COMMANDS: SlashCommand[] = [
+  { command: '/agents', description: 'Manage AI subagents', icon: <Robot size={13} /> },
+  { command: '/background-tasks', description: 'View or manage background tasks', icon: <ListBullets size={13} /> },
+  { command: '/bug', description: 'Submit feedback about Claude Code', icon: <Bug size={13} /> },
   { command: '/clear', description: 'Clear conversation history', icon: <Trash size={13} /> },
+  { command: '/compact', description: 'Compact conversation history', icon: <ArrowsIn size={13} /> },
+  { command: '/config', description: 'View or modify configuration', icon: <Gear size={13} /> },
   { command: '/cost', description: 'Show token usage and cost', icon: <CurrencyDollar size={13} /> },
-  { command: '/model', description: 'Show current model info', icon: <Cpu size={13} /> },
-  { command: '/mcp', description: 'Show MCP server status', icon: <HardDrives size={13} /> },
+  { command: '/doctor', description: 'Run environment diagnostics', icon: <FirstAid size={13} /> },
+  { command: '/export', description: 'Export the current conversation', icon: <Export size={13} /> },
+  { command: '/help', description: 'Show all available commands', icon: <Question size={13} /> },
+  { command: '/hooks', description: 'Manage hook configuration', icon: <Lightning size={13} /> },
+  { command: '/init', description: 'Initialize CLAUDE.md for this project', icon: <FilePlus size={13} /> },
+  { command: '/login', description: 'Sign in to Claude Code', icon: <SignIn size={13} /> },
+  { command: '/logout', description: 'Sign out of Claude Code', icon: <SignOut size={13} /> },
+  { command: '/mcp', description: 'Manage MCP servers', icon: <HardDrives size={13} /> },
+  { command: '/memory', description: 'View or edit memory files', icon: <Brain size={13} /> },
+  { command: '/model', description: 'Switch the active model', icon: <Cpu size={13} /> },
+  { command: '/permissions', description: 'Manage tool permissions', icon: <ShieldCheck size={13} /> },
+  { command: '/pr-comments', description: 'View PR comments', icon: <GitPullRequest size={13} /> },
+  { command: '/privacy-settings', description: 'View privacy settings', icon: <Lock size={13} /> },
+  { command: '/release-notes', description: 'View Claude Code release notes', icon: <Note size={13} /> },
+  { command: '/resume', description: 'Resume a previous session', icon: <ArrowCounterClockwise size={13} /> },
+  { command: '/review', description: 'Review code', icon: <Eye size={13} /> },
   { command: '/skills', description: 'Show available skills', icon: <Sparkle size={13} /> },
-  { command: '/help', description: 'Show available commands', icon: <Question size={13} /> },
+  { command: '/status', description: 'Show session status', icon: <Pulse size={13} /> },
+  { command: '/terminal-setup', description: 'Set up shell keybindings', icon: <TerminalIcon size={13} /> },
+  { command: '/todos', description: 'View todo list', icon: <ListChecks size={13} /> },
+  { command: '/upgrade', description: 'Upgrade Claude Code', icon: <ArrowFatUp size={13} /> },
+  { command: '/vim', description: 'Toggle vim editing mode', icon: <Cube size={13} /> },
 ]
 
 interface Props {
