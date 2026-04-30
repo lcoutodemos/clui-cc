@@ -310,7 +310,7 @@ function createWindow(): void {
     resizable: false,
     movable: true,
     alwaysOnTop: false,
-    skipTaskbar: false,
+    skipTaskbar: true,
     hasShadow: false,
     roundedCorners: true,
     backgroundColor: '#00000000',
@@ -1381,9 +1381,8 @@ async function requestPermissions(): Promise<void> {
 
 app.whenReady().then(async () => {
   if (process.platform === 'darwin' && app.dock) {
-    const dockIcon = nativeImage.createFromPath(join(__dirname, '../../resources/icon.png'))
-    if (!dockIcon.isEmpty()) app.dock.setIcon(dockIcon)
-    void app.dock.show()
+    app.setActivationPolicy('accessory')
+    app.dock.hide()
   }
 
   // Request permissions upfront so the user is never interrupted mid-session.
@@ -1451,11 +1450,9 @@ app.whenReady().then(async () => {
   tray.on('click', () => toggleWindow('tray click'))
   refreshTrayMenu()
 
-  // app 'activate' fires when macOS brings the app to the foreground (e.g. after
-  // webContents.focus() triggers applicationDidBecomeActive on some macOS versions).
-  // Using showWindow here instead of toggleWindow prevents the re-entry race where
-  // a summon immediately hides itself because activate fires mid-show.
-  app.on('activate', () => showWindow('app activate'))
+  app.on('activate', () => {
+    if (!mainWindow || mainWindow.isDestroyed()) createWindow()
+  })
 })
 
 app.on('will-quit', () => {
