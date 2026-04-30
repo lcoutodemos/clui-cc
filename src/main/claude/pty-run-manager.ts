@@ -191,8 +191,6 @@ function isUiChrome(line: string): boolean {
   if (/^[╭│╰─┌└┃┏┗┐┘┤├┬┴┼]/.test(cleaned)) return true
   if (/^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏✢✳✶✻✽]/.test(cleaned)) return true
   if (/^\s*(?:Medium|Low|High)\s/.test(cleaned) && /model/i.test(cleaned)) return true
-  if (/\/mcp|MCP server/i.test(cleaned)) return true
-  if (/Claude\s*Code\s*v/i.test(cleaned) || /ClaudeCodev/i.test(cleaned)) return true
   if (/^[❯>$]\s*$/.test(cleaned)) return true
   if (/^\$[\d.]+\s+·/.test(cleaned)) return true
   if (/for\s*shortcuts/i.test(cleaned)) return true
@@ -268,6 +266,10 @@ export interface PtyRunHandle {
   promptSnippet: string
   /** Whether we saw an echoed prompt for current request */
   sawPromptEcho: boolean
+  /** Whether this request is a native Claude slash command */
+  isSlashCommand: boolean
+  /** Whether a slash-command terminal overlay has been dismissed */
+  slashOverlayDismissed: boolean
 }
 
 // ─── PtyRunManager ───
@@ -298,12 +300,14 @@ export class PtyRunManager extends EventEmitter {
         `${process.platform}-${process.arch}`,
         'spawn-helper',
       )
-      if (!existsSync(helperPath)) return
-      const st = statSync(helperPath)
+      const unpackedHelperPath = helperPath.replace(`${path.sep}app.asar${path.sep}`, `${path.sep}app.asar.unpacked${path.sep}`)
+      const targetPath = existsSync(unpackedHelperPath) ? unpackedHelperPath : helperPath
+      if (!existsSync(targetPath)) return
+      const st = statSync(targetPath)
       const isExecutable = (st.mode & 0o111) !== 0
       if (!isExecutable) {
-        chmodSync(helperPath, 0o755)
-        log(`Fixed spawn-helper permissions: ${helperPath}`)
+        chmodSync(targetPath, 0o755)
+        log(`Fixed spawn-helper permissions: ${targetPath}`)
       }
     } catch (err) {
       log(`spawn-helper permission check failed: ${(err as Error).message}`)
@@ -359,12 +363,19 @@ export class PtyRunManager extends EventEmitter {
 
     if (options.sessionId) {
       args.push('--resume', options.sessionId)
+    } else if (options.newSessionId) {
+      args.push('--session-id', options.newSessionId)
     }
     if (options.model) {
       args.push('--model', options.model)
     }
     if (options.effort) {
       args.push('--effort', options.effort)
+    }
+    if (options.addDirs && options.addDirs.length > 0) {
+      for (const dir of options.addDirs) {
+        args.push('--add-dir', dir)
+      }
     }
     if (options.allowedTools?.length) {
       args.push('--allowedTools', options.allowedTools.join(','))
@@ -391,7 +402,7 @@ export class PtyRunManager extends EventEmitter {
 
     const handle: PtyRunHandle = {
       runId: requestId,
-      sessionId: options.sessionId || null,
+      sessionId: options.sessionId || options.newSessionId || null,
       pty: ptyProcess,
       pid: ptyProcess.pid,
       startedAt: Date.now(),
@@ -412,6 +423,27 @@ export class PtyRunManager extends EventEmitter {
       lastOutputAt: Date.now(),
       promptSnippet: options.prompt.trim().toLowerCase().slice(0, 24),
       sawPromptEcho: false,
+      isSlashCommand: options.prompt.trim().startsWith('/'),
+      slashOverlayDismissed: false,
+    }
+
+    if (options.newSessionId) {
+      handle.emittedSessionInit = true
+      process.nextTick(() => {
+        this.emit('normalized', requestId, {
+          type: 'session_init',
+          sessionId: options.newSessionId!,
+          tools: [],
+          model: options.model || '',
+          mcpServers: [],
+          skills: [],
+          plugins: [],
+          agents: [],
+          permissionMode: options.permissionMode || null,
+          fastModeState: null,
+          version: '',
+        } as NormalizedEvent)
+      })
     }
 
     // ─── PTY output parser pipeline ───
@@ -560,7 +592,9 @@ export class PtyRunManager extends EventEmitter {
         handle.sawPromptEcho = true
       }
       // Start parsing actual response only after a message bullet appears post-echo.
-      if (handle.sawPromptEcho && cleaned.startsWith('⏺')) {
+      // Native slash commands usually render command output directly instead of
+      // assistant-message bullets, so start on the first non-prompt line there.
+      if (handle.sawPromptEcho && (cleaned.startsWith('⏺') || (handle.isSlashCommand && !isInputPrompt(cleaned)))) {
         handle.pastInit = true
       } else {
         return
@@ -606,6 +640,22 @@ export class PtyRunManager extends EventEmitter {
     }
     const textLine = cleaned.startsWith('⏺') ? cleaned.replace(/^⏺\s*/, '') : cleaned
     handle.textAccumulator += textLine
+
+    // Slash-command screens such as /help, /model, and /permissions are native
+    // terminal overlays. Capture their text, then dismiss them so the run can
+    // return to the Claude prompt and complete inside CLUI.
+    if (
+      handle.isSlashCommand
+      && !handle.slashOverlayDismissed
+      && /(?:Esc\s*to\s*(?:cancel|exit)|Enter\s*to\s*confirm)/i.test(cleaned)
+    ) {
+      handle.slashOverlayDismissed = true
+      setTimeout(() => {
+        if (this.activeRuns.has(requestId)) {
+          try { handle.pty.write('\x1b') } catch {}
+        }
+      }, 250)
+    }
 
     // Emit text chunks periodically (debounce 50ms)
     this._scheduleTextFlush(requestId, handle)

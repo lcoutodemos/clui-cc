@@ -1,4 +1,5 @@
 import { EventEmitter } from 'events'
+import { randomUUID } from 'crypto'
 import { RunManager } from './run-manager'
 import { PtyRunManager } from './pty-run-manager'
 import { PermissionServer, maskSensitiveFields } from '../hooks/permission-server'
@@ -597,6 +598,12 @@ export class ControlPlane extends EventEmitter {
       options = { ...options, sessionId: tab.claudeSessionId }
     }
 
+    // PTY mode does not get the stream-json init payload, so create a stable
+    // Claude session id up front for first-run parity with terminal resume.
+    if (this.interactivePty && !tab.claudeSessionId && !options.sessionId && !options.newSessionId) {
+      options = { ...options, newSessionId: randomUUID() }
+    }
+
     // Per-run token lifecycle: register run, generate per-run settings file
     if (this.permissionServer.getPort()) {
       const runToken = this.permissionServer.registerRun(tabId, requestId, options.sessionId || null)
@@ -614,9 +621,7 @@ export class ControlPlane extends EventEmitter {
     this._setTabStatus(tabId, newStatus)
 
     // ─── Pick transport ───
-    // Stream-json is the stable transport for all regular messages.
-    // PTY is reserved for future interactive permission handling only.
-    const usePty = false
+    const usePty = this.interactivePty
 
     let pid: number | null = null
     try {
