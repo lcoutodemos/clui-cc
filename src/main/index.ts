@@ -660,6 +660,7 @@ ipcMain.on(IPC.RESET_TAB_SESSION, (_event, tabId: string) => {
 })
 
 ipcMain.handle(IPC.PROMPT, async (_event, { tabId, requestId, options }: { tabId: string; requestId: string; options: RunOptions }) => {
+  options = { ...options, ipcReceivedAt: Date.now() }
   if (DEBUG_MODE) {
     log(`IPC PROMPT: tab=${tabId} req=${requestId} prompt="${options.prompt.substring(0, 100)}"`)
   } else {

@@ -665,6 +665,7 @@ export const useSessionStore = create<State>((set, get) => ({
     window.clui.prompt(activeTabId, requestId, {
       prompt: fullPrompt,
       projectPath: resolvedPath,
+      clientSentAt: Date.now(),
       sessionId: tab.claudeSessionId || undefined,
       model: preferredModel || undefined,
       permissionMode: preferredClaudePermissionMode || undefined,
