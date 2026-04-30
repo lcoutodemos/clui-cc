@@ -61,8 +61,9 @@ let lastWindowBounds: Electron.Rectangle | null = null
 let launchAtLogin = false
 let hasLaunchAtLoginPreference = false
 
-// Feature flag: enable PTY interactive permissions transport
-const INTERACTIVE_PTY = process.env.CLUI_INTERACTIVE_PERMISSIONS_PTY === '1'
+// Default to Claude Code's interactive PTY so CLUI behaves like a terminal
+// substitute. Keep an escape hatch for the older stream-json wrapper.
+const INTERACTIVE_PTY = process.env.CLUI_STREAM_JSON_TRANSPORT !== '1'
 
 const controlPlane = new ControlPlane(INTERACTIVE_PTY)
 

@@ -1,7 +1,7 @@
 import React, { useState, useRef, useCallback, useEffect, useLayoutEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Microphone, ArrowUp, SpinnerGap, X, Check } from '@phosphor-icons/react'
-import { useSessionStore, FALLBACK_MODELS } from '../stores/sessionStore'
+import { useSessionStore } from '../stores/sessionStore'
 import { AttachmentChips } from './AttachmentChips'
 import { SlashCommandMenu, getFilteredCommandsWithExtras, type SlashCommand } from './SlashCommandMenu'
 import { useColors } from '../theme'
@@ -32,17 +32,12 @@ export function InputBar() {
   const chunksRef = useRef<Blob[]>([])
 
   const sendMessage = useSessionStore((s) => s.sendMessage)
-  const clearTab = useSessionStore((s) => s.clearTab)
-  const addSystemMessage = useSessionStore((s) => s.addSystemMessage)
   const addAttachments = useSessionStore((s) => s.addAttachments)
   const removeAttachment = useSessionStore((s) => s.removeAttachment)
 
-  const setPreferredModel = useSessionStore((s) => s.setPreferredModel)
-  const availableModels = useSessionStore((s) => s.availableModels)
   const draftPrompt = useSessionStore((s) => s.draftPrompt)
   const clearDraftPrompt = useSessionStore((s) => s.clearDraftPrompt)
   const staticInfo = useSessionStore((s) => s.staticInfo)
-  const preferredModel = useSessionStore((s) => s.preferredModel)
   const activeTabId = useSessionStore((s) => s.activeTabId)
   const tab = useSessionStore((s) => s.tabs.find((t) => t.id === s.activeTabId))
   const colors = useColors()
@@ -52,7 +47,6 @@ export function InputBar() {
   const canSend = !!tab && !isConnecting && hasContent
   const attachments = tab?.attachments || []
   const showSlashMenu = slashFilter !== null && !isConnecting
-  const models = availableModels.length ? availableModels : FALLBACK_MODELS
   const installedCommandNames = (staticInfo?.installedExtensions || [])
     .filter((name) => /^[a-zA-Z][\w-]*$/.test(name))
   const skillNames = [...new Set([...(tab?.sessionSkills || []), ...installedCommandNames])]
@@ -172,121 +166,23 @@ export function InputBar() {
     requestAnimationFrame(() => textareaRef.current?.focus())
   }, [draftPrompt, clearDraftPrompt, updateSlashFilter])
 
-  // ─── Handle slash commands ───
-  const executeCommand = useCallback((cmd: SlashCommand) => {
-    switch (cmd.command) {
-      case '/clear':
-        clearTab()
-        addSystemMessage('Conversation cleared.')
-        break
-      case '/cost': {
-        if (tab?.lastResult) {
-          const r = tab.lastResult
-          const parts = [`$${r.totalCostUsd.toFixed(4)}`, `${(r.durationMs / 1000).toFixed(1)}s`, `${r.numTurns} turn${r.numTurns !== 1 ? 's' : ''}`]
-          if (r.usage.input_tokens) {
-            parts.push(`${r.usage.input_tokens.toLocaleString()} in / ${(r.usage.output_tokens || 0).toLocaleString()} out`)
-          }
-          addSystemMessage(parts.join(' · '))
-        } else {
-          addSystemMessage('No cost data yet — send a message first.')
-        }
-        break
-      }
-      case '/model': {
-        const model = tab?.sessionModel || null
-        const version = tab?.sessionVersion || staticInfo?.version || null
-        const current = preferredModel || model || 'default'
-        const lines = models.map((m) => {
-          const active = m.id === current || (!preferredModel && m.id === model)
-          return `  ${active ? '\u25CF' : '\u25CB'} ${m.label} (${m.id})`
-        })
-        const header = version ? `Claude Code ${version}` : 'Claude Code'
-        addSystemMessage(`${header}\n\n${lines.join('\n')}\n\nSwitch model: type /model <name>\n  e.g. /model sonnet`)
-        break
-      }
-      case '/mcp': {
-        if (tab?.sessionMcpServers && tab.sessionMcpServers.length > 0) {
-          const lines = tab.sessionMcpServers.map((s) => {
-            const icon = s.status === 'connected' ? '\u2713' : s.status === 'failed' ? '\u2717' : '\u25CB'
-            return `  ${icon} ${s.name} — ${s.status}`
-          })
-          addSystemMessage(`MCP Servers (${tab.sessionMcpServers.length}):\n${lines.join('\n')}`)
-        } else if (staticInfo?.mcpServers && staticInfo.mcpServers.length > 0) {
-          addSystemMessage(`Configured MCP servers (${staticInfo.mcpServers.length}):\n${staticInfo.mcpServers.map((s) => `  ${s}`).join('\n')}`)
-        } else if (tab?.claudeSessionId) {
-          addSystemMessage('No MCP servers connected in this session.')
-        } else {
-          addSystemMessage('No MCP servers configured.')
-        }
-        break
-      }
-      case '/skills': {
-        if (skillNames.length > 0) {
-          const lines = skillNames.map((s) => `/${s}`)
-          addSystemMessage(`Available skills and plugins (${skillNames.length}):\n${lines.join('\n')}`)
-        } else if (tab?.claudeSessionId) {
-          addSystemMessage('No skills available in this session.')
-        } else {
-          addSystemMessage('No installed skills found.')
-        }
-        break
-      }
-      case '/help': {
-        const lines = [
-          '/clear — Clear conversation history',
-          '/cost — Show token usage and cost',
-          '/model — Show model info & switch models',
-          '/mcp — Show MCP server status',
-          '/skills — Show available skills',
-          '/help — Show this list',
-        ]
-        addSystemMessage(lines.join('\n'))
-        break
-      }
-    }
-  }, [tab, clearTab, addSystemMessage, staticInfo, preferredModel, models, skillNames])
-
   const handleSlashSelect = useCallback((cmd: SlashCommand) => {
-    const isSkillCommand = skillNames.includes(cmd.command.replace(/^\//, ''))
-    if (isSkillCommand) {
-      setInput(`${cmd.command} `)
-      setSlashFilter(null)
-      requestAnimationFrame(() => textareaRef.current?.focus())
-      return
-    }
-    setInput('')
+    setInput(`${cmd.command} `)
     setSlashFilter(null)
-    executeCommand(cmd)
-  }, [executeCommand, skillNames])
+    requestAnimationFrame(() => textareaRef.current?.focus())
+  }, [])
 
   // ─── Send ───
   const handleSend = useCallback(() => {
     if (showSlashMenu) {
       const filtered = getFilteredCommandsWithExtras(slashFilter!, skillCommands)
-      if (filtered.length > 0) {
+      const exact = filtered.some((cmd) => cmd.command === input.trim())
+      if (filtered.length > 0 && !exact) {
         handleSlashSelect(filtered[slashIndex])
         return
       }
     }
     const prompt = input.trim()
-    const modelMatch = prompt.match(/^\/model\s+(\S+)/i)
-    if (modelMatch) {
-      const query = modelMatch[1].toLowerCase()
-      const match = models.find((m: { id: string; label: string }) =>
-        m.id.toLowerCase().includes(query) || m.label.toLowerCase().includes(query)
-      )
-      if (match) {
-        setPreferredModel(match.id)
-        setInput('')
-        setSlashFilter(null)
-        addSystemMessage(`Model switched to ${match.label} (${match.id})`)
-      } else {
-        setInput('')
-        setSlashFilter(null)
-        addSystemMessage(`Unknown model "${modelMatch[1]}". Available: ${models.map((m) => m.id).join(', ')}`)
-      }
-      return
-    }
     if (!prompt && attachments.length === 0) return
     if (isConnecting) return
     setInput('')
@@ -297,7 +193,7 @@ export function InputBar() {
     sendMessage(prompt || 'See attached files')
     // Refocus after React re-renders from the state update
     requestAnimationFrame(() => textareaRef.current?.focus())
-  }, [input, isBusy, sendMessage, attachments.length, showSlashMenu, slashFilter, slashIndex, handleSlashSelect, models])
+  }, [input, isBusy, sendMessage, attachments.length, showSlashMenu, slashFilter, slashIndex, handleSlashSelect, skillCommands])
 
   // ─── Keyboard ───
   const handleKeyDown = (e: React.KeyboardEvent) => {

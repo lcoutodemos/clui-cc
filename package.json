@@ -41,6 +41,9 @@
       "resources/**/*",
       "package.json"
     ],
+    "asarUnpack": [
+      "node_modules/node-pty/**/*"
+    ],
     "extraResources": [
       {
         "from": "resources/trayTemplate.png",

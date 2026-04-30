@@ -228,6 +228,8 @@ export interface RunOptions {
   /** Main-process IPC receipt timestamp for wrapper overhead measurement */
   ipcReceivedAt?: number
   sessionId?: string
+  /** Explicit session id to create for interactive PTY runs */
+  newSessionId?: string
   allowedTools?: string[]
   maxTurns?: number
   maxBudgetUsd?: number
