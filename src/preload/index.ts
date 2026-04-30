@@ -33,7 +33,6 @@ export interface CluiAPI {
   setPermissionMode(mode: string): void
   getTheme(): Promise<{ isDark: boolean }>
   onThemeChange(callback: (isDark: boolean) => void): () => void
-
   // ─── Window management ───
   resizeHeight(height: number): void
   setWindowWidth(width: number): void

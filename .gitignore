@@ -19,8 +19,9 @@ Desktop.ini
 *.swo
 *~
 
-# Claude Code project-scoped local settings
+# Claude Code project-scoped local settings + scheduler runtime
 .claude/settings.local.json
+.claude/scheduled_tasks.lock
 
 # Environment (not needed for core flow, but excluded defensively)
 .env

@@ -61,9 +61,10 @@ let lastWindowBounds: Electron.Rectangle | null = null
 let launchAtLogin = false
 let hasLaunchAtLoginPreference = false
 
-// Default to Claude Code's interactive PTY so CLUI behaves like a terminal
-// substitute. Keep an escape hatch for the older stream-json wrapper.
-const INTERACTIVE_PTY = process.env.CLUI_STREAM_JSON_TRANSPORT !== '1'
+// Use stream-json transport — emits structured events the chat UI renders
+// directly. PTY transport (regex-screen-scraping the TUI) is opt-in via
+// CLUI_PTY_TRANSPORT=1 for diagnostic comparison only.
+const INTERACTIVE_PTY = process.env.CLUI_PTY_TRANSPORT === '1'
 
 const controlPlane = new ControlPlane(INTERACTIVE_PTY)
 
@@ -328,7 +329,10 @@ function createWindow(): void {
   })
   lastWindowBounds = mainWindow.getBounds()
 
-  enforceNormalWindowLevel()
+  // Follow the user across Spaces / fullscreen — menu-bar utility pattern.
+  mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+
+  applyVisibleWindowLevel()
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   mainWindow.webContents.on('will-navigate', (event) => {
     event.preventDefault()
@@ -369,22 +373,27 @@ function showWindow(source = 'unknown'): void {
   if (!mainWindow) return
   const toggleId = ++toggleSequence
 
-  if (lastWindowBounds) {
+  // Restore last bounds only if they're still on a connected display. If the
+  // user disconnected a monitor or rearranged Spaces, fall back to the centered
+  // default on the cursor's current display.
+  if (lastWindowBounds && isBoundsOnAnyDisplay(lastWindowBounds)) {
     mainWindow.setBounds(lastWindowBounds)
+  } else {
+    if (lastWindowBounds && SPACES_DEBUG) {
+      log(`[spaces] showWindow#${toggleId} stored bounds off-screen — resetting position`)
+    }
+    resetWindowPosition()
   }
 
-  enforceNormalWindowLevel()
+  applyVisibleWindowLevel()
 
   if (SPACES_DEBUG) {
     const b = mainWindow.getBounds()
-    log(`[spaces] showWindow#${toggleId} source=${source} preserve-bounds=(${b.x},${b.y},${b.width}x${b.height})`)
+    log(`[spaces] showWindow#${toggleId} source=${source} bounds=(${b.x},${b.y},${b.width}x${b.height})`)
     snapshotWindowState(`showWindow#${toggleId} pre-show`)
   }
   mainWindow.show()
   mainWindow.setIgnoreMouseEvents(false)
-  if (lastWindowBounds) {
-    mainWindow.setBounds(lastWindowBounds)
-  }
   mainWindow.webContents.focus()
   broadcast(IPC.WINDOW_SHOWN)
   if (SPACES_DEBUG) scheduleToggleSnapshots(toggleId, 'show')
@@ -411,9 +420,32 @@ function saveWindowPrefs(): void {
   } catch {}
 }
 
-function enforceNormalWindowLevel(): void {
+/**
+ * Float above other windows while the panel is visible — the menu-bar utility
+ * pattern (Spotlight / Raycast / Alfred). Keeps the overlay from being covered
+ * by whatever app the user clicks on next.
+ */
+function applyVisibleWindowLevel(): void {
   if (!mainWindow || mainWindow.isDestroyed()) return
-  mainWindow.setAlwaysOnTop(false, 'normal')
+  mainWindow.setAlwaysOnTop(true, 'floating')
+}
+
+/**
+ * True if the rect overlaps any currently-connected display's work area.
+ * Guards against stored bounds from a now-disconnected monitor or rearranged
+ * displays — that's the case where ⌥+Space "did nothing" because the window
+ * was placed off-screen.
+ */
+function isBoundsOnAnyDisplay(b: Electron.Rectangle): boolean {
+  return screen.getAllDisplays().some((d) => {
+    const w = d.workArea
+    return (
+      b.x < w.x + w.width &&
+      b.x + b.width > w.x &&
+      b.y < w.y + w.height &&
+      b.y + b.height > w.y
+    )
+  })
 }
 
 function applyLaunchAtLogin(): void {
@@ -451,6 +483,13 @@ function refreshTrayMenu(): void {
     Menu.buildFromTemplate([
       { label: 'Show Clui CC', click: () => showWindow('tray menu') },
       { label: 'Hide Clui CC', click: () => mainWindow?.hide() },
+      {
+        label: 'Reset Position',
+        click: () => {
+          resetWindowPosition()
+          showWindow('tray menu reset')
+        },
+      },
       { type: 'separator' },
       {
         label: 'Launch at Login',
@@ -513,41 +552,16 @@ function toggleWindow(source = 'unknown'): void {
 ipcMain.on(IPC.RESIZE_HEIGHT, (_event, height: number) => {
   if (!mainWindow || mainWindow.isDestroyed()) return
   if (!Number.isFinite(height)) return
-
-  const current = mainWindow.getBounds()
-  const display = screen.getDisplayMatching(current)
-  const minHeight = 120
-  const nextHeight = Math.max(minHeight, Math.min(PILL_HEIGHT, Math.round(height)))
-  const currentBottom = current.y + current.height
-  const minY = display.workArea.y
-  const nextY = Math.max(minY, currentBottom - nextHeight)
-
-  mainWindow.setBounds({
-    ...current,
-    y: nextY,
-    height: nextHeight,
-  })
-  lastWindowBounds = mainWindow.getBounds()
+  // Keep the native transparent overlay fixed at PILL_HEIGHT. Resizing a
+  // transparent macOS BrowserWindow during React transitions causes visible
+  // flicker; the renderer owns all expand/collapse layout inside the window.
 })
 
 ipcMain.on(IPC.SET_WINDOW_WIDTH, (_event, width: number) => {
   if (!mainWindow || mainWindow.isDestroyed()) return
   if (!Number.isFinite(width)) return
-
-  const current = mainWindow.getBounds()
-  const display = screen.getDisplayMatching(current)
-  const nextWidth = Math.max(520, Math.min(BAR_WIDTH, Math.round(width)))
-  const centerX = current.x + current.width / 2
-  const minX = display.workArea.x
-  const maxX = display.workArea.x + display.workArea.width - nextWidth
-  const nextX = Math.max(minX, Math.min(maxX, Math.round(centerX - nextWidth / 2)))
-
-  mainWindow.setBounds({
-    ...current,
-    x: nextX,
-    width: nextWidth,
-  })
-  lastWindowBounds = mainWindow.getBounds()
+  // Width is fixed for the same reason as height. Extra transparent space is
+  // click-through, while the visible shell animates its own width in React.
 })
 
 ipcMain.handle(IPC.ANIMATE_HEIGHT, () => {
@@ -1452,7 +1466,11 @@ app.whenReady().then(async () => {
   refreshTrayMenu()
 
   app.on('activate', () => {
-    if (!mainWindow || mainWindow.isDestroyed()) createWindow()
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      createWindow()
+      return
+    }
+    showWindow('app activate')
   })
 })
 

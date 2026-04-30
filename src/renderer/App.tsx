@@ -50,19 +50,18 @@ export default function App() {
     useSessionStore.getState().initStaticInfo().then(() => {
       const homeDir = useSessionStore.getState().staticInfo?.homePath || '~'
       const tab = useSessionStore.getState().tabs[0]
-      if (tab) {
-        // Set working directory to home by default (user hasn't chosen yet)
+      if (!tab) return
+      // Set working directory to home by default (user hasn't chosen yet)
+      useSessionStore.setState((s) => ({
+        tabs: s.tabs.map((t, i) => (i === 0 ? { ...t, workingDirectory: homeDir, hasChosenDirectory: false } : t)),
+      }))
+      window.clui.createTab().then(({ tabId }) => {
         useSessionStore.setState((s) => ({
-          tabs: s.tabs.map((t, i) => (i === 0 ? { ...t, workingDirectory: homeDir, hasChosenDirectory: false } : t)),
+          tabs: s.tabs.map((t, i) => (i === 0 ? { ...t, id: tabId } : t)),
+          activeTabId: tabId,
         }))
-        window.clui.createTab().then(({ tabId }) => {
-          useSessionStore.setState((s) => ({
-            tabs: s.tabs.map((t, i) => (i === 0 ? { ...t, id: tabId } : t)),
-            activeTabId: tabId,
-          }))
-        }).catch(() => {})
-      }
-    })
+      }).catch(() => {})
+    }).catch(() => {})
   }, [])
 
   const dragRef = useRef<{ pointerId: number; startX: number; startY: number; dragging: boolean } | null>(null)
