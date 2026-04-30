@@ -41,6 +41,16 @@
       "resources/**/*",
       "package.json"
     ],
+    "extraResources": [
+      {
+        "from": "resources/trayTemplate.png",
+        "to": "trayTemplate.png"
+      },
+      {
+        "from": "resources/trayTemplate@2x.png",
+        "to": "trayTemplate@2x.png"
+      }
+    ],
     "mac": {
       "icon": "resources/icon.icns",
       "entitlements": "resources/entitlements.mac.plist",

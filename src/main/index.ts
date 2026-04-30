@@ -59,6 +59,8 @@ let screenshotCounter = 0
 let toggleSequence = 0
 let lastWindowBounds: Electron.Rectangle | null = null
 let keepOnTop = false
+let launchAtLogin = false
+let hasLaunchAtLoginPreference = false
 
 // Feature flag: enable PTY interactive permissions transport
 const INTERACTIVE_PTY = process.env.CLUI_INTERACTIVE_PERMISSIONS_PTY === '1'
@@ -395,14 +397,18 @@ function windowPrefsPath(): string {
 function loadWindowPrefs(): void {
   try {
     const raw = readFileSync(windowPrefsPath(), 'utf-8')
-    const parsed = JSON.parse(raw) as { keepOnTop?: unknown }
+    const parsed = JSON.parse(raw) as { keepOnTop?: unknown; launchAtLogin?: unknown }
     keepOnTop = parsed.keepOnTop === true
+    hasLaunchAtLoginPreference = typeof parsed.launchAtLogin === 'boolean'
+    if (hasLaunchAtLoginPreference) {
+      launchAtLogin = parsed.launchAtLogin === true
+    }
   } catch {}
 }
 
 function saveWindowPrefs(): void {
   try {
-    writeFileSync(windowPrefsPath(), JSON.stringify({ keepOnTop }, null, 2))
+    writeFileSync(windowPrefsPath(), JSON.stringify({ keepOnTop, launchAtLogin }, null, 2))
   } catch {}
 }
 
@@ -414,6 +420,35 @@ function applyKeepOnTop(): void {
 function setKeepOnTop(next: boolean): void {
   keepOnTop = next
   applyKeepOnTop()
+  saveWindowPrefs()
+  refreshTrayMenu()
+}
+
+function applyLaunchAtLogin(): void {
+  if (process.platform !== 'darwin') return
+  try {
+    app.setLoginItemSettings({
+      openAtLogin: launchAtLogin,
+      openAsHidden: true,
+    })
+  } catch (err: any) {
+    log(`Launch at Login update failed: ${err.message}`)
+  }
+}
+
+function syncLaunchAtLoginFromSystem(): void {
+  if (process.platform !== 'darwin') return
+  try {
+    launchAtLogin = app.getLoginItemSettings().openAtLogin
+  } catch (err: any) {
+    log(`Launch at Login read failed: ${err.message}`)
+  }
+}
+
+function setLaunchAtLogin(next: boolean): void {
+  hasLaunchAtLoginPreference = true
+  launchAtLogin = next
+  applyLaunchAtLogin()
   saveWindowPrefs()
   refreshTrayMenu()
 }
@@ -431,10 +466,23 @@ function refreshTrayMenu(): void {
         checked: keepOnTop,
         click: () => setKeepOnTop(!keepOnTop),
       },
+      {
+        label: 'Launch at Login',
+        type: 'checkbox',
+        checked: launchAtLogin,
+        click: () => setLaunchAtLogin(!launchAtLogin),
+      },
       { type: 'separator' },
       { label: 'Quit', click: () => { app.quit() } },
     ])
   )
+}
+
+function trayIconPath(): string {
+  if (app.isPackaged) {
+    return join(process.resourcesPath, 'trayTemplate.png')
+  }
+  return join(__dirname, '../../resources/trayTemplate.png')
 }
 
 function resetWindowPosition(): void {
@@ -1357,6 +1405,12 @@ app.whenReady().then(async () => {
 
   installContentSecurityPolicy()
   loadWindowPrefs()
+  if (hasLaunchAtLoginPreference) {
+    applyLaunchAtLogin()
+  } else {
+    syncLaunchAtLoginFromSystem()
+  }
+  saveWindowPrefs()
 
   // Skill provisioning — non-blocking, streams status to renderer
   ensureSkills((status: SkillStatus) => {
@@ -1401,8 +1455,10 @@ app.whenReady().then(async () => {
   }
   globalShortcut.register('CommandOrControl+Shift+K', () => toggleWindow('shortcut Cmd/Ctrl+Shift+K'))
 
-  const trayIconPath = join(__dirname, '../../resources/trayTemplate.png')
-  const trayIcon = nativeImage.createFromPath(trayIconPath)
+  const trayIcon = nativeImage.createFromPath(trayIconPath())
+  if (trayIcon.isEmpty()) {
+    log(`Tray icon image is empty: ${trayIconPath()}`)
+  }
   trayIcon.setTemplateImage(true)
   tray = new Tray(trayIcon)
   tray.setToolTip('Clui CC — Claude Code UI')
