@@ -64,13 +64,17 @@ export class ControlPlane extends EventEmitter {
   private ptyRunManager: PtyRunManager
   /** Feature flag: use PTY transport for interactive permissions */
   private interactivePty: boolean
-  /** Tracks which runs are using PTY transport (by requestId) */
-  private ptyRuns = new Set<string>()
+  /** Tracks tabIds that have active PTY sessions */
+  private ptySessions = new Set<string>()
+  /** Per-session hook tokens for PTY tabs: tabId → token */
+  private sessionTokens = new Map<string, string>()
+  /** Per-session hook settings paths for PTY tabs: tabId → path */
+  private sessionHookPaths = new Map<string, string>()
   /** Tracks requestIds that are warmup init requests (invisible to renderer) */
   private initRequestIds = new Set<string>()
   /** Permission hook server for PreToolUse HTTP hooks */
   private permissionServer: PermissionServer
-  /** Per-run tokens: requestId → runToken (for cleanup on exit/error) */
+  /** Per-run tokens for non-PTY runs: requestId → runToken */
   private runTokens = new Map<string, string>()
   /** Global permission mode: 'ask' shows cards, 'auto' auto-approves */
   private permissionMode: 'ask' | 'auto' = 'ask'
@@ -287,10 +291,10 @@ export class ControlPlane extends EventEmitter {
   }
 
   /**
-   * Wire PtyRunManager events using the same routing logic as RunManager.
+   * Wire PtyRunManager events for persistent session model.
    */
   private _wirePtyEvents(): void {
-    // Normalized events → same routing as RunManager
+    // ─── Normalized message-level events → route by requestId ───
     this.ptyRunManager.on('normalized', (requestId: string, event: NormalizedEvent) => {
       const tabId = this._findTabByRequest(requestId)
       if (!tabId) return
@@ -300,7 +304,6 @@ export class ControlPlane extends EventEmitter {
 
       tab.lastActivityAt = Date.now()
 
-      // Handle session init
       if (event.type === 'session_init') {
         tab.claudeSessionId = event.sessionId
 
@@ -314,41 +317,62 @@ export class ControlPlane extends EventEmitter {
         }
       }
 
-      // Suppress events from init requests
       if (this.initRequestIds.has(requestId)) return
 
       this.emit('event', tabId, event)
     })
 
-    // Exit events
-    this.ptyRunManager.on('exit', (requestId: string, code: number | null, signal: number | null, sessionId: string | null) => {
-      // Clean up per-run token
-      const runToken = this.runTokens.get(requestId)
-      if (runToken) {
-        this.permissionServer.unregisterRun(runToken)
-        this.runTokens.delete(requestId)
-      }
-
+    // ─── Message complete — process alive, resolve inflight and drain queue ───
+    this.ptyRunManager.on('message-complete', (requestId: string, sessionId: string | null) => {
       const tabId = this._findTabByRequest(requestId)
-      const inflight = this.inflightRequests.get(requestId)
+      if (!tabId) return
 
-      // Clean up PTY run tracking
-      this.ptyRuns.delete(requestId)
+      const tab = this.tabs.get(tabId)
+      if (!tab) return
 
-      if (!tabId || !this.tabs.get(tabId)) {
-        if (inflight) {
-          inflight.resolve()
-          this.inflightRequests.delete(requestId)
-        }
-        return
+      if (sessionId) tab.claudeSessionId = sessionId
+      tab.activeRequestId = null
+
+      const isInit = this.initRequestIds.has(requestId)
+      if (isInit) {
+        this.initRequestIds.delete(requestId)
+        this._setTabStatus(tabId, 'idle')
+      } else {
+        this._setTabStatus(tabId, 'completed')
       }
 
-      const tab = this.tabs.get(tabId)!
-      tab.activeRequestId = null
+      const inflight = this.inflightRequests.get(requestId)
+      if (inflight) {
+        inflight.resolve()
+        this.inflightRequests.delete(requestId)
+      }
+
+      this._processQueue(tabId)
+    })
+
+    // ─── Session exit — process died (tab close, crash, or unexpected) ───
+    this.ptyRunManager.on('session-exit', (tabId: string, code: number | null, signal: number | null, sessionId: string | null) => {
+      this.ptySessions.delete(tabId)
+
+      // Clean up session-level hook token
+      const sessionToken = this.sessionTokens.get(tabId)
+      if (sessionToken) {
+        this.permissionServer.unregisterRun(sessionToken)
+        this.sessionTokens.delete(tabId)
+        this.sessionHookPaths.delete(tabId)
+      }
+
+      const tab = this.tabs.get(tabId)
+      if (!tab) return
+
+      const requestId = tab.activeRequestId
+      const inflight = requestId ? this.inflightRequests.get(requestId) : null
+
       tab.runPid = null
+      tab.activeRequestId = null
       if (sessionId) tab.claudeSessionId = sessionId
 
-      if (this.initRequestIds.has(requestId)) {
+      if (requestId && this.initRequestIds.has(requestId)) {
         this.initRequestIds.delete(requestId)
         this._setTabStatus(tabId, 'idle')
         if (inflight) {
@@ -364,12 +388,14 @@ export class ControlPlane extends EventEmitter {
       } else if (signal) {
         this._setTabStatus(tabId, 'failed')
       } else {
-        const enriched = this.ptyRunManager.getEnrichedError(requestId, code)
-        this.emit('error', tabId, enriched)
+        if (requestId) {
+          const enriched = this.ptyRunManager.getEnrichedError(requestId, code)
+          this.emit('error', tabId, enriched)
+        }
         this._setTabStatus(tabId, code === null ? 'dead' : 'failed')
       }
 
-      if (inflight) {
+      if (inflight && requestId) {
         inflight.resolve()
         this.inflightRequests.delete(requestId)
       }
@@ -377,19 +403,10 @@ export class ControlPlane extends EventEmitter {
       this._processQueue(tabId)
     })
 
-    // Error events
+    // ─── Message-level error (e.g. failed to write to PTY stdin) ───
     this.ptyRunManager.on('error', (requestId: string, err: Error) => {
-      // Clean up per-run token
-      const runToken = this.runTokens.get(requestId)
-      if (runToken) {
-        this.permissionServer.unregisterRun(runToken)
-        this.runTokens.delete(requestId)
-      }
-
       const tabId = this._findTabByRequest(requestId)
       const inflight = this.inflightRequests.get(requestId)
-
-      this.ptyRuns.delete(requestId)
 
       if (!tabId || !this.tabs.get(tabId)) {
         if (inflight) {
@@ -401,11 +418,10 @@ export class ControlPlane extends EventEmitter {
 
       const tab = this.tabs.get(tabId)!
       tab.activeRequestId = null
-      tab.runPid = null
 
       if (this.initRequestIds.has(requestId)) {
         this.initRequestIds.delete(requestId)
-        log(`PTY init session error for tab ${tabId}: ${err.message}`)
+        log(`PTY init error for tab ${tabId}: ${err.message}`)
         this._setTabStatus(tabId, 'idle')
         if (inflight) {
           inflight.reject(err)
@@ -416,7 +432,6 @@ export class ControlPlane extends EventEmitter {
       }
 
       this._setTabStatus(tabId, 'dead')
-
       const enriched = this.ptyRunManager.getEnrichedError(requestId, null)
       enriched.message = err.message
       this.emit('error', tabId, enriched)
@@ -469,13 +484,26 @@ export class ControlPlane extends EventEmitter {
   }
 
   /**
-   * Clear stored session ID for a tab — used when working directory changes
-   * so _dispatch won't inject a stale --resume from the old directory.
+   * Clear stored session ID for a tab — used when working directory changes.
+   * Ends any active PTY session so the next message spawns a fresh process.
    */
   resetTabSession(tabId: string): void {
     const tab = this.tabs.get(tabId)
     if (!tab) return
     log(`Resetting session for tab ${tabId} (was: ${tab.claudeSessionId})`)
+
+    if (this.ptySessions.has(tabId)) {
+      this.ptyRunManager.endSession(tabId)
+      this.ptySessions.delete(tabId)
+    }
+
+    const sessionToken = this.sessionTokens.get(tabId)
+    if (sessionToken) {
+      this.permissionServer.unregisterRun(sessionToken)
+      this.sessionTokens.delete(tabId)
+      this.sessionHookPaths.delete(tabId)
+    }
+
     tab.claudeSessionId = null
   }
 
@@ -492,15 +520,35 @@ export class ControlPlane extends EventEmitter {
     const tab = this.tabs.get(tabId)
     if (!tab) return
 
-    // Cancel active run if any
-    if (tab.activeRequestId) {
-      this.cancel(tab.activeRequestId)
+    const hadPtySession = this.ptySessions.has(tabId)
 
-      // Resolve and clean up the inflight promise so it doesn't leak.
-      // The exit handler may never fire for this tab since we're deleting it.
+    // End PTY session if one exists — this gracefully kills the process
+    if (hadPtySession) {
+      this.ptyRunManager.endSession(tabId)
+      this.ptySessions.delete(tabId)
+    }
+
+    // Clean up session-level hook token
+    const sessionToken = this.sessionTokens.get(tabId)
+    if (sessionToken) {
+      this.permissionServer.unregisterRun(sessionToken)
+      this.sessionTokens.delete(tabId)
+      this.sessionHookPaths.delete(tabId)
+    }
+
+    // Cancel non-PTY active run if any
+    if (tab.activeRequestId && !hadPtySession) {
+      this.runManager.cancel(tab.activeRequestId)
       const inflight = this.inflightRequests.get(tab.activeRequestId)
       if (inflight) {
         inflight.reject(new Error('Tab closed'))
+        this.inflightRequests.delete(tab.activeRequestId)
+      }
+    } else if (tab.activeRequestId) {
+      // PTY was already ended above; just clean up the inflight promise
+      const inflight = this.inflightRequests.get(tab.activeRequestId)
+      if (inflight) {
+        inflight.resolve()
         this.inflightRequests.delete(tab.activeRequestId)
       }
     }
@@ -604,14 +652,6 @@ export class ControlPlane extends EventEmitter {
       options = { ...options, newSessionId: randomUUID() }
     }
 
-    // Per-run token lifecycle: register run, generate per-run settings file
-    if (this.permissionServer.getPort()) {
-      const runToken = this.permissionServer.registerRun(tabId, requestId, options.sessionId || null)
-      this.runTokens.set(requestId, runToken)
-      const hookSettingsPath = this.permissionServer.generateSettingsFile(runToken)
-      options = { ...options, hookSettingsPath }
-    }
-
     tab.activeRequestId = requestId
     if (!this.initRequestIds.has(requestId)) tab.promptCount++
     tab.lastActivityAt = Date.now()
@@ -626,17 +666,34 @@ export class ControlPlane extends EventEmitter {
     let pid: number | null = null
     try {
       if (usePty) {
-        log(`Dispatching via PTY transport: ${requestId}`)
-        const handle = this.ptyRunManager.startRun(requestId, options)
-        this.ptyRuns.add(requestId)
+        // PTY uses a per-session token (one per tab lifetime, not per request).
+        // Register it once on first message; reuse for all subsequent messages.
+        if (!this.sessionTokens.has(tabId) && this.permissionServer.getPort()) {
+          const sessionToken = this.permissionServer.registerRun(tabId, tabId, tab.claudeSessionId)
+          this.sessionTokens.set(tabId, sessionToken)
+          const hookPath = this.permissionServer.generateSettingsFile(sessionToken)
+          this.sessionHookPaths.set(tabId, hookPath)
+        }
+        const hookSettingsPath = this.sessionHookPaths.get(tabId)
+        if (hookSettingsPath) options = { ...options, hookSettingsPath }
+
+        log(`Dispatching via PTY session: ${requestId}`)
+        const handle = this.ptyRunManager.startOrSend(tabId, requestId, options)
+        this.ptySessions.add(tabId)
         pid = handle.pid
       } else {
+        // Non-PTY: per-request token (existing behavior)
+        if (this.permissionServer.getPort()) {
+          const runToken = this.permissionServer.registerRun(tabId, requestId, options.sessionId || null)
+          this.runTokens.set(requestId, runToken)
+          const hookSettingsPath = this.permissionServer.generateSettingsFile(runToken)
+          options = { ...options, hookSettingsPath }
+        }
         const handle = this.runManager.startRun(requestId, options)
         pid = handle.pid
       }
       tab.runPid = pid
     } catch (err) {
-      // Start failure before inflight registration: rollback tab run state.
       tab.activeRequestId = null
       tab.runPid = null
       this._setTabStatus(tabId, 'failed')
@@ -669,9 +726,10 @@ export class ControlPlane extends EventEmitter {
       return true
     }
 
-    // Cancel active run — route to correct transport
-    if (this.ptyRuns.has(requestId)) {
-      return this.ptyRunManager.cancel(requestId)
+    // Route to correct transport
+    const tabId = this._findTabByRequest(requestId)
+    if (tabId && this.ptySessions.has(tabId)) {
+      return this.ptyRunManager.cancelMessage(tabId)
     }
     return this.runManager.cancel(requestId)
   }
@@ -680,9 +738,12 @@ export class ControlPlane extends EventEmitter {
    * Cancel active run on a tab (by tabId instead of requestId).
    */
   cancelTab(tabId: string): boolean {
+    if (this.ptySessions.has(tabId)) {
+      return this.ptyRunManager.cancelMessage(tabId)
+    }
     const tab = this.tabs.get(tabId)
     if (!tab?.activeRequestId) return false
-    return this.cancel(tab.activeRequestId)
+    return this.runManager.cancel(tab.activeRequestId)
   }
 
   // ─── Retry ───
@@ -707,28 +768,22 @@ export class ControlPlane extends EventEmitter {
   // ─── Permission Response ───
 
   respondToPermission(tabId: string, questionId: string, optionId: string): boolean {
-    // Route to hook server if this is a hook-based permission request.
-    // Pass optionId directly — it matches the permission card option IDs
-    // (allow, allow-session, allow-domain, deny).
     if (questionId.startsWith('hook-')) {
       return this.permissionServer.respondToPermission(questionId, optionId)
+    }
+
+    if (this.ptySessions.has(tabId)) {
+      return this.ptyRunManager.respondToPermission(tabId, questionId, optionId)
     }
 
     const tab = this.tabs.get(tabId)
     if (!tab?.activeRequestId) return false
 
-    // Route to correct transport
-    if (this.ptyRuns.has(tab.activeRequestId)) {
-      return this.ptyRunManager.respondToPermission(tab.activeRequestId, questionId, optionId)
-    }
-
-    // Print-json transport: send structured permission response via stdin
     const msg = {
       type: 'permission_response',
       question_id: questionId,
       option_id: optionId,
     }
-
     return this.runManager.writeToStdin(tab.activeRequestId, msg)
   }
 
@@ -739,9 +794,10 @@ export class ControlPlane extends EventEmitter {
 
     for (const [tabId, tab] of this.tabs) {
       let alive = false
-      if (tab.activeRequestId) {
+      if (this.ptySessions.has(tabId)) {
+        alive = this.ptyRunManager.hasSession(tabId)
+      } else if (tab.activeRequestId) {
         alive = this.runManager.isRunning(tab.activeRequestId)
-          || this.ptyRunManager.isRunning(tab.activeRequestId)
       }
 
       tabEntries.push({
@@ -764,7 +820,8 @@ export class ControlPlane extends EventEmitter {
   }
 
   getEnrichedError(requestId: string, exitCode: number | null): EnrichedError {
-    if (this.ptyRuns.has(requestId)) {
+    const tabId = this._findTabByRequest(requestId)
+    if (tabId && this.ptySessions.has(tabId)) {
       return this.ptyRunManager.getEnrichedError(requestId, exitCode)
     }
     return this.runManager.getEnrichedError(requestId, exitCode)
@@ -822,6 +879,7 @@ export class ControlPlane extends EventEmitter {
   shutdown(): void {
     log('Shutting down control plane')
     this.permissionServer.stop()
+    // closeTab handles PTY session cleanup
     for (const [tabId] of this.tabs) {
       this.closeTab(tabId)
     }

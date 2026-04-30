@@ -1,18 +1,23 @@
 /**
- * PtyRunManager: Interactive PTY transport for Claude Code.
+ * PtyRunManager: Persistent PTY session transport for Claude Code.
  *
- * Spawns `claude` (without -p) via node-pty to get the full interactive
- * terminal experience, including permission prompts. Parses the PTY output
- * to extract text, tool calls, and permission requests, then emits
- * normalized events identical to RunManager.
+ * Spawns one `claude` process per tab (no -p) and keeps it alive for the
+ * lifetime of the tab. Each user message is written to the running PTY
+ * stdin rather than spawning a new process. This gives the full interactive
+ * Claude Code experience: slash commands persist, /compact works, /vim mode
+ * survives across turns, etc.
  *
- * This module is behind the `CLUI_INTERACTIVE_PERMISSIONS_PTY` feature flag.
+ * Lifecycle:
+ *   startOrSend(tabId, requestId, options) — spawns session if needed, then
+ *     sends the prompt (buffered until the initial ❯ prompt appears).
+ *   endSession(tabId)  — writes /exit and kills the process.
+ *   cancelMessage(tabId) — sends Ctrl+C to interrupt the current message.
  *
- * Known limitations:
- * - Parsing depends on Claude CLI's terminal output format (Ink-based)
- * - ANSI stripping may lose some formatting nuance
- * - Permission prompt detection uses heuristics, not a formal grammar
- * - If the CLI's UI changes significantly, the parser may break
+ * Events emitted:
+ *   'normalized'       (requestId, NormalizedEvent) — message-level events
+ *   'message-complete' (requestId, sessionId | null) — message done, process alive
+ *   'session-exit'     (tabId, exitCode, signal, sessionId | null) — process died
+ *   'error'            (requestId, Error) — message-level error
  */
 
 import { EventEmitter } from 'events'
@@ -29,13 +34,13 @@ let pty: typeof import('node-pty')
 try {
   pty = require('node-pty')
 } catch (err) {
-  // Will be set when first needed — fail at startRun() time, not import time
+  // Will fail at startOrSend() time, not import time
 }
 
 const LOG_FILE = join(homedir(), '.clui-debug.log')
 const MAX_RING_LINES = 100
-const PTY_BUFFER_SIZE = 50 // rolling window of cleaned lines for parser context
-const PERMISSION_TIMEOUT_MS = 5 * 60 * 1000 // 5 minutes
+const PTY_BUFFER_SIZE = 50
+const PERMISSION_TIMEOUT_MS = 5 * 60 * 1000
 const QUIESCENCE_MS = 2000
 
 function log(msg: string): void {
@@ -45,16 +50,12 @@ function log(msg: string): void {
 
 // ─── ANSI Stripping ───
 
-/**
- * Strip ANSI escape sequences (colors, cursor movement, clear line, etc.)
- */
 function stripAnsi(str: string): string {
-  // Covers CSI sequences including private modes like ?2004h
   return str.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, '')
-    .replace(/\x1b\][^\x07]*\x07/g, '')  // OSC sequences
-    .replace(/\x1b[()][0-9A-Za-z]/g, '')  // character set selection
-    .replace(/\x1b[#=>\[\]]/g, '')         // misc escapes
-    .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, '') // control chars except \n \r \t
+    .replace(/\x1b\][^\x07]*\x07/g, '')
+    .replace(/\x1b[()][0-9A-Za-z]/g, '')
+    .replace(/\x1b[#=>\[\]]/g, '')
+    .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, '')
 }
 
 // ─── Permission Prompt Detection ───
@@ -65,62 +66,30 @@ interface ParsedPermission {
   options: Array<{ optionId: string; label: string; terminalValue: string }>
 }
 
-/**
- * Confidence-scored permission prompt detector.
- * Looks at a window of cleaned terminal lines and tries to identify
- * a Claude permission prompt.
- */
 function detectPermissionPrompt(lines: string[]): ParsedPermission | null {
   const joined = lines.join('\n')
 
-  // ─── Pattern 1: "Claude wants to use <ToolName>" or "Allow <ToolName>" ───
-  // The interactive CLI typically shows something like:
-  //   "Claude wants to use Bash"
-  //   "Command: ls -la"
-  //   "❯ Allow for this project  Allow once  Deny"
-
   let confidence = 0
   let toolName = ''
-  let rawPrompt = ''
 
-  // Check for tool permission keywords
   const toolMatch = joined.match(/(?:wants?\s+to\s+(?:use|run|execute)|Tool:\s*|tool_name:\s*)(\w+)/i)
   if (toolMatch) {
     toolName = toolMatch[1]
     confidence += 3
   }
 
-  // Check for permission-specific keywords
-  const permissionKeywords = [
-    /\ballow\b/i,
-    /\bdeny\b/i,
-    /\breject\b/i,
-    /\bpermission\b/i,
-    /\bapprove\b/i,
-  ]
+  const permissionKeywords = [/\ballow\b/i, /\bdeny\b/i, /\breject\b/i, /\bpermission\b/i, /\bapprove\b/i]
   for (const kw of permissionKeywords) {
     if (kw.test(joined)) confidence++
   }
 
-  // Check for option-like patterns (numbered or arrow-selected)
   const hasOptions = /(?:❯|›|>)\s*(?:Allow|Deny|Yes|No)/i.test(joined)
     || /\b(?:Allow\s+(?:once|always|for\s+(?:this\s+)?(?:project|session)))\b/i.test(joined)
   if (hasOptions) confidence += 2
 
-  // Need at least 4 confidence to declare a permission prompt
   if (confidence < 4) return null
 
-  // ─── Extract options ───
   const options: ParsedPermission['options'] = []
-
-  // Try to find option labels. The interactive CLI typically shows:
-  // ❯ Allow for this project  |  Allow once  |  Deny
-  // Or vertically:
-  // ❯ Allow for this project
-  //   Allow once
-  //   Deny
-
-  // Pattern: Look for Allow/Deny variants
   const optionPatterns = [
     { pattern: /Allow\s+(?:for\s+(?:this\s+)?(?:project|session)|always)/i, label: 'Allow for this project', kind: 'allow' },
     { pattern: /Allow\s+once/i, label: 'Allow once', kind: 'allow' },
@@ -134,18 +103,10 @@ function detectPermissionPrompt(lines: string[]): ParsedPermission | null {
   for (const op of optionPatterns) {
     if (op.pattern.test(joined)) {
       optIdx++
-      options.push({
-        optionId: `opt-${optIdx}`,
-        label: op.label,
-        // Terminal value: we'll use arrow key navigation + Enter
-        // The position in the list determines how many down arrows to press
-        terminalValue: String(optIdx),
-      })
+      options.push({ optionId: `opt-${optIdx}`, label: op.label, terminalValue: String(optIdx) })
     }
   }
 
-  // If we didn't find specific options but have high confidence,
-  // add default Allow/Deny options
   if (options.length === 0 && confidence >= 4) {
     options.push(
       { optionId: 'opt-1', label: 'Allow', terminalValue: '1' },
@@ -153,34 +114,18 @@ function detectPermissionPrompt(lines: string[]): ParsedPermission | null {
     )
   }
 
-  // Extract the raw prompt context (last 10 lines)
-  rawPrompt = lines.slice(-10).join('\n')
-
+  const rawPrompt = lines.slice(-10).join('\n')
   return { toolName: toolName || 'Unknown', rawPrompt, options }
 }
 
-/**
- * Try to extract a session ID from terminal output.
- * The interactive CLI may print session info at startup.
- */
 function extractSessionId(text: string): string | null {
-  // Pattern: "Session: <uuid>" or "session_id: <uuid>" or just a UUID in init context
   const match = text.match(/(?:session[_ ]?id|Session|Resuming session)[:\s]+([a-f0-9-]{36})/i)
   return match ? match[1] : null
 }
 
-/**
- * Detect if the CLI is showing its input prompt (ready for next message).
- * This indicates the current response is complete.
- *
- * The Ink-based CLI renders the prompt line as something like:
- *   "❯ "  or  "❯ ? for shortcuts"  or  "> "
- * After proper \r handling, the prompt should be a clean line.
- */
 function isInputPrompt(line: string): boolean {
   const cleaned = line.trim()
   if (cleaned === '❯' || cleaned === '>' || cleaned === '$') return true
-  // Match prompt with trailing hint text (e.g. "❯ ? for shortcuts")
   if (/^[❯>]\s*(?:\?\s*for\s*shortcuts)?$/.test(cleaned)) return true
   return false
 }
@@ -196,26 +141,16 @@ function isUiChrome(line: string): boolean {
   if (/for\s*shortcuts/i.test(cleaned)) return true
   if (/zigzagging|thinking|processing|nebulizing|Boondoggling/i.test(cleaned)) return true
   if (/^esctointerrupt/i.test(cleaned)) return true
-  // Prompt line with hint
   if (/^[❯>]\s*\?\s*for\s*shortcuts/i.test(cleaned)) return true
-  // Status bar fragments: "Opus 4.6 · Claude Max" etc.
   if (/Opus\s*[\d.]+\s*·/i.test(cleaned)) return true
   if (/Claude\s*Max/i.test(cleaned)) return true
-  // Settings issue / doctor notice
   if (/settings?\s*issue|\/doctor/i.test(cleaned)) return true
-  // Horizontal rules (all dashes/box chars)
   if (/^[─━▪\-=]{4,}/.test(cleaned)) return true
-  // Only box-drawing / decoration chars
   if (/^[▗▖▘▝▀▄▌▐█░▒▓■□▪▫●○◆◇◈]+$/.test(cleaned)) return true
   return false
 }
 
-/**
- * Detect if a line looks like a tool call header from the interactive CLI.
- * Example: "⏳ Bash ls -la" or "✓ Read file.ts"
- */
 function parseToolCallLine(line: string): { toolName: string; input: string } | null {
-  // Pattern: emoji/spinner + tool name + optional input
   const match = line.match(/(?:⏳|⏳|✓|✗|⚡|🔧|Running|Executing)\s+(\w+)\s*(.*)/i)
     || line.match(/(?:Tool|Using):\s*(\w+)\s*(.*)/i)
   if (match) {
@@ -224,59 +159,50 @@ function parseToolCallLine(line: string): { toolName: string; input: string } | 
   return null
 }
 
-// ─── Run Handle ───
+// ─── Session Handle ───
 
-export interface PtyRunHandle {
-  runId: string
+export interface PtySessionHandle {
+  tabId: string
   sessionId: string | null
   pty: import('node-pty').IPty
   pid: number
   startedAt: number
-  /** Ring buffer of raw PTY output for diagnostics */
-  rawOutputTail: string[]
-  /** Ring buffer of stderr-like error lines */
-  stderrTail: string[]
-  /** Count of tool calls seen */
-  toolCallCount: number
-  /** Current pending permission prompt */
-  pendingPermission: ParsedPermission | null
-  /** Permission flow phase */
-  permissionPhase: 'idle' | 'detecting' | 'waiting_user' | 'answered'
-  /** Rolling window of cleaned lines for parser context */
-  ptyBuffer: string[]
-  /** Timer for permission timeout */
-  permissionTimeout: ReturnType<typeof setTimeout> | null
-  /** Accumulated text since last flush (for debounced text_chunk emission) */
-  textAccumulator: string
-  /** Whether we've seen the initial welcome/init output */
-  pastInit: boolean
-  /** Whether we've emitted session_init */
+  // Session-level state
+  sessionReady: boolean
   emittedSessionInit: boolean
-  /** Track which options are in the current selector for arrow-key navigation */
-  selectorOptions: string[]
-  /** Currently highlighted option index in the terminal selector */
-  currentOptionIndex: number
-  /** Whether task_complete has already been emitted for this run */
-  runCompleteEmitted: boolean
-  /** Quiescence timer used to avoid premature completion */
-  quiescenceTimer: ReturnType<typeof setTimeout> | null
-  /** Last PTY output timestamp */
-  lastOutputAt: number
-  /** Current prompt snippet used to detect the echoed user input */
-  promptSnippet: string
-  /** Whether we saw an echoed prompt for current request */
+  rawOutputTail: string[]
+  ptyBuffer: string[]
+  // Buffered first message (sent when session becomes ready)
+  pendingRequestId: string | null
+  pendingPrompt: string | null
+  // First-launch trust dialog state
+  trustPromptSeen: boolean
+  trustConfirmed: boolean
+  // Per-message state — reset by _resetMessageState()
+  currentRequestId: string | null
+  collectingResponse: boolean
   sawPromptEcho: boolean
-  /** Whether this request is a native Claude slash command */
   isSlashCommand: boolean
-  /** Whether a slash-command terminal overlay has been dismissed */
   slashOverlayDismissed: boolean
+  toolCallCount: number
+  pendingPermission: ParsedPermission | null
+  permissionPhase: 'idle' | 'detecting' | 'waiting_user' | 'answered'
+  permissionTimeout: ReturnType<typeof setTimeout> | null
+  textAccumulator: string
+  promptSnippet: string
+  runCompleteEmitted: boolean
+  quiescenceTimer: ReturnType<typeof setTimeout> | null
+  lastOutputAt: number
+  selectorOptions: string[]
+  currentOptionIndex: number
 }
 
 // ─── PtyRunManager ───
 
 export class PtyRunManager extends EventEmitter {
-  private activeRuns = new Map<string, PtyRunHandle>()
-  private _finishedRuns = new Map<string, PtyRunHandle>()
+  private activeSessions = new Map<string, PtySessionHandle>()
+  /** Maps requestId → tabId for event routing */
+  private requestToTab = new Map<string, string>()
   private claudeBinary: string
 
   constructor() {
@@ -286,10 +212,6 @@ export class PtyRunManager extends EventEmitter {
     log(`Claude binary: ${this.claudeBinary}`)
   }
 
-  /**
-   * node-pty prebuilt spawn-helper may lose execute bit depending on install/archive flow.
-   * Ensure it's executable at runtime to avoid "posix_spawnp failed".
-   */
   private _ensureSpawnHelperExecutable(): void {
     try {
       const pkgPath = require.resolve('node-pty/package.json')
@@ -345,50 +267,63 @@ export class PtyRunManager extends EventEmitter {
     if (env.PATH && !env.PATH.includes(binDir)) {
       env.PATH = `${binDir}:${env.PATH}`
     }
-
     return env
   }
 
-  startRun(requestId: string, options: RunOptions): PtyRunHandle {
+  /**
+   * Ensures a session exists for tabId and sends the prompt.
+   * If the session process is not yet ready, the prompt is buffered and
+   * sent automatically when the initial ❯ prompt appears.
+   */
+  startOrSend(tabId: string, requestId: string, options: RunOptions): { pid: number } {
     if (!pty) {
       throw new Error('node-pty is not available — cannot use PTY transport')
     }
 
+    let handle = this.activeSessions.get(tabId)
+
+    if (!handle) {
+      handle = this._spawnSession(tabId, options)
+    }
+
+    this.requestToTab.set(requestId, tabId)
+
+    if (!handle.sessionReady) {
+      // Buffer — will be sent when _processLine sees the first ❯
+      handle.pendingRequestId = requestId
+      handle.pendingPrompt = options.prompt
+      log(`Buffering prompt for tab ${tabId} [${requestId}] until session ready`)
+    } else {
+      this._startMessage(handle, requestId, options.prompt)
+    }
+
+    return { pid: handle.pid }
+  }
+
+  private _spawnSession(tabId: string, options: RunOptions): PtySessionHandle {
     const cwd = options.projectPath === '~' ? homedir() : options.projectPath
 
-    // Build args for interactive mode (no -p flag)
-    const args: string[] = [
-      '--permission-mode', options.permissionMode || 'default',
-    ]
+    const args: string[] = ['--permission-mode', options.permissionMode || 'default']
 
     if (options.sessionId) {
       args.push('--resume', options.sessionId)
     } else if (options.newSessionId) {
       args.push('--session-id', options.newSessionId)
     }
-    if (options.model) {
-      args.push('--model', options.model)
-    }
-    if (options.effort) {
-      args.push('--effort', options.effort)
-    }
-    if (options.addDirs && options.addDirs.length > 0) {
-      for (const dir of options.addDirs) {
-        args.push('--add-dir', dir)
-      }
+    if (options.model) args.push('--model', options.model)
+    if (options.effort) args.push('--effort', options.effort)
+    if (options.addDirs?.length) {
+      for (const dir of options.addDirs) args.push('--add-dir', dir)
     }
     if (options.allowedTools?.length) {
       args.push('--allowedTools', options.allowedTools.join(','))
     }
-    if (options.systemPrompt) {
-      args.push('--system-prompt', options.systemPrompt)
-    }
+    if (options.systemPrompt) args.push('--system-prompt', options.systemPrompt)
+    if (options.hookSettingsPath) args.push('--settings', options.hookSettingsPath)
 
-    // Pass prompt as positional argument
-    args.push(options.prompt)
+    // No prompt argument — process waits at ❯ for input
 
-    log(`Starting PTY run ${requestId}: ${this.claudeBinary} ${args.join(' ')}`)
-    log(`Prompt: ${options.prompt.substring(0, 200)}`)
+    log(`Spawning persistent PTY session for tab ${tabId}: ${this.claudeBinary} ${args.join(' ')}`)
 
     const ptyProcess = pty.spawn(this.claudeBinary, args, {
       name: 'xterm-256color',
@@ -400,90 +335,69 @@ export class PtyRunManager extends EventEmitter {
 
     log(`Spawned PTY PID: ${ptyProcess.pid}`)
 
-    const handle: PtyRunHandle = {
-      runId: requestId,
+    const handle: PtySessionHandle = {
+      tabId,
       sessionId: options.sessionId || options.newSessionId || null,
       pty: ptyProcess,
       pid: ptyProcess.pid,
       startedAt: Date.now(),
+      sessionReady: false,
+      emittedSessionInit: false,
       rawOutputTail: [],
-      stderrTail: [],
+      ptyBuffer: [],
+      pendingRequestId: null,
+      pendingPrompt: null,
+      trustPromptSeen: false,
+      trustConfirmed: false,
+      currentRequestId: null,
+      collectingResponse: false,
+      sawPromptEcho: false,
+      isSlashCommand: false,
+      slashOverlayDismissed: false,
       toolCallCount: 0,
       pendingPermission: null,
       permissionPhase: 'idle',
-      ptyBuffer: [],
       permissionTimeout: null,
       textAccumulator: '',
-      pastInit: false,
-      emittedSessionInit: false,
-      selectorOptions: [],
-      currentOptionIndex: 0,
+      promptSnippet: '',
       runCompleteEmitted: false,
       quiescenceTimer: null,
       lastOutputAt: Date.now(),
-      promptSnippet: options.prompt.trim().toLowerCase().slice(0, 24),
-      sawPromptEcho: false,
-      isSlashCommand: options.prompt.trim().startsWith('/'),
-      slashOverlayDismissed: false,
+      selectorOptions: [],
+      currentOptionIndex: 0,
     }
 
-    if (options.newSessionId) {
-      handle.emittedSessionInit = true
-      process.nextTick(() => {
-        this.emit('normalized', requestId, {
-          type: 'session_init',
-          sessionId: options.newSessionId!,
-          tools: [],
-          model: options.model || '',
-          mcpServers: [],
-          skills: [],
-          plugins: [],
-          agents: [],
-          permissionMode: options.permissionMode || null,
-          fastModeState: null,
-          version: '',
-        } as NormalizedEvent)
-      })
-    }
+    this.activeSessions.set(tabId, handle)
 
     // ─── PTY output parser pipeline ───
     let lineBuffer = ''
 
     ptyProcess.onData((data: string) => {
-      // Raw diagnostics
       this._ringPush(handle.rawOutputTail, data.substring(0, 500))
-
       handle.lastOutputAt = Date.now()
-      if (handle.quiescenceTimer) clearTimeout(handle.quiescenceTimer)
-      handle.quiescenceTimer = setTimeout(() => this._checkQuiescenceCompletion(requestId, handle), QUIESCENCE_MS)
 
-      // Ink/TUI uses \r to redraw the current line (cursor back to col 0).
-      // PTY output commonly uses \r\r\n as line endings (Ink reset + newline).
-      // Strategy: scan for \n to emit completed lines; treat \r immediately
-      // before \n (or \r\n) as part of the line ending, not a redraw.
-      // Only a \r followed by printable text is a true Ink redraw.
+      if (handle.quiescenceTimer) clearTimeout(handle.quiescenceTimer)
+      if (handle.currentRequestId && handle.collectingResponse) {
+        handle.quiescenceTimer = setTimeout(
+          () => this._checkQuiescenceCompletion(tabId, handle),
+          QUIESCENCE_MS,
+        )
+      }
+
       const chars = data
       for (let ci = 0; ci < chars.length; ci++) {
         const ch = chars[ci]
         if (ch === '\n') {
-          // Emit completed line (strip any trailing \r that was buffered)
-          const completed = lineBuffer.endsWith('\r')
-            ? lineBuffer.slice(0, -1)
-            : lineBuffer
+          const completed = lineBuffer.endsWith('\r') ? lineBuffer.slice(0, -1) : lineBuffer
           lineBuffer = ''
-          this._processLine(requestId, handle, completed)
+          this._processLine(tabId, handle, completed)
         } else if (ch === '\r') {
-          // Look ahead: if next char is \n or \r (part of \r\r\n), just
-          // append \r to buffer so the \n branch can strip it.
           const next = ci + 1 < chars.length ? chars[ci + 1] : null
           if (next === '\n' || next === '\r') {
-            // Part of line ending sequence — keep in buffer for \n to strip
             lineBuffer += '\r'
           } else if (next === null) {
-            // End of chunk — we don't know what comes next, buffer it
             lineBuffer += '\r'
           } else {
-            // \r followed by printable text → Ink redraw: reset line
             lineBuffer = ''
           }
         } else {
@@ -491,36 +405,27 @@ export class PtyRunManager extends EventEmitter {
         }
       }
 
-      // Also process the current incomplete line for permission detection
-      // (permission prompts may not end with newline)
       if (lineBuffer.length > 0) {
         const cleaned = stripAnsi(lineBuffer).trim()
         if (cleaned.length > 0) {
-          this._checkPermissionInBuffer(requestId, handle, cleaned)
+          this._checkPermissionInBuffer(tabId, handle, cleaned)
         }
       }
     })
 
     ptyProcess.onExit(({ exitCode, signal }) => {
-      log(`PTY exited [${requestId}]: code=${exitCode} signal=${signal}`)
+      log(`PTY exited [tab=${tabId}]: code=${exitCode} signal=${signal}`)
 
-      // Clear permission timeout
-      if (handle.permissionTimeout) {
-        clearTimeout(handle.permissionTimeout)
-        handle.permissionTimeout = null
-      }
-      if (handle.quiescenceTimer) {
-        clearTimeout(handle.quiescenceTimer)
-        handle.quiescenceTimer = null
-      }
+      if (handle.permissionTimeout) clearTimeout(handle.permissionTimeout)
+      if (handle.quiescenceTimer) clearTimeout(handle.quiescenceTimer)
 
-      // Flush any accumulated text
-      this._flushText(requestId, handle)
+      this._flushText(handle)
 
-      // Emit task_complete if we haven't already
-      if (!handle.runCompleteEmitted) {
+      // If a message was in-flight, emit an error for it
+      if (handle.currentRequestId && !handle.runCompleteEmitted) {
         handle.runCompleteEmitted = true
-        this.emit('normalized', requestId, {
+        // Emit task_complete so the inflight promise resolves (ControlPlane will handle dead state)
+        this.emit('normalized', handle.currentRequestId, {
           type: 'task_complete',
           result: '',
           costUsd: 0,
@@ -531,119 +436,228 @@ export class PtyRunManager extends EventEmitter {
         } as NormalizedEvent)
       }
 
-      // Move to finished runs
-      this._finishedRuns.set(requestId, handle)
-      this.activeRuns.delete(requestId)
-      this.emit('exit', requestId, exitCode, signal, handle.sessionId)
+      // Clean up request tracking for current message
+      if (handle.currentRequestId) {
+        this.requestToTab.delete(handle.currentRequestId)
+      }
+      // Also clean up pending
+      if (handle.pendingRequestId) {
+        this.requestToTab.delete(handle.pendingRequestId)
+      }
 
-      setTimeout(() => this._finishedRuns.delete(requestId), 5000)
+      this.activeSessions.delete(tabId)
+      this.emit('session-exit', tabId, exitCode, signal, handle.sessionId)
     })
 
-    this.activeRuns.set(requestId, handle)
     return handle
   }
 
-  /**
-   * Process a single line of PTY output.
-   */
-  private _processLine(requestId: string, handle: PtyRunHandle, rawLine: string): void {
+  private _startMessage(handle: PtySessionHandle, requestId: string, prompt: string): void {
+    log(`Starting message [tab=${handle.tabId}] [req=${requestId}]: ${prompt.substring(0, 80)}`)
+
+    handle.currentRequestId = requestId
+    handle.collectingResponse = false
+    handle.sawPromptEcho = false
+    handle.isSlashCommand = prompt.trim().startsWith('/')
+    handle.slashOverlayDismissed = false
+    handle.toolCallCount = 0
+    handle.pendingPermission = null
+    handle.permissionPhase = 'idle'
+    handle.textAccumulator = ''
+    handle.promptSnippet = prompt.trim().toLowerCase().slice(0, 24)
+    handle.runCompleteEmitted = false
+    handle.selectorOptions = []
+    handle.currentOptionIndex = 0
+    handle.lastOutputAt = Date.now()
+
+    // Write prompt to PTY stdin
+    try {
+      handle.pty.write(prompt + '\n')
+    } catch (err) {
+      log(`Failed to write prompt to PTY: ${(err as Error).message}`)
+      this.emit('error', requestId, err as Error)
+    }
+  }
+
+  private _resetMessageState(handle: PtySessionHandle): void {
+    handle.currentRequestId = null
+    handle.collectingResponse = false
+    handle.sawPromptEcho = false
+    handle.isSlashCommand = false
+    handle.slashOverlayDismissed = false
+    handle.toolCallCount = 0
+    handle.pendingPermission = null
+    handle.permissionPhase = 'idle'
+    if (handle.permissionTimeout) {
+      clearTimeout(handle.permissionTimeout)
+      handle.permissionTimeout = null
+    }
+    handle.textAccumulator = ''
+    handle.promptSnippet = ''
+    handle.runCompleteEmitted = false
+    if (handle.quiescenceTimer) {
+      clearTimeout(handle.quiescenceTimer)
+      handle.quiescenceTimer = null
+    }
+    handle.selectorOptions = []
+    handle.currentOptionIndex = 0
+  }
+
+  private _processLine(tabId: string, handle: PtySessionHandle, rawLine: string): void {
     const cleaned = stripAnsi(rawLine).trim()
     if (cleaned.length === 0) return
 
-    // Ignore terminal mode toggles and redraw control fragments.
     if (/^(?:\?[0-9;?]*[a-zA-Z])+$/i.test(cleaned)) return
-
-    // Deduplicate exact redraw duplicates.
     if (handle.ptyBuffer.length > 0 && handle.ptyBuffer[handle.ptyBuffer.length - 1] === cleaned) return
 
-    // Push to rolling buffer
     this._ringPushBuffer(handle.ptyBuffer, cleaned)
+    log(`PTY line [tab=${tabId}]: ${cleaned.substring(0, 200)}`)
 
-    log(`PTY line [${requestId}]: ${cleaned.substring(0, 200)}`)
-
-    // ─── Try to extract session ID ───
-    if (!handle.emittedSessionInit) {
-      const sid = extractSessionId(cleaned)
-      if (sid) {
-        handle.sessionId = sid
-        handle.emittedSessionInit = true
-        this.emit('normalized', requestId, {
-          type: 'session_init',
-          sessionId: sid,
-          tools: [],
-          model: '',
-          mcpServers: [],
-          skills: [],
-          plugins: [],
-          agents: [],
-          permissionMode: null,
-          fastModeState: null,
-          version: '',
-        } as NormalizedEvent)
+    // ─── Phase 1: Session not yet ready — wait for first ❯ ───
+    if (!handle.sessionReady) {
+      // Try to capture session ID from startup output
+      if (!handle.emittedSessionInit) {
+        const sid = extractSessionId(cleaned)
+        if (sid) handle.sessionId = sid
       }
+
+      // Detect first-launch trust dialog and auto-confirm with Enter.
+      // Pattern in cleaned output: "❯1.Yes,Itrustthisfolder" + "Entertoconfirm·Esctocancel"
+      if (!handle.trustConfirmed) {
+        if (/trust\s*this\s*folder/i.test(cleaned) || /^[❯>]\s*1\.\s*Yes/i.test(cleaned)) {
+          handle.trustPromptSeen = true
+        }
+        if (handle.trustPromptSeen && /Enter\s*to\s*confirm/i.test(cleaned)) {
+          log(`Trust dialog detected [tab=${tabId}] — auto-confirming with Enter`)
+          handle.trustConfirmed = true
+          handle.trustPromptSeen = false
+          try { handle.pty.write('\r') } catch (err) {
+            log(`Failed to send trust confirmation: ${(err as Error).message}`)
+          }
+          return
+        }
+      }
+
+      if (isInputPrompt(cleaned)) {
+        handle.sessionReady = true
+        log(`Session ready [tab=${tabId}] sessionId=${handle.sessionId}`)
+
+        // Emit session_init once, routed through the pending (or first) requestId
+        if (!handle.emittedSessionInit) {
+          handle.emittedSessionInit = true
+          const initRequestId = handle.pendingRequestId || `session-${tabId}`
+          this.emit('normalized', initRequestId, {
+            type: 'session_init',
+            sessionId: handle.sessionId || tabId,
+            tools: [],
+            model: '',
+            mcpServers: [],
+            skills: [],
+            plugins: [],
+            agents: [],
+            permissionMode: null,
+            fastModeState: null,
+            version: '',
+          } as NormalizedEvent)
+        }
+
+        // Send the buffered first message
+        if (handle.pendingRequestId && handle.pendingPrompt !== null) {
+          const reqId = handle.pendingRequestId
+          const prompt = handle.pendingPrompt
+          handle.pendingRequestId = null
+          handle.pendingPrompt = null
+          this._startMessage(handle, reqId, prompt)
+        }
+      }
+      return
     }
 
-    // ─── Skip init/welcome output ───
-    if (!handle.pastInit) {
-      // Wait until we see the echoed prompt for this request.
-      if (/^[❯>]\s+/.test(cleaned)) {
-        // Resume sessions may echo prior context, not the exact current prompt text.
-        // Any echoed input prompt means init shell is ready.
-        handle.sawPromptEcho = true
-      }
-      // Start parsing actual response only after a message bullet appears post-echo.
-      // Native slash commands usually render command output directly instead of
-      // assistant-message bullets, so start on the first non-prompt line there.
-      if (handle.sawPromptEcho && (cleaned.startsWith('⏺') || (handle.isSlashCommand && !isInputPrompt(cleaned)))) {
-        handle.pastInit = true
-      } else {
+    // ─── Phase 2: Session ready but no active message — ignore ───
+    if (!handle.currentRequestId) return
+
+    // ─── Phase 3: Active message — collect everything that isn't chrome ───
+    // The previous design waited for a "❯ <user input>" echo line before
+    // collecting. The current Claude TUI renders user input inside a box that
+    // we filter as chrome, so that echo never arrives and the parser would
+    // hang forever. Just collect any non-chrome line — isUiChrome already
+    // filters status bars, box drawings, spinners, and prompts.
+    if (!handle.collectingResponse) {
+      if (isUiChrome(cleaned) || isInputPrompt(cleaned) || /^[❯>]\s+/.test(cleaned)) {
         return
       }
+      handle.collectingResponse = true
+      // Fall through to normal processing
     }
 
-    // ─── Permission phase: collecting detection context ───
+    // Detect rate-limit / quota notices and surface them as completion +
+    // error so the UI clears the spinner instead of waiting forever.
+    if (handle.currentRequestId && !handle.runCompleteEmitted &&
+        /(used\s+\d+%\s+of\s+your\s+session\s+limit|\/upgrade\s+to\s+keep\s+using|usage\s+limit\s+reached)/i.test(cleaned)) {
+      log(`Rate-limit notice detected [tab=${tabId}] — completing request`)
+      const requestId = handle.currentRequestId
+      handle.runCompleteEmitted = true
+      this._flushText(handle)
+      this.emit('normalized', requestId, {
+        type: 'error',
+        message: cleaned,
+        isError: true,
+        sessionId: handle.sessionId || tabId,
+      } as NormalizedEvent)
+      this.emit('normalized', requestId, {
+        type: 'task_complete',
+        result: cleaned,
+        costUsd: 0,
+        durationMs: Date.now() - handle.startedAt,
+        numTurns: 0,
+        usage: {},
+        sessionId: handle.sessionId || tabId,
+      } as NormalizedEvent)
+      const sessionId = handle.sessionId
+      this._resetMessageState(handle)
+      this.requestToTab.delete(requestId)
+      this.emit('message-complete', requestId, sessionId)
+      return
+    }
+
+    // ─── Phase 4: Collecting response — normal processing ───
+
+    // Permission phase
     if (handle.permissionPhase === 'detecting' || handle.permissionPhase === 'idle') {
-      this._checkPermissionInBuffer(requestId, handle, cleaned)
-      if (handle.permissionPhase === 'waiting_user') {
-        return // Permission prompt detected and emitted
-      }
+      this._checkPermissionInBuffer(tabId, handle, cleaned)
+      if (handle.permissionPhase === 'waiting_user') return
     }
 
-    // ─── Detect tool calls ───
+    // Tool call detection
     const toolCall = parseToolCallLine(cleaned)
     if (toolCall) {
       handle.toolCallCount++
-      this._flushText(requestId, handle)
-      this.emit('normalized', requestId, {
+      this._flushText(handle)
+      this.emit('normalized', handle.currentRequestId, {
         type: 'tool_call',
         toolName: toolCall.toolName,
         toolId: `pty-tool-${handle.toolCallCount}`,
         index: handle.toolCallCount - 1,
       } as NormalizedEvent)
-
-      // Also emit tool_call_complete shortly after (we can't know exact timing from PTY)
       setTimeout(() => {
-        this.emit('normalized', requestId, {
-          type: 'tool_call_complete',
-          index: handle.toolCallCount - 1,
-        } as NormalizedEvent)
+        if (handle.currentRequestId) {
+          this.emit('normalized', handle.currentRequestId, {
+            type: 'tool_call_complete',
+            index: handle.toolCallCount - 1,
+          } as NormalizedEvent)
+        }
       }, 100)
       return
     }
 
-    // ─── Accumulate text output ───
     if (isUiChrome(cleaned)) return
 
-    // Accumulate text for debounced emission
-    if (handle.textAccumulator.length > 0) {
-      handle.textAccumulator += '\n'
-    }
+    if (handle.textAccumulator.length > 0) handle.textAccumulator += '\n'
     const textLine = cleaned.startsWith('⏺') ? cleaned.replace(/^⏺\s*/, '') : cleaned
     handle.textAccumulator += textLine
 
-    // Slash-command screens such as /help, /model, and /permissions are native
-    // terminal overlays. Capture their text, then dismiss them so the run can
-    // return to the Claude prompt and complete inside CLUI.
+    // Auto-dismiss slash command overlays (e.g. /help, /permissions) so the
+    // run can complete rather than hanging on the interactive overlay.
     if (
       handle.isSlashCommand
       && !handle.slashOverlayDismissed
@@ -651,26 +665,29 @@ export class PtyRunManager extends EventEmitter {
     ) {
       handle.slashOverlayDismissed = true
       setTimeout(() => {
-        if (this.activeRuns.has(requestId)) {
+        if (this.activeSessions.has(tabId)) {
           try { handle.pty.write('\x1b') } catch {}
         }
       }, 250)
     }
 
-    // Emit text chunks periodically (debounce 50ms)
-    this._scheduleTextFlush(requestId, handle)
+    this._scheduleTextFlush(tabId, handle)
   }
 
-  private _checkQuiescenceCompletion(requestId: string, handle: PtyRunHandle): void {
-    if (!this.activeRuns.has(requestId)) return
-    if (!handle.pastInit || handle.permissionPhase === 'waiting_user') return
+  private _checkQuiescenceCompletion(tabId: string, handle: PtySessionHandle): void {
+    if (!this.activeSessions.has(tabId)) return
+    if (!handle.currentRequestId || !handle.collectingResponse) return
+    if (handle.permissionPhase === 'waiting_user') return
     if (Date.now() - handle.lastOutputAt < QUIESCENCE_MS - 50) return
 
     const lastLines = handle.ptyBuffer.slice(-3)
     const hasPromptMarker = lastLines.some((l) => isInputPrompt(l))
     if (!hasPromptMarker) return
 
-    this._flushText(requestId, handle)
+    this._flushText(handle)
+
+    const requestId = handle.currentRequestId
+
     if (!handle.runCompleteEmitted) {
       handle.runCompleteEmitted = true
       this.emit('normalized', requestId, {
@@ -684,36 +701,33 @@ export class PtyRunManager extends EventEmitter {
       } as NormalizedEvent)
     }
 
-    try { handle.pty.write('/exit\n') } catch {}
-    setTimeout(() => {
-      if (this.activeRuns.has(requestId)) {
-        try { handle.pty.kill() } catch {}
-      }
-    }, 3000)
+    const sessionId = handle.sessionId
+    this._resetMessageState(handle)
+    this.requestToTab.delete(requestId)
+
+    // Signal ControlPlane: message done, process still alive
+    this.emit('message-complete', requestId, sessionId)
   }
 
   private _textFlushTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
-  private _scheduleTextFlush(requestId: string, handle: PtyRunHandle): void {
-    if (this._textFlushTimers.has(requestId)) return
-
+  private _scheduleTextFlush(tabId: string, handle: PtySessionHandle): void {
+    if (this._textFlushTimers.has(tabId)) return
     const timer = setTimeout(() => {
-      this._textFlushTimers.delete(requestId)
-      this._flushText(requestId, handle)
+      this._textFlushTimers.delete(tabId)
+      this._flushText(handle)
     }, 50)
-
-    this._textFlushTimers.set(requestId, timer)
+    this._textFlushTimers.set(tabId, timer)
   }
 
-  private _flushText(requestId: string, handle: PtyRunHandle): void {
-    const timer = this._textFlushTimers.get(requestId)
+  private _flushText(handle: PtySessionHandle): void {
+    const timer = this._textFlushTimers.get(handle.tabId)
     if (timer) {
       clearTimeout(timer)
-      this._textFlushTimers.delete(requestId)
+      this._textFlushTimers.delete(handle.tabId)
     }
-
-    if (handle.textAccumulator.length > 0) {
-      this.emit('normalized', requestId, {
+    if (handle.textAccumulator.length > 0 && handle.currentRequestId) {
+      this.emit('normalized', handle.currentRequestId, {
         type: 'text_chunk',
         text: handle.textAccumulator,
       } as NormalizedEvent)
@@ -721,198 +735,177 @@ export class PtyRunManager extends EventEmitter {
     }
   }
 
-  /**
-   * Check the current buffer for permission prompt patterns.
-   */
-  private _checkPermissionInBuffer(requestId: string, handle: PtyRunHandle, currentLine: string): void {
-    // Add current line to detection context
+  private _checkPermissionInBuffer(tabId: string, handle: PtySessionHandle, currentLine: string): void {
     const detectionWindow = [...handle.ptyBuffer.slice(-10), currentLine]
-
     const permission = detectPermissionPrompt(detectionWindow)
     if (!permission) {
-      // Check for permission-adjacent keywords to enter detecting phase
       const hasKeyword = /\b(?:permission|approve|allow|deny)\b/i.test(currentLine)
-      if (hasKeyword && handle.permissionPhase === 'idle') {
-        handle.permissionPhase = 'detecting'
-      }
+      if (hasKeyword && handle.permissionPhase === 'idle') handle.permissionPhase = 'detecting'
       return
     }
 
-    // Permission prompt detected!
-    log(`Permission prompt detected [${requestId}]: tool=${permission.toolName}, options=${permission.options.length}`)
-
+    log(`Permission prompt detected [tab=${tabId}]: tool=${permission.toolName}`)
     handle.pendingPermission = permission
     handle.permissionPhase = 'waiting_user'
+    this._flushText(handle)
 
-    // Flush any accumulated text first
-    this._flushText(requestId, handle)
-
-    // Generate a unique question ID
     const questionId = `pty-perm-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`
 
-    // Emit permission_request event
-    this.emit('normalized', requestId, {
-      type: 'permission_request',
-      questionId,
-      toolName: permission.toolName,
-      toolDescription: permission.rawPrompt,
-      options: permission.options.map((o) => ({
-        id: o.optionId,
-        label: o.label,
-        kind: o.label.toLowerCase().includes('deny') || o.label.toLowerCase().includes('reject') ? 'deny' : 'allow',
-      })),
-    } as NormalizedEvent)
+    if (handle.currentRequestId) {
+      this.emit('normalized', handle.currentRequestId, {
+        type: 'permission_request',
+        questionId,
+        toolName: permission.toolName,
+        toolDescription: permission.rawPrompt,
+        options: permission.options.map((o) => ({
+          id: o.optionId,
+          label: o.label,
+          kind: o.label.toLowerCase().includes('deny') || o.label.toLowerCase().includes('reject') ? 'deny' : 'allow',
+        })),
+      } as NormalizedEvent)
+    }
 
-    // Set timeout for user response
     handle.permissionTimeout = setTimeout(() => {
       if (handle.permissionPhase === 'waiting_user') {
-        log(`Permission timeout [${requestId}] — auto-denying`)
-        this.emit('normalized', requestId, {
-          type: 'text_chunk',
-          text: '\n[Permission timed out — automatically denied after 5 minutes]\n',
-        } as NormalizedEvent)
-        // Send Escape to dismiss the prompt
-        try {
-          handle.pty.write('\x1b')
-        } catch {}
+        log(`Permission timeout [tab=${tabId}] — auto-denying`)
+        if (handle.currentRequestId) {
+          this.emit('normalized', handle.currentRequestId, {
+            type: 'text_chunk',
+            text: '\n[Permission timed out — automatically denied after 5 minutes]\n',
+          } as NormalizedEvent)
+        }
+        try { handle.pty.write('\x1b') } catch {}
         handle.permissionPhase = 'idle'
         handle.pendingPermission = null
       }
     }, PERMISSION_TIMEOUT_MS)
   }
 
+  // ─── Public API ───
+
   /**
    * Respond to a permission prompt by sending keystrokes to the PTY.
    */
-  respondToPermission(requestId: string, _questionId: string, optionId: string): boolean {
-    const handle = this.activeRuns.get(requestId)
-    if (!handle) {
-      log(`respondToPermission: no active run for ${requestId}`)
-      return false
-    }
+  respondToPermission(tabId: string, _questionId: string, optionId: string): boolean {
+    const handle = this.activeSessions.get(tabId)
+    if (!handle) return false
+    if (handle.permissionPhase !== 'waiting_user' || !handle.pendingPermission) return false
 
-    if (handle.permissionPhase !== 'waiting_user' || !handle.pendingPermission) {
-      log(`respondToPermission: not waiting for permission (phase=${handle.permissionPhase})`)
-      return false
-    }
-
-    // Clear timeout
     if (handle.permissionTimeout) {
       clearTimeout(handle.permissionTimeout)
       handle.permissionTimeout = null
     }
 
     const option = handle.pendingPermission.options.find((o) => o.optionId === optionId)
-    if (!option) {
-      log(`respondToPermission: option ${optionId} not found`)
-      return false
-    }
+    if (!option) return false
 
-    log(`respondToPermission [${requestId}]: optionId=${optionId}, label=${option.label}`)
-
-    // ─── Send keystrokes to PTY ───
-    // The Claude interactive CLI uses Ink's Select component.
-    // The first option is typically "Allow for this project" and is pre-selected.
-    // To select a different option, we press Down arrow keys then Enter.
+    log(`respondToPermission [tab=${tabId}]: label=${option.label}`)
 
     const optionIndex = handle.pendingPermission.options.indexOf(option)
-    const isAllow = option.label.toLowerCase().includes('allow') || option.label.toLowerCase().includes('yes')
     const isDeny = option.label.toLowerCase().includes('deny') || option.label.toLowerCase().includes('reject')
 
     try {
       if (isDeny) {
-        // Try sending 'n' first (common shortcut for deny)
-        // If that doesn't work, navigate with arrow keys
-        // Send Escape first to clear any state, then 'n'
         handle.pty.write('n')
-      } else if (isAllow && optionIndex === 0) {
-        // First option (typically already selected) — just press Enter
+      } else if (optionIndex === 0) {
         handle.pty.write('\r')
       } else {
-        // Navigate to the option with arrow keys then press Enter
-        for (let i = 0; i < optionIndex; i++) {
-          handle.pty.write('\x1b[B') // Down arrow
-        }
-        // Small delay then Enter
-        setTimeout(() => {
-          try { handle.pty.write('\r') } catch {}
-        }, 50)
+        for (let i = 0; i < optionIndex; i++) handle.pty.write('\x1b[B')
+        setTimeout(() => { try { handle.pty.write('\r') } catch {} }, 50)
       }
     } catch (err) {
-      log(`respondToPermission: write error: ${(err as Error).message}`)
+      log(`respondToPermission write error: ${(err as Error).message}`)
       return false
     }
 
     handle.permissionPhase = 'answered'
     handle.pendingPermission = null
-
-    // After answering, reset to idle for next potential permission
     setTimeout(() => {
-      if (handle.permissionPhase === 'answered') {
-        handle.permissionPhase = 'idle'
-      }
+      if (handle.permissionPhase === 'answered') handle.permissionPhase = 'idle'
     }, 500)
 
     return true
   }
 
   /**
-   * Cancel a running PTY process.
+   * Cancel the currently running message by sending Ctrl+C.
+   * The process stays alive and returns to the ❯ prompt.
    */
-  cancel(requestId: string): boolean {
-    const handle = this.activeRuns.get(requestId)
+  cancelMessage(tabId: string): boolean {
+    const handle = this.activeSessions.get(tabId)
     if (!handle) return false
 
-    log(`Cancelling PTY run ${requestId}`)
+    log(`Cancelling message [tab=${tabId}]`)
 
-    // Clear permission timeout
     if (handle.permissionTimeout) {
       clearTimeout(handle.permissionTimeout)
       handle.permissionTimeout = null
     }
+    if (handle.quiescenceTimer) {
+      clearTimeout(handle.quiescenceTimer)
+      handle.quiescenceTimer = null
+    }
 
-    // Send SIGINT (Ctrl+C)
     try {
       handle.pty.write('\x03') // Ctrl+C
-    } catch {}
+    } catch { return false }
 
-    // Fallback: kill after 5s
-    setTimeout(() => {
-      if (this.activeRuns.has(requestId)) {
-        log(`Force killing PTY run ${requestId}`)
-        try {
-          handle.pty.kill()
-        } catch {}
-      }
-    }, 5000)
+    // Tell the UI the request is finished immediately — don't wait for Claude
+    // to confirm. This unblocks the spinner even when Claude never emitted a
+    // recognizable response (rate limit, quota exhausted, etc.).
+    if (handle.currentRequestId && !handle.runCompleteEmitted) {
+      handle.runCompleteEmitted = true
+      const requestId = handle.currentRequestId
+      this._flushText(handle)
+      this.emit('normalized', requestId, {
+        type: 'task_complete',
+        result: 'Cancelled',
+        costUsd: 0,
+        durationMs: Date.now() - handle.startedAt,
+        numTurns: 0,
+        usage: {},
+        sessionId: handle.sessionId || tabId,
+      } as NormalizedEvent)
+      const sessionId = handle.sessionId
+      this._resetMessageState(handle)
+      this.requestToTab.delete(requestId)
+      this.emit('message-complete', requestId, sessionId)
+    }
 
     return true
   }
 
   /**
-   * Write arbitrary data to PTY stdin (for follow-up messages, etc.)
+   * End a tab's session: write /exit, then kill after 3s.
+   * Called on tab close or session reset.
    */
-  writeToStdin(requestId: string, message: string): boolean {
-    const handle = this.activeRuns.get(requestId)
-    if (!handle) return false
+  endSession(tabId: string): void {
+    const handle = this.activeSessions.get(tabId)
+    if (!handle) return
 
-    log(`Writing to PTY stdin [${requestId}]: ${message.substring(0, 200)}`)
-    try {
-      handle.pty.write(message)
-      return true
-    } catch {
-      return false
-    }
+    log(`Ending session [tab=${tabId}]`)
+
+    if (handle.permissionTimeout) clearTimeout(handle.permissionTimeout)
+    if (handle.quiescenceTimer) clearTimeout(handle.quiescenceTimer)
+
+    this._flushText(handle)
+    this.activeSessions.delete(tabId)
+
+    if (handle.currentRequestId) this.requestToTab.delete(handle.currentRequestId)
+    if (handle.pendingRequestId) this.requestToTab.delete(handle.pendingRequestId)
+
+    try { handle.pty.write('/exit\n') } catch {}
+    setTimeout(() => {
+      try { handle.pty.kill() } catch {}
+    }, 3000)
   }
 
-  /**
-   * Get an enriched error object for a failed PTY run.
-   */
   getEnrichedError(requestId: string, exitCode: number | null): EnrichedError {
-    const handle = this.activeRuns.get(requestId) || this._finishedRuns.get(requestId)
+    const tabId = this.requestToTab.get(requestId)
+    const handle = tabId ? this.activeSessions.get(tabId) : undefined
     return {
-      message: `PTY run failed with exit code ${exitCode}`,
-      stderrTail: handle?.stderrTail.slice(-20) || [],
+      message: `PTY session failed with exit code ${exitCode}`,
+      stderrTail: [],
       stdoutTail: handle?.rawOutputTail.slice(-20) || [],
       exitCode,
       elapsedMs: handle ? Date.now() - handle.startedAt : 0,
@@ -922,16 +915,21 @@ export class PtyRunManager extends EventEmitter {
     }
   }
 
-  isRunning(requestId: string): boolean {
-    return this.activeRuns.has(requestId)
+  hasSession(tabId: string): boolean {
+    return this.activeSessions.has(tabId)
   }
 
-  getHandle(requestId: string): PtyRunHandle | undefined {
-    return this.activeRuns.get(requestId)
+  isRunning(tabId: string): boolean {
+    const handle = this.activeSessions.get(tabId)
+    return !!handle?.currentRequestId
   }
 
-  getActiveRunIds(): string[] {
-    return Array.from(this.activeRuns.keys())
+  getSessionHandle(tabId: string): PtySessionHandle | undefined {
+    return this.activeSessions.get(tabId)
+  }
+
+  getActiveTabIds(): string[] {
+    return Array.from(this.activeSessions.keys())
   }
 
   private _ringPush(buffer: string[], line: string): void {
