@@ -58,7 +58,6 @@ let tray: Tray | null = null
 let screenshotCounter = 0
 let toggleSequence = 0
 let lastWindowBounds: Electron.Rectangle | null = null
-let keepOnTop = false
 let launchAtLogin = false
 let hasLaunchAtLoginPreference = false
 
@@ -328,7 +327,7 @@ function createWindow(): void {
   })
   lastWindowBounds = mainWindow.getBounds()
 
-  applyKeepOnTop()
+  enforceNormalWindowLevel()
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   mainWindow.webContents.on('will-navigate', (event) => {
     event.preventDefault()
@@ -373,7 +372,7 @@ function showWindow(source = 'unknown'): void {
     mainWindow.setBounds(lastWindowBounds)
   }
 
-  applyKeepOnTop()
+  enforceNormalWindowLevel()
 
   if (SPACES_DEBUG) {
     const b = mainWindow.getBounds()
@@ -397,8 +396,7 @@ function windowPrefsPath(): string {
 function loadWindowPrefs(): void {
   try {
     const raw = readFileSync(windowPrefsPath(), 'utf-8')
-    const parsed = JSON.parse(raw) as { keepOnTop?: unknown; launchAtLogin?: unknown }
-    keepOnTop = parsed.keepOnTop === true
+    const parsed = JSON.parse(raw) as { launchAtLogin?: unknown }
     hasLaunchAtLoginPreference = typeof parsed.launchAtLogin === 'boolean'
     if (hasLaunchAtLoginPreference) {
       launchAtLogin = parsed.launchAtLogin === true
@@ -408,20 +406,13 @@ function loadWindowPrefs(): void {
 
 function saveWindowPrefs(): void {
   try {
-    writeFileSync(windowPrefsPath(), JSON.stringify({ keepOnTop, launchAtLogin }, null, 2))
+    writeFileSync(windowPrefsPath(), JSON.stringify({ launchAtLogin }, null, 2))
   } catch {}
 }
 
-function applyKeepOnTop(): void {
+function enforceNormalWindowLevel(): void {
   if (!mainWindow || mainWindow.isDestroyed()) return
-  mainWindow.setAlwaysOnTop(keepOnTop, keepOnTop ? 'floating' : 'normal')
-}
-
-function setKeepOnTop(next: boolean): void {
-  keepOnTop = next
-  applyKeepOnTop()
-  saveWindowPrefs()
-  refreshTrayMenu()
+  mainWindow.setAlwaysOnTop(false, 'normal')
 }
 
 function applyLaunchAtLogin(): void {
@@ -460,12 +451,6 @@ function refreshTrayMenu(): void {
       { label: 'Show Clui CC', click: () => showWindow('tray menu') },
       { label: 'Hide Clui CC', click: () => mainWindow?.hide() },
       { type: 'separator' },
-      {
-        label: 'Keep on Top',
-        type: 'checkbox',
-        checked: keepOnTop,
-        click: () => setKeepOnTop(!keepOnTop),
-      },
       {
         label: 'Launch at Login',
         type: 'checkbox',
