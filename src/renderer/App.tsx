@@ -112,7 +112,7 @@ export default function App() {
     const onMouseDown = (e: MouseEvent) => {
       const el = e.target as HTMLElement
       // Skip interactive elements — everything else on the card is draggable
-      if (el.closest('button, input, textarea, a, select, [role="button"], [contenteditable], .cm-editor')) return
+      if (el.closest('button, input, textarea, a, select, [role="button"], [contenteditable], .cm-editor, .conversation-selectable, .prose-cloud')) return
       if (!el.closest('[data-clui-ui]')) return
       e.preventDefault()
       // Double-click: snap back to default position
