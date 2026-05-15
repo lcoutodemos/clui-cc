@@ -569,16 +569,17 @@ const AssistantMessage = React.memo(function AssistantMessage({
   const markdownComponents = useMemo(() => ({
     table: ({ children }: any) => <TableScrollWrapper>{children}</TableScrollWrapper>,
     a: ({ href, children }: any) => (
-      <button
-        type="button"
+      <a
+        href={href ? String(href) : undefined}
         className="underline decoration-dotted underline-offset-2 cursor-pointer"
         style={{ color: colors.accent }}
-        onClick={() => {
+        onClick={(e) => {
+          e.preventDefault()
           if (href) window.clui.openExternal(String(href))
         }}
       >
         {children}
-      </button>
+      </a>
     ),
     img: ({ src, alt }: any) => <ImageCard src={src} alt={alt} colors={colors} />,
   }), [colors])
