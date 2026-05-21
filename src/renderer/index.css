@@ -47,6 +47,20 @@ textarea {
 textarea:focus {
   outline: none;
 }
+
+/* ─── Cursor hints for interactive chrome ─── */
+.clui-pointer {
+  cursor: pointer;
+}
+.clui-pointer:disabled {
+  cursor: not-allowed;
+}
+.clui-text-input,
+.clui-text-input textarea {
+  cursor: text;
+  user-select: text;
+  -webkit-user-select: text;
+}
 textarea::placeholder,
 input::placeholder {
   color: var(--clui-placeholder);
@@ -54,9 +68,19 @@ input::placeholder {
 
 /* ─── Allow text selection in conversation content ─── */
 .prose-cloud,
-.conversation-selectable {
+.conversation-selectable,
+.no-drag .prose-cloud,
+.no-drag .conversation-selectable {
   user-select: text;
   -webkit-user-select: text;
+  cursor: text;
+}
+.conversation-selectable button,
+.conversation-selectable a,
+.conversation-selectable [role="button"],
+.conversation-selectable .cursor-pointer,
+.prose-cloud a {
+  cursor: pointer;
 }
 
 /* ─── Prose overrides for markdown ─── */

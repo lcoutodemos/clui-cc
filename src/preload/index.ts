@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { IPC } from '../shared/types'
-import type { RunOptions, NormalizedEvent, HealthReport, EnrichedError, Attachment, SessionMeta, CatalogPlugin, SessionLoadMessage } from '../shared/types'
+import type { RunOptions, NormalizedEvent, HealthReport, EnrichedError, Attachment, SessionMeta, CatalogPlugin, SessionLoadMessage, CliTerminalApp } from '../shared/types'
 
 export interface CluiAPI {
   // ─── Request-response (renderer → main) ───
@@ -15,7 +15,7 @@ export interface CluiAPI {
   closeTab(tabId: string): Promise<void>
   selectDirectory(): Promise<string | null>
   openExternal(url: string): Promise<boolean>
-  openInTerminal(sessionId: string | null, projectPath?: string): Promise<boolean>
+  openInTerminal(sessionId: string | null, projectPath?: string, terminalApp?: CliTerminalApp): Promise<boolean>
   attachFiles(): Promise<Attachment[] | null>
   takeScreenshot(): Promise<Attachment | null>
   pasteImage(dataUrl: string): Promise<Attachment | null>
@@ -26,6 +26,8 @@ export interface CluiAPI {
   resetTabSession(tabId: string): void
   listSessions(projectPath?: string): Promise<SessionMeta[]>
   loadSession(sessionId: string, projectPath?: string): Promise<SessionLoadMessage[]>
+  getSessionModel(sessionId: string, projectPath?: string): Promise<string | null>
+  setSessionModel(sessionId: string, projectPath: string | undefined, modelId: string | null): Promise<boolean>
   fetchMarketplace(forceRefresh?: boolean): Promise<{ plugins: CatalogPlugin[]; error: string | null }>
   listInstalledPlugins(): Promise<string[]>
   installPlugin(repo: string, pluginName: string, marketplace: string, sourcePath?: string, isSkillMd?: boolean): Promise<{ ok: boolean; error?: string }>
@@ -68,7 +70,8 @@ const api: CluiAPI = {
   closeTab: (tabId) => ipcRenderer.invoke(IPC.CLOSE_TAB, tabId),
   selectDirectory: () => ipcRenderer.invoke(IPC.SELECT_DIRECTORY),
   openExternal: (url) => ipcRenderer.invoke(IPC.OPEN_EXTERNAL, url),
-  openInTerminal: (sessionId, projectPath) => ipcRenderer.invoke(IPC.OPEN_IN_TERMINAL, { sessionId, projectPath }),
+  openInTerminal: (sessionId, projectPath, terminalApp) =>
+    ipcRenderer.invoke(IPC.OPEN_IN_TERMINAL, { sessionId, projectPath, terminalApp }),
   attachFiles: () => ipcRenderer.invoke(IPC.ATTACH_FILES),
   takeScreenshot: () => ipcRenderer.invoke(IPC.TAKE_SCREENSHOT),
   pasteImage: (dataUrl) => ipcRenderer.invoke(IPC.PASTE_IMAGE, dataUrl),
@@ -80,6 +83,9 @@ const api: CluiAPI = {
   resetTabSession: (tabId) => ipcRenderer.send(IPC.RESET_TAB_SESSION, tabId),
   listSessions: (projectPath?: string) => ipcRenderer.invoke(IPC.LIST_SESSIONS, projectPath),
   loadSession: (sessionId: string, projectPath?: string) => ipcRenderer.invoke(IPC.LOAD_SESSION, { sessionId, projectPath }),
+  getSessionModel: (sessionId, projectPath) => ipcRenderer.invoke(IPC.GET_SESSION_MODEL, { sessionId, projectPath }),
+  setSessionModel: (sessionId, projectPath, modelId) =>
+    ipcRenderer.invoke(IPC.SET_SESSION_MODEL, { sessionId, projectPath, modelId }),
   fetchMarketplace: (forceRefresh) => ipcRenderer.invoke(IPC.MARKETPLACE_FETCH, { forceRefresh }),
   listInstalledPlugins: () => ipcRenderer.invoke(IPC.MARKETPLACE_INSTALLED),
   installPlugin: (repo, pluginName, marketplace, sourcePath, isSkillMd) =>

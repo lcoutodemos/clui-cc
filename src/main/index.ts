@@ -9,6 +9,9 @@ import { fetchCatalog, listInstalled, installPlugin, uninstallPlugin } from './m
 import { log as _log, LOG_FILE, flushLogs } from './logger'
 import { getCliEnv } from './cli-env'
 import { IPC } from '../shared/types'
+import { getSessionModel, setSessionModel } from './session-models'
+import { buildCliCommand, buildOpenTerminalAppleScript } from './open-terminal'
+import type { CliTerminalApp } from '../shared/types'
 import type { RunOptions, NormalizedEvent, EnrichedError } from '../shared/types'
 
 const DEBUG_MODE = process.env.CLUI_DEBUG === '1'
@@ -58,6 +61,60 @@ let tray: Tray | null = null
 let screenshotCounter = 0
 let toggleSequence = 0
 let lastWindowBounds: Electron.Rectangle | null = null
+let currentZoomFactor = 1.0
+
+// ─── Zoom persistence ───
+
+function zoomFilePath(): string {
+  return join(app.getPath('userData'), 'clui-zoom.json')
+}
+
+function loadSavedZoom(): number {
+  try {
+    const { readFileSync } = require('fs')
+    const raw = readFileSync(zoomFilePath(), 'utf-8')
+    const parsed = JSON.parse(raw)
+    const factor = parsed.factor
+    if (typeof factor === 'number' && factor >= 0.7 && factor <= 1.5) return factor
+  } catch {}
+  return 1.0
+}
+
+function persistZoom(factor: number): void {
+  try {
+    const { writeFileSync, mkdirSync } = require('fs')
+    mkdirSync(app.getPath('userData'), { recursive: true })
+    writeFileSync(zoomFilePath(), JSON.stringify({ factor }))
+  } catch {}
+}
+
+function applyZoom(factor: number): void {
+  currentZoomFactor = Math.round(factor * 10) / 10
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    persistZoom(currentZoomFactor)
+    return
+  }
+
+  mainWindow.webContents.setZoomFactor(currentZoomFactor)
+
+  // Scale native window so CSS viewport stays constant width — prevents circle overflow
+  const scaledWidth = Math.round(BAR_WIDTH * currentZoomFactor)
+  const scaledHeight = Math.round(PILL_HEIGHT * currentZoomFactor)
+
+  const cursor = screen.getCursorScreenPoint()
+  const display = screen.getDisplayNearestPoint(cursor)
+  const { width: sw, height: sh } = display.workAreaSize
+  const { x: dx, y: dy } = display.workArea
+
+  mainWindow.setBounds({
+    width: scaledWidth,
+    height: scaledHeight,
+    x: dx + Math.round((sw - scaledWidth) / 2),
+    y: dy + sh - scaledHeight - PILL_BOTTOM_MARGIN,
+  })
+  lastWindowBounds = mainWindow.getBounds()
+  persistZoom(currentZoomFactor)
+}
 
 // Feature flag: enable PTY interactive permissions transport
 const INTERACTIVE_PTY = process.env.CLUI_INTERACTIVE_PERMISSIONS_PTY === '1'
@@ -134,12 +191,14 @@ function createWindow(): void {
   const { width: screenWidth, height: screenHeight } = display.workAreaSize
   const { x: dx, y: dy } = display.workArea
 
-  const x = dx + Math.round((screenWidth - BAR_WIDTH) / 2)
-  const y = dy + screenHeight - PILL_HEIGHT - PILL_BOTTOM_MARGIN
+  const scaledWidth = Math.round(BAR_WIDTH * currentZoomFactor)
+  const scaledHeight = Math.round(PILL_HEIGHT * currentZoomFactor)
+  const x = dx + Math.round((screenWidth - scaledWidth) / 2)
+  const y = dy + screenHeight - scaledHeight - PILL_BOTTOM_MARGIN
 
   mainWindow = new BrowserWindow({
-    width: BAR_WIDTH,
-    height: PILL_HEIGHT,
+    width: scaledWidth,
+    height: scaledHeight,
     x,
     y,
     ...(process.platform === 'darwin' ? { type: 'panel' as const } : {}),  // NSPanel — non-activating, joins all spaces
@@ -176,12 +235,30 @@ function createWindow(): void {
 
   mainWindow.once('ready-to-show', () => {
     mainWindow?.show()
-    // Enable OS-level click-through for transparent regions.
-    // { forward: true } ensures mousemove events still reach the renderer
-    // so it can toggle click-through off when cursor enters interactive UI.
     mainWindow?.setIgnoreMouseEvents(true, { forward: true })
+    // Restore saved zoom factor
+    if (currentZoomFactor !== 1.0 && mainWindow) {
+      mainWindow.webContents.setZoomFactor(currentZoomFactor)
+    }
     if (process.env.ELECTRON_RENDERER_URL) {
       mainWindow?.webContents.openDevTools({ mode: 'detach' })
+    }
+  })
+
+  // Intercept Cmd++/Cmd+-/Cmd+0 to manage zoom + window resize together
+  mainWindow.webContents.on('before-input-event', (event, input) => {
+    if (input.type !== 'keyDown') return
+    const isMod = input.meta || input.control
+    if (!isMod || input.alt) return
+    if (input.key === '=' || input.key === '+') {
+      event.preventDefault()
+      applyZoom(Math.min(1.5, currentZoomFactor + 0.1))
+    } else if (input.key === '-') {
+      event.preventDefault()
+      applyZoom(Math.max(0.7, currentZoomFactor - 0.1))
+    } else if (input.key === '0') {
+      event.preventDefault()
+      applyZoom(1.0)
     }
   })
 
@@ -238,11 +315,14 @@ function resetWindowPosition(): void {
   const { width: sw, height: sh } = display.workAreaSize
   const { x: dx, y: dy } = display.workArea
 
+  const scaledWidth = Math.round(BAR_WIDTH * currentZoomFactor)
+  const scaledHeight = Math.round(PILL_HEIGHT * currentZoomFactor)
+
   mainWindow.setBounds({
-    x: dx + Math.round((sw - BAR_WIDTH) / 2),
-    y: dy + sh - PILL_HEIGHT - PILL_BOTTOM_MARGIN,
-    width: BAR_WIDTH,
-    height: PILL_HEIGHT,
+    x: dx + Math.round((sw - scaledWidth) / 2),
+    y: dy + sh - scaledHeight - PILL_BOTTOM_MARGIN,
+    width: scaledWidth,
+    height: scaledHeight,
   })
   lastWindowBounds = mainWindow.getBounds()
 }
@@ -501,6 +581,31 @@ ipcMain.handle(IPC.LIST_SESSIONS, async (_e, projectPath?: string) => {
     log(`LIST_SESSIONS error: ${err}`)
     return []
   }
+})
+
+const SESSION_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+function validateSessionProjectPath(projectPath?: string): string | null {
+  const cwd = projectPath || process.cwd()
+  if (/[\0\r\n]/.test(cwd) || !cwd.startsWith('/')) return null
+  return cwd
+}
+
+ipcMain.handle(IPC.GET_SESSION_MODEL, (_e, arg: { sessionId: string; projectPath?: string }) => {
+  const { sessionId, projectPath } = arg
+  if (!SESSION_UUID_RE.test(sessionId)) return null
+  const cwd = validateSessionProjectPath(projectPath)
+  if (!cwd) return null
+  return getSessionModel(cwd, sessionId)
+})
+
+ipcMain.handle(IPC.SET_SESSION_MODEL, (_e, arg: { sessionId: string; projectPath?: string; modelId: string | null }) => {
+  const { sessionId, projectPath, modelId } = arg
+  if (!SESSION_UUID_RE.test(sessionId)) return false
+  const cwd = validateSessionProjectPath(projectPath)
+  if (!cwd) return false
+  setSessionModel(cwd, sessionId, modelId)
+  return true
 })
 
 // Load conversation history from a session's JSONL file
@@ -969,63 +1074,50 @@ ipcMain.handle(IPC.GET_DIAGNOSTICS, () => {
   }
 })
 
-ipcMain.handle(IPC.OPEN_IN_TERMINAL, (_event, arg: string | null | { sessionId?: string | null; projectPath?: string }) => {
+ipcMain.handle(IPC.OPEN_IN_TERMINAL, (_event, arg: string | null | { sessionId?: string | null; projectPath?: string; terminalApp?: CliTerminalApp }) => {
   const { execFile } = require('child_process')
-  const claudeBin = 'claude'
+
+  if (process.platform !== 'darwin') {
+    log('OPEN_IN_TERMINAL: only supported on macOS')
+    return false
+  }
 
   const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
-  // Support both old (string) and new ({ sessionId, projectPath }) calling convention
   let sessionId: string | null = null
   let projectPath: string = process.cwd()
+  let terminalApp: CliTerminalApp = 'terminal'
   if (typeof arg === 'string') {
     sessionId = arg
   } else if (arg && typeof arg === 'object') {
     sessionId = arg.sessionId ?? null
     projectPath = arg.projectPath && arg.projectPath !== '~' ? arg.projectPath : process.cwd()
+    if (arg.terminalApp === 'iterm' || arg.terminalApp === 'terminal') {
+      terminalApp = arg.terminalApp
+    }
   }
 
-  // Validate sessionId — must be a strict UUID to prevent injection into the shell command
   if (sessionId && !UUID_RE.test(sessionId)) {
     log(`OPEN_IN_TERMINAL: rejected invalid sessionId: ${sessionId}`)
     return false
   }
 
-  // Sanitize projectPath — reject null bytes, newlines, and non-absolute paths
   if (/[\0\r\n]/.test(projectPath) || !projectPath.startsWith('/')) {
     log(`OPEN_IN_TERMINAL: rejected invalid projectPath: ${projectPath}`)
     return false
   }
 
-  // Shell-safe single-quote escaping: replace ' with '\'' (end quote, escaped literal quote, reopen quote)
-  // Single quotes block all shell expansion ($, `, \, etc.) — unlike double quotes which allow $() and backticks
-  const shellSingleQuote = (s: string): string => "'" + s.replace(/'/g, "'\\''") + "'"
-  // AppleScript string escaping: backslashes doubled, double quotes escaped
-  const escapeAppleScript = (s: string): string => s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
-
-  const safeDir = escapeAppleScript(shellSingleQuote(projectPath))
-
-  let cmd: string
-  if (sessionId) {
-    // sessionId is UUID-validated above, safe to embed directly
-    cmd = `cd ${safeDir} && ${claudeBin} --resume ${sessionId}`
-  } else {
-    cmd = `cd ${safeDir} && ${claudeBin}`
-  }
-
-  const script = `tell application "Terminal"
-  activate
-  do script "${cmd}"
-end tell`
+  const cmd = buildCliCommand(projectPath, sessionId)
+  const script = buildOpenTerminalAppleScript(terminalApp, cmd)
 
   try {
     execFile('/usr/bin/osascript', ['-e', script], (err: Error | null) => {
-      if (err) log(`Failed to open terminal: ${err.message}`)
-      else log(`Opened terminal with: ${cmd}`)
+      if (err) log(`Failed to open ${terminalApp}: ${err.message}`)
+      else log(`Opened ${terminalApp} with: ${cmd}`)
     })
     return true
   } catch (err: unknown) {
-    log(`Failed to open terminal: ${err}`)
+    log(`Failed to open ${terminalApp}: ${err}`)
     return false
   }
 })
@@ -1100,6 +1192,9 @@ app.whenReady().then(async () => {
   await requestPermissions()
 
   installContentSecurityPolicy()
+
+  // Restore saved zoom before window creation so initial dimensions are correct
+  currentZoomFactor = loadSavedZoom()
 
   // Skill provisioning — non-blocking, streams status to renderer
   ensureSkills((status: SkillStatus) => {

@@ -1,7 +1,8 @@
 import React, { useState, useRef, useCallback, useEffect, useLayoutEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Microphone, ArrowUp, SpinnerGap, X, Check } from '@phosphor-icons/react'
-import { useSessionStore, AVAILABLE_MODELS } from '../stores/sessionStore'
+import { useSessionStore, AVAILABLE_MODELS, getEffectiveModel, getModelDisplayLabel } from '../stores/sessionStore'
+import { useThemeStore } from '../theme'
 import { AttachmentChips } from './AttachmentChips'
 import { SlashCommandMenu, getFilteredCommandsWithExtras, type SlashCommand } from './SlashCommandMenu'
 import { useColors } from '../theme'
@@ -37,9 +38,9 @@ export function InputBar() {
   const addAttachments = useSessionStore((s) => s.addAttachments)
   const removeAttachment = useSessionStore((s) => s.removeAttachment)
 
-  const setPreferredModel = useSessionStore((s) => s.setPreferredModel)
+  const setTabModel = useSessionStore((s) => s.setTabModel)
   const staticInfo = useSessionStore((s) => s.staticInfo)
-  const preferredModel = useSessionStore((s) => s.preferredModel)
+  const defaultModel = useThemeStore((s) => s.defaultModel)
   const activeTabId = useSessionStore((s) => s.activeTabId)
   const tab = useSessionStore((s) => s.tabs.find((t) => t.id === s.activeTabId))
   const colors = useColors()
@@ -178,15 +179,15 @@ export function InputBar() {
         break
       }
       case '/model': {
-        const model = tab?.sessionModel || null
         const version = tab?.sessionVersion || staticInfo?.version || null
-        const current = preferredModel || model || 'default'
+        const current = tab ? getEffectiveModel(tab, defaultModel) : defaultModel
+        const scope = tab?.modelOverride ? 'this session' : 'default (settings)'
         const lines = AVAILABLE_MODELS.map((m) => {
-          const active = m.id === current || (!preferredModel && m.id === model)
+          const active = m.id === current
           return `  ${active ? '\u25CF' : '\u25CB'} ${m.label} (${m.id})`
         })
         const header = version ? `Claude Code ${version}` : 'Claude Code'
-        addSystemMessage(`${header}\n\n${lines.join('\n')}\n\nSwitch model: type /model <name>\n  e.g. /model sonnet`)
+        addSystemMessage(`${header}\n\nActive: ${getModelDisplayLabel(current)} (${scope})\n\n${lines.join('\n')}\n\nSwitch model for this session: /model <name>\n  e.g. /model sonnet`)
         break
       }
       case '/mcp': {
@@ -227,7 +228,7 @@ export function InputBar() {
         break
       }
     }
-  }, [tab, clearTab, addSystemMessage, staticInfo, preferredModel])
+  }, [tab, clearTab, addSystemMessage, staticInfo, defaultModel])
 
   const handleSlashSelect = useCallback((cmd: SlashCommand) => {
     const isSkillCommand = !!tab?.sessionSkills?.includes(cmd.command.replace(/^\//, ''))
@@ -259,7 +260,7 @@ export function InputBar() {
         m.id.toLowerCase().includes(query) || m.label.toLowerCase().includes(query)
       )
       if (match) {
-        setPreferredModel(match.id)
+        setTabModel(match.id)
         setInput('')
         setSlashFilter(null)
         addSystemMessage(`Model switched to ${match.label} (${match.id})`)
@@ -400,7 +401,7 @@ export function InputBar() {
       {/* Single-line: inline controls. Multi-line: controls in bottom row */}
       <div className="w-full" style={{ minHeight: 50 }}>
         {isMultiLine ? (
-          <div className="w-full">
+          <div className="clui-text-input w-full">
             <textarea
               ref={textareaRef}
               value={input}
@@ -458,7 +459,7 @@ export function InputBar() {
             </div>
           </div>
         ) : (
-          <div className="flex items-center w-full" style={{ minHeight: 50 }}>
+          <div className="clui-text-input flex items-center w-full" style={{ minHeight: 50 }}>
             <textarea
               ref={textareaRef}
               value={input}
@@ -584,7 +585,7 @@ function VoiceButtons({ voiceState, isConnecting, colors, onToggle, onCancel, on
             onMouseDown={(e) => e.preventDefault()}
             onClick={onToggle}
             disabled={isConnecting}
-            className="w-9 h-9 rounded-full flex items-center justify-center transition-colors"
+            className="clui-pointer w-9 h-9 rounded-full flex items-center justify-center transition-colors"
             style={{
               background: colors.micBg,
               color: isConnecting ? colors.micDisabled : colors.micColor,

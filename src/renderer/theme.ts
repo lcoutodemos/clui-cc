@@ -3,6 +3,19 @@
  * Colors derived from ChatCN oklch system and design-fixed.html reference.
  */
 import { create } from 'zustand'
+import { DEFAULT_MODEL_ID, isKnownModelId } from './models'
+import type { CliTerminalApp } from '../shared/types'
+
+export type { CliTerminalApp }
+
+export const CLI_TERMINAL_OPTIONS: { id: CliTerminalApp; label: string }[] = [
+  { id: 'terminal', label: 'Terminal' },
+  { id: 'iterm', label: 'iTerm' },
+]
+
+function isCliTerminalApp(value: unknown): value is CliTerminalApp {
+  return value === 'terminal' || value === 'iterm'
+}
 
 // ─── Color palettes ───
 
@@ -285,12 +298,18 @@ interface ThemeState {
   themeMode: ThemeMode
   soundEnabled: boolean
   expandedUI: boolean
+  /** Global default model for new sessions (per-session overrides live on TabState) */
+  defaultModel: string
+  /** macOS app for "Open in CLI" */
+  cliTerminal: CliTerminalApp
   /** OS-reported dark mode — used when themeMode is 'system' */
   _systemIsDark: boolean
   setIsDark: (isDark: boolean) => void
   setThemeMode: (mode: ThemeMode) => void
   setSoundEnabled: (enabled: boolean) => void
   setExpandedUI: (expanded: boolean) => void
+  setDefaultModel: (modelId: string) => void
+  setCliTerminal: (app: CliTerminalApp) => void
   /** Called by OS theme change listener — updates system value */
   setSystemTheme: (isDark: boolean) => void
 }
@@ -316,7 +335,15 @@ function applyTheme(isDark: boolean): void {
 
 const SETTINGS_KEY = 'clui-settings'
 
-function loadSettings(): { themeMode: ThemeMode; soundEnabled: boolean; expandedUI: boolean } {
+type PersistedSettings = {
+  themeMode: ThemeMode
+  soundEnabled: boolean
+  expandedUI: boolean
+  defaultModel: string
+  cliTerminal: CliTerminalApp
+}
+
+function loadSettings(): PersistedSettings {
   try {
     const raw = localStorage.getItem(SETTINGS_KEY)
     if (raw) {
@@ -325,24 +352,37 @@ function loadSettings(): { themeMode: ThemeMode; soundEnabled: boolean; expanded
         themeMode: ['light', 'dark'].includes(parsed.themeMode) ? parsed.themeMode : 'dark',
         soundEnabled: typeof parsed.soundEnabled === 'boolean' ? parsed.soundEnabled : true,
         expandedUI: typeof parsed.expandedUI === 'boolean' ? parsed.expandedUI : false,
+        defaultModel: isKnownModelId(parsed.defaultModel) ? parsed.defaultModel : DEFAULT_MODEL_ID,
+        cliTerminal: isCliTerminalApp(parsed.cliTerminal) ? parsed.cliTerminal : 'terminal',
       }
     }
   } catch {}
-  return { themeMode: 'dark', soundEnabled: true, expandedUI: false }
+  return { themeMode: 'dark', soundEnabled: true, expandedUI: false, defaultModel: DEFAULT_MODEL_ID, cliTerminal: 'terminal' }
 }
 
-function saveSettings(s: { themeMode: ThemeMode; soundEnabled: boolean; expandedUI: boolean }): void {
+function saveSettings(s: PersistedSettings): void {
   try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)) } catch {}
 }
 
-// Always start in compact UI mode on launch.
-const saved = { ...loadSettings(), expandedUI: false }
+function snapshotSettings(get: () => ThemeState): PersistedSettings {
+  return {
+    themeMode: get().themeMode,
+    soundEnabled: get().soundEnabled,
+    expandedUI: get().expandedUI,
+    defaultModel: get().defaultModel,
+    cliTerminal: get().cliTerminal,
+  }
+}
+
+const saved = loadSettings()
 
 export const useThemeStore = create<ThemeState>((set, get) => ({
   isDark: saved.themeMode === 'dark' ? true : saved.themeMode === 'light' ? false : true,
   themeMode: saved.themeMode,
   soundEnabled: saved.soundEnabled,
   expandedUI: saved.expandedUI,
+  defaultModel: saved.defaultModel,
+  cliTerminal: saved.cliTerminal,
   _systemIsDark: true,
   setIsDark: (isDark) => {
     set({ isDark })
@@ -352,15 +392,25 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
     const resolved = mode === 'system' ? get()._systemIsDark : mode === 'dark'
     set({ themeMode: mode, isDark: resolved })
     applyTheme(resolved)
-    saveSettings({ themeMode: mode, soundEnabled: get().soundEnabled, expandedUI: get().expandedUI })
+    saveSettings(snapshotSettings(get))
   },
   setSoundEnabled: (enabled) => {
     set({ soundEnabled: enabled })
-    saveSettings({ themeMode: get().themeMode, soundEnabled: enabled, expandedUI: get().expandedUI })
+    saveSettings(snapshotSettings(get))
   },
   setExpandedUI: (expanded) => {
     set({ expandedUI: expanded })
-    saveSettings({ themeMode: get().themeMode, soundEnabled: get().soundEnabled, expandedUI: expanded })
+    saveSettings(snapshotSettings(get))
+  },
+  setDefaultModel: (modelId) => {
+    const resolved = isKnownModelId(modelId) ? modelId : DEFAULT_MODEL_ID
+    set({ defaultModel: resolved })
+    saveSettings(snapshotSettings(get))
+  },
+  setCliTerminal: (app) => {
+    if (!isCliTerminalApp(app)) return
+    set({ cliTerminal: app })
+    saveSettings(snapshotSettings(get))
   },
   setSystemTheme: (isDark) => {
     set({ _systemIsDark: isDark })

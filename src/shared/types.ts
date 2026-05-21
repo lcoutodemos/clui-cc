@@ -158,6 +158,8 @@ export interface TabState {
   lastResult: RunResult | null
   /** Session metadata from init event */
   sessionModel: string | null
+  /** Per-session model override (persisted under ~/.claude/projects/ when sessionId is known) */
+  modelOverride: string | null
   sessionTools: string[]
   sessionMcpServers: Array<{ name: string; status: string }>
   sessionSkills: string[]
@@ -294,6 +296,9 @@ export interface CatalogPlugin {
   isSkillMd: boolean      // true = individual SKILL.md (direct install), false = CLI plugin (bundle install)
 }
 
+/** macOS terminal app used by "Open in CLI" */
+export type CliTerminalApp = 'terminal' | 'iterm'
+
 // ─── IPC Channel Names ───
 
 export const IPC = {
@@ -321,6 +326,8 @@ export const IPC = {
   ANIMATE_HEIGHT: 'clui:animate-height',
   LIST_SESSIONS: 'clui:list-sessions',
   LOAD_SESSION: 'clui:load-session',
+  GET_SESSION_MODEL: 'clui:get-session-model',
+  SET_SESSION_MODEL: 'clui:set-session-model',
 
   // One-way events (main → renderer)
   TEXT_CHUNK: 'clui:text-chunk',

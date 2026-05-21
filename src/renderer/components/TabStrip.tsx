@@ -47,7 +47,7 @@ export function TabStrip() {
   return (
     <div
       data-clui-ui
-      className="flex items-center no-drag"
+      className="flex items-center"
       style={{ padding: '8px 0' }}
     >
       {/* Scrollable tabs area — clipped by master card edge */}
@@ -93,7 +93,7 @@ export function TabStrip() {
                   {tabs.length > 1 && (
                     <button
                       onClick={(e) => { e.stopPropagation(); closeTab(tab.id) }}
-                      className="flex-shrink-0 rounded-full w-4 h-4 flex items-center justify-center transition-opacity"
+                      className="clui-pointer flex-shrink-0 rounded-full w-4 h-4 flex items-center justify-center transition-opacity"
                       style={{
                         opacity: isActive ? 0.5 : 0,
                         color: colors.textSecondary,
@@ -115,7 +115,7 @@ export function TabStrip() {
       <div className="flex items-center gap-0.5 flex-shrink-0 ml-1 pr-2">
         <button
           onClick={() => createTab()}
-          className="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded-full transition-colors"
+          className="clui-pointer flex-shrink-0 w-6 h-6 flex items-center justify-center rounded-full transition-colors"
           style={{ color: colors.textTertiary }}
           title="New tab"
         >

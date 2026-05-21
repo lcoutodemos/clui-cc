@@ -2,18 +2,18 @@ import React, { useState, useRef, useEffect, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Terminal, CaretDown, Check, FolderOpen, Plus, X, ShieldCheck } from '@phosphor-icons/react'
-import { useSessionStore, AVAILABLE_MODELS, getModelDisplayLabel } from '../stores/sessionStore'
+import { useSessionStore, AVAILABLE_MODELS, getModelDisplayLabel, getEffectiveModel } from '../stores/sessionStore'
 import { usePopoverLayer } from './PopoverLayer'
-import { useColors } from '../theme'
+import { useColors, useThemeStore } from '../theme'
 
 /* ─── Model Picker (inline — tightly coupled to StatusBar) ─── */
 
 function ModelPicker() {
-  const preferredModel = useSessionStore((s) => s.preferredModel)
-  const setPreferredModel = useSessionStore((s) => s.setPreferredModel)
+  const defaultModel = useThemeStore((s) => s.defaultModel)
+  const setTabModel = useSessionStore((s) => s.setTabModel)
   const tab = useSessionStore(
     (s) => s.tabs.find((t) => t.id === s.activeTabId),
-    (a, b) => a === b || (!!a && !!b && a.status === b.status && a.sessionModel === b.sessionModel),
+    (a, b) => a === b || (!!a && !!b && a.status === b.status && a.sessionModel === b.sessionModel && a.modelOverride === b.modelOverride),
   )
   const popoverLayer = usePopoverLayer()
   const colors = useColors()
@@ -52,15 +52,10 @@ function ModelPicker() {
     setOpen((o) => !o)
   }
 
+  const effectiveModel = tab ? getEffectiveModel(tab, defaultModel) : defaultModel
   const activeLabel = (() => {
-    if (preferredModel) {
-      const m = AVAILABLE_MODELS.find((m) => m.id === preferredModel)
-      return m?.label || getModelDisplayLabel(preferredModel)
-    }
-    if (tab?.sessionModel) {
-      return getModelDisplayLabel(tab.sessionModel)
-    }
-    return AVAILABLE_MODELS[0].label
+    const m = AVAILABLE_MODELS.find((item) => item.id === effectiveModel)
+    return m?.label || getModelDisplayLabel(effectiveModel)
   })()
 
   return (
@@ -103,11 +98,11 @@ function ModelPicker() {
         >
           <div className="py-1">
             {AVAILABLE_MODELS.map((m) => {
-              const isSelected = preferredModel === m.id || (!preferredModel && m.id === AVAILABLE_MODELS[0].id)
+              const isSelected = effectiveModel === m.id
               return (
                 <button
                   key={m.id}
-                  onClick={() => { setPreferredModel(m.id); setOpen(false) }}
+                  onClick={() => { setTabModel(m.id); setOpen(false) }}
                   className="w-full flex items-center justify-between px-3 py-1.5 text-[11px] transition-colors"
                   style={{
                     color: isSelected ? colors.textPrimary : colors.textSecondary,
@@ -296,8 +291,11 @@ export function StatusBar() {
   const isEmpty = tab.messages.length === 0
   const hasExtraDirs = tab.additionalDirs.length > 0
 
+  const cliTerminal = useThemeStore((s) => s.cliTerminal)
+  const cliLabel = cliTerminal === 'iterm' ? 'iTerm' : 'Terminal'
+
   const handleOpenInTerminal = () => {
-    window.clui.openInTerminal(tab.claudeSessionId, tab.workingDirectory)
+    window.clui.openInTerminal(tab.claudeSessionId, tab.workingDirectory, cliTerminal)
   }
 
   const handleDirClick = () => {
@@ -439,9 +437,9 @@ export function StatusBar() {
       <div className="flex items-center gap-1.5 flex-shrink-0">
         <button
           onClick={handleOpenInTerminal}
-          className="flex items-center gap-1 text-[11px] rounded-full px-2 py-0.5 transition-colors"
+          className="clui-pointer flex items-center gap-1 text-[11px] rounded-full px-2 py-0.5 transition-colors"
           style={{ color: colors.textTertiary }}
-          title="Open this session in Terminal"
+          title={`Open this session in ${cliLabel}`}
         >
           Open in CLI
           <Terminal size={11} />
