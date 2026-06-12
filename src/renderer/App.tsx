@@ -111,8 +111,11 @@ export default function App() {
 
     const onMouseDown = (e: MouseEvent) => {
       const el = e.target as HTMLElement
-      // Skip interactive elements — everything else on the card is draggable
-      if (el.closest('button, input, textarea, a, select, [role="button"], [contenteditable], .cm-editor')) return
+      // Skip interactive elements and selectable conversation text —
+      // everything else on the card is draggable. Without the
+      // .conversation-selectable exclusion, preventDefault() below kills
+      // text selection in the chat even though CSS allows it.
+      if (el.closest('button, input, textarea, a, select, [role="button"], [contenteditable], .cm-editor, .conversation-selectable')) return
       if (!el.closest('[data-clui-ui]')) return
       e.preventDefault()
       // Double-click: snap back to default position
