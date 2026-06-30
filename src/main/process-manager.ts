@@ -1,10 +1,10 @@
-import { spawn, execSync, ChildProcess } from 'child_process'
+import { spawn, ChildProcess } from 'child_process'
 import { EventEmitter } from 'events'
 import { homedir } from 'os'
 import { appendFileSync } from 'fs'
-import { join } from 'path'
+import { join, dirname, delimiter } from 'path'
 import { StreamParser } from './stream-parser'
-import { getCliEnv } from './cli-env'
+import { getCliEnv, findClaudeBinary } from './cli-env'
 import type { ClaudeEvent, RunOptions } from '../shared/types'
 
 const LOG_FILE = join(homedir(), '.clui-debug.log')
@@ -36,34 +36,7 @@ export class ProcessManager extends EventEmitter {
   }
 
   private findClaudeBinary(): string {
-    // Try common locations
-    const candidates = [
-      '/usr/local/bin/claude',
-      '/opt/homebrew/bin/claude',
-      join(homedir(), '.npm-global/bin/claude'),
-      join(homedir(), '.nvm/versions/node', '**', 'bin/claude'),
-    ]
-
-    for (const c of candidates) {
-      try {
-        execSync(`test -x "${c}"`, { stdio: 'ignore' })
-        return c
-      } catch {}
-    }
-
-    // Fallback: ask a login shell
-    try {
-      const result = execSync('/bin/zsh -ilc "whence -p claude"', { encoding: 'utf-8', env: getCliEnv() }).trim()
-      if (result) return result
-    } catch {}
-
-    try {
-      const result = execSync('/bin/bash -lc "which claude"', { encoding: 'utf-8', env: getCliEnv() }).trim()
-      if (result) return result
-    } catch {}
-
-    // Last resort
-    return 'claude'
+    return findClaudeBinary()
   }
 
   startRun(options: RunOptions): RunHandle {
@@ -107,15 +80,18 @@ export class ProcessManager extends EventEmitter {
     const env = getCliEnv()
 
     // Ensure our claude binary's directory is in PATH
-    const binDir = this.claudeBinary.substring(0, this.claudeBinary.lastIndexOf('/'))
-    if (env.PATH && !env.PATH.includes(binDir)) {
-      env.PATH = `${binDir}:${env.PATH}`
+    const binDir = this.claudeBinary.includes('/') || this.claudeBinary.includes('\\')
+      ? dirname(this.claudeBinary)
+      : ''
+    if (binDir && env.PATH && !env.PATH.includes(binDir)) {
+      env.PATH = `${binDir}${delimiter}${env.PATH}`
     }
 
     const child = spawn(this.claudeBinary, args, {
       stdio: ['pipe', 'pipe', 'pipe'],
       cwd,
       env,
+      windowsHide: true,
     })
 
     log(`Spawned PID: ${child.pid}`)

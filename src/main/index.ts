@@ -147,13 +147,22 @@ function createWindow(): void {
     transparent: true,
     resizable: false,
     movable: true,
+    // On Windows a frameless transparent window still carries WS_MINIMIZEBOX/
+    // WS_MAXIMIZEBOX, which can make DWM paint a caption ("Clui CC" title bar)
+    // when the window is focused or moved. Drop them so no caption is ever drawn.
+    minimizable: false,
+    maximizable: false,
     alwaysOnTop: true,
     skipTaskbar: true,
     hasShadow: false,
-    roundedCorners: true,
+    // macOS/Linux: let the OS round the window corners. On Windows, DWM rounding
+    // on a large transparent overlay can paint a thin caption-like edge at the top
+    // (the "white line"); the renderer draws its own rounded pill, so disable it.
+    roundedCorners: process.platform !== 'win32',
     backgroundColor: '#00000000',
     show: false,
-    icon: join(__dirname, '../../resources/icon.icns'),
+    // PNG works for the BrowserWindow icon on Windows/Linux; macOS uses the bundle icon.
+    icon: join(__dirname, '../../resources/icon.png'),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: true,
@@ -175,13 +184,14 @@ function createWindow(): void {
   })
 
   mainWindow.once('ready-to-show', () => {
-    mainWindow?.show()
+    if (!mainWindow || mainWindow.isDestroyed()) return
+    mainWindow.show()
     // Enable OS-level click-through for transparent regions.
     // { forward: true } ensures mousemove events still reach the renderer
     // so it can toggle click-through off when cursor enters interactive UI.
-    mainWindow?.setIgnoreMouseEvents(true, { forward: true })
+    mainWindow.setIgnoreMouseEvents(true, { forward: true })
     if (process.env.ELECTRON_RENDERER_URL) {
-      mainWindow?.webContents.openDevTools({ mode: 'detach' })
+      mainWindow.webContents.openDevTools({ mode: 'detach' })
     }
   })
 
@@ -419,18 +429,35 @@ ipcMain.handle(IPC.RESPOND_PERMISSION, (_event, { tabId, questionId, optionId }:
   return controlPlane.respondToPermission(tabId, questionId, optionId)
 })
 
+// Validate that a path is an absolute path on the current platform
+// (Windows: drive-letter or UNC; POSIX: leading '/'). Rejects null/newlines.
+function isAbsoluteProjectPath(p: string): boolean {
+  if (/[\0\r\n]/.test(p)) return false
+  if (process.platform === 'win32') {
+    return /^[a-zA-Z]:[\\/]/.test(p) || /^\\\\/.test(p)
+  }
+  return p.startsWith('/')
+}
+
+// Encode a project path the way Claude Code names its ~/.claude/projects/<dir>:
+// every path separator and the drive colon becomes '-'. On POSIX this matches
+// the original "/ → -" scheme (paths have no ':' or '\'); on Windows
+// "C:\Users\x" → "C--Users-x".
+function encodeProjectPath(p: string): string {
+  return p.replace(/[:\\/]/g, '-')
+}
+
 ipcMain.handle(IPC.LIST_SESSIONS, async (_e, projectPath?: string) => {
   log(`IPC LIST_SESSIONS ${projectPath ? `(path=${projectPath})` : ''}`)
   try {
     const cwd = projectPath || process.cwd()
     // Validate projectPath — reject null bytes, newlines, non-absolute paths
-    if (/[\0\r\n]/.test(cwd) || !cwd.startsWith('/')) {
+    if (!isAbsoluteProjectPath(cwd)) {
       log(`LIST_SESSIONS: rejected invalid projectPath: ${cwd}`)
       return []
     }
     // Claude stores project sessions at ~/.claude/projects/<encoded-path>/
-    // Path encoding: replace all '/' with '-' (leading '/' becomes leading '-')
-    const encodedPath = cwd.replace(/\//g, '-')
+    const encodedPath = encodeProjectPath(cwd)
     const sessionsDir = join(homedir(), '.claude', 'projects', encodedPath)
     if (!existsSync(sessionsDir)) {
       log(`LIST_SESSIONS: directory not found: ${sessionsDir}`)
@@ -519,11 +546,11 @@ ipcMain.handle(IPC.LOAD_SESSION, async (_e, arg: { sessionId: string; projectPat
   try {
     const cwd = projectPath || process.cwd()
     // Validate projectPath — reject null bytes, newlines, non-absolute paths
-    if (/[\0\r\n]/.test(cwd) || !cwd.startsWith('/')) {
+    if (!isAbsoluteProjectPath(cwd)) {
       log(`LOAD_SESSION: rejected invalid projectPath: ${cwd}`)
       return []
     }
-    const encodedPath = cwd.replace(/\//g, '-')
+    const encodedPath = encodeProjectPath(cwd)
     const filePath = join(homedir(), '.claude', 'projects', encodedPath, `${sessionId}.jsonl`)
     if (!existsSync(filePath)) return []
 
@@ -666,10 +693,38 @@ ipcMain.handle(IPC.TAKE_SCREENSHOT, async () => {
     const { execSync } = require('child_process')
     const { join } = require('path')
     const { tmpdir } = require('os')
-    const { readFileSync, existsSync } = require('fs')
+    const { readFileSync, existsSync, writeFileSync } = require('fs')
 
     const timestamp = Date.now()
     const screenshotPath = join(tmpdir(), `clui-screenshot-${timestamp}.png`)
+
+    if (process.platform === 'win32') {
+      // Windows has no equivalent of macOS's interactive `screencapture -i` that
+      // writes to a file, so capture the full primary display via Electron.
+      const { desktopCapturer } = require('electron')
+      const primary = screen.getPrimaryDisplay()
+      const scale = primary.scaleFactor || 1
+      const sources = await desktopCapturer.getSources({
+        types: ['screen'],
+        thumbnailSize: {
+          width: Math.round(primary.size.width * scale),
+          height: Math.round(primary.size.height * scale),
+        },
+      })
+      const source = sources[0]
+      if (!source || source.thumbnail.isEmpty()) return null
+      const buf = source.thumbnail.toPNG()
+      writeFileSync(screenshotPath, buf)
+      return {
+        id: crypto.randomUUID(),
+        type: 'image',
+        name: `screenshot ${++screenshotCounter}.png`,
+        path: screenshotPath,
+        mimeType: 'image/png',
+        dataUrl: `data:image/png;base64,${buf.toString('base64')}`,
+        size: buf.length,
+      }
+    }
 
     execSync(`/usr/sbin/screencapture -i "${screenshotPath}"`, {
       timeout: 30000,
@@ -739,6 +794,13 @@ ipcMain.handle(IPC.PASTE_IMAGE, async (_event, dataUrl: string) => {
 })
 
 ipcMain.handle(IPC.TRANSCRIBE_AUDIO, async (_event, audioBase64: string) => {
+  // Voice input relies on macOS-specific Whisper backends (WhisperKit / Homebrew
+  // whisper-cpp). Not wired up on Windows yet — fail cleanly instead of probing
+  // for non-existent binaries.
+  if (process.platform === 'win32') {
+    return { error: 'Voice input is not available on Windows yet.', transcript: null }
+  }
+
   const { writeFileSync, existsSync, unlinkSync, readFileSync } = require('fs')
   const { execFile } = require('child_process')
   const { join, basename } = require('path')
@@ -970,8 +1032,7 @@ ipcMain.handle(IPC.GET_DIAGNOSTICS, () => {
 })
 
 ipcMain.handle(IPC.OPEN_IN_TERMINAL, (_event, arg: string | null | { sessionId?: string | null; projectPath?: string }) => {
-  const { execFile } = require('child_process')
-  const claudeBin = 'claude'
+  const { execFile, spawn } = require('child_process')
 
   const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -985,49 +1046,82 @@ ipcMain.handle(IPC.OPEN_IN_TERMINAL, (_event, arg: string | null | { sessionId?:
     projectPath = arg.projectPath && arg.projectPath !== '~' ? arg.projectPath : process.cwd()
   }
 
-  // Validate sessionId — must be a strict UUID to prevent injection into the shell command
+  // Validate sessionId — must be a strict UUID to prevent injection into the command
   if (sessionId && !UUID_RE.test(sessionId)) {
     log(`OPEN_IN_TERMINAL: rejected invalid sessionId: ${sessionId}`)
     return false
   }
 
-  // Sanitize projectPath — reject null bytes, newlines, and non-absolute paths
-  if (/[\0\r\n]/.test(projectPath) || !projectPath.startsWith('/')) {
+  // Reject null bytes / newlines in the path regardless of platform.
+  if (/[\0\r\n]/.test(projectPath)) {
     log(`OPEN_IN_TERMINAL: rejected invalid projectPath: ${projectPath}`)
     return false
   }
 
-  // Shell-safe single-quote escaping: replace ' with '\'' (end quote, escaped literal quote, reopen quote)
-  // Single quotes block all shell expansion ($, `, \, etc.) — unlike double quotes which allow $() and backticks
-  const shellSingleQuote = (s: string): string => "'" + s.replace(/'/g, "'\\''") + "'"
-  // AppleScript string escaping: backslashes doubled, double quotes escaped
-  const escapeAppleScript = (s: string): string => s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+  if (process.platform === 'win32') {
+    // Require a Windows-style absolute path (drive letter or UNC).
+    if (!/^[a-zA-Z]:[\\/]/.test(projectPath) && !/^\\\\/.test(projectPath)) {
+      log(`OPEN_IN_TERMINAL: rejected non-absolute projectPath: ${projectPath}`)
+      return false
+    }
 
-  const safeDir = escapeAppleScript(shellSingleQuote(projectPath))
-
-  let cmd: string
-  if (sessionId) {
-    // sessionId is UUID-validated above, safe to embed directly
-    cmd = `cd ${safeDir} && ${claudeBin} --resume ${sessionId}`
-  } else {
-    cmd = `cd ${safeDir} && ${claudeBin}`
+    // Open a new terminal window in the project directory running claude.
+    // The path is passed via the spawn cwd (never interpolated into the command),
+    // and sessionId is UUID-validated, so there is no injection surface.
+    const claudeCmd = sessionId ? `claude --resume ${sessionId}` : 'claude'
+    try {
+      const child = spawn('cmd.exe', ['/c', 'start', '', 'cmd', '/k', claudeCmd], {
+        cwd: projectPath,
+        detached: true,
+        windowsHide: false,
+        stdio: 'ignore',
+      })
+      child.unref()
+      log(`Opened terminal with: ${claudeCmd} (cwd=${projectPath})`)
+      return true
+    } catch (err: unknown) {
+      log(`Failed to open terminal: ${err}`)
+      return false
+    }
   }
 
-  const script = `tell application "Terminal"
+  if (process.platform === 'darwin') {
+    // macOS: drive Terminal.app via AppleScript.
+    if (!projectPath.startsWith('/')) {
+      log(`OPEN_IN_TERMINAL: rejected non-absolute projectPath: ${projectPath}`)
+      return false
+    }
+
+    // Shell-safe single-quote escaping: replace ' with '\'' (end quote, escaped literal quote, reopen quote)
+    // Single quotes block all shell expansion ($, `, \, etc.) — unlike double quotes which allow $() and backticks
+    const shellSingleQuote = (s: string): string => "'" + s.replace(/'/g, "'\\''") + "'"
+    // AppleScript string escaping: backslashes doubled, double quotes escaped
+    const escapeAppleScript = (s: string): string => s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+
+    const safeDir = escapeAppleScript(shellSingleQuote(projectPath))
+    const cmd = sessionId
+      ? `cd ${safeDir} && claude --resume ${sessionId}`
+      : `cd ${safeDir} && claude`
+
+    const script = `tell application "Terminal"
   activate
   do script "${cmd}"
 end tell`
 
-  try {
-    execFile('/usr/bin/osascript', ['-e', script], (err: Error | null) => {
-      if (err) log(`Failed to open terminal: ${err.message}`)
-      else log(`Opened terminal with: ${cmd}`)
-    })
-    return true
-  } catch (err: unknown) {
-    log(`Failed to open terminal: ${err}`)
-    return false
+    try {
+      execFile('/usr/bin/osascript', ['-e', script], (err: Error | null) => {
+        if (err) log(`Failed to open terminal: ${err.message}`)
+        else log(`Opened terminal with: ${cmd}`)
+      })
+      return true
+    } catch (err: unknown) {
+      log(`Failed to open terminal: ${err}`)
+      return false
+    }
   }
+
+  log(`OPEN_IN_TERMINAL: unsupported platform ${process.platform}`)
+  return false
 })
 
 // ─── Marketplace IPC ───
@@ -1088,7 +1182,22 @@ async function requestPermissions(): Promise<void> {
 
 // ─── App Lifecycle ───
 
+// Single-instance lock — only one Clui CC overlay should ever run. A second
+// launch (e.g. double-clicking the icon again) focuses the existing overlay
+// instead of stacking another transparent window on top of it.
+const gotSingleInstanceLock = app.requestSingleInstanceLock()
+if (!gotSingleInstanceLock) {
+  app.quit()
+} else {
+  app.on('second-instance', () => {
+    if (mainWindow) showWindow('second-instance')
+  })
+}
+
 app.whenReady().then(async () => {
+  // A second instance is quitting — don't create another window.
+  if (!gotSingleInstanceLock) return
+
   // macOS: become an accessory app. Accessory apps can have key windows (keyboard works)
   // without deactivating the currently active app (hover preserved in browsers).
   // This is how Spotlight, Alfred, Raycast work.
@@ -1136,17 +1245,29 @@ app.whenReady().then(async () => {
   }
 
 
-  // Primary: Option+Space (2 keys, doesn't conflict with shell)
-  // Fallback: Cmd+Shift+K kept as secondary shortcut
-  const registered = globalShortcut.register('Alt+Space', () => toggleWindow('shortcut Alt+Space'))
+  // Primary toggle shortcut.
+  //  - macOS: Option+Space (doesn't conflict with the shell).
+  //  - Windows/Linux: Ctrl+Shift+Space — Alt+Space is reserved by Windows for
+  //    the window system menu, so it can't be used as a global hotkey there.
+  // Fallback: Ctrl/Cmd+Shift+K is always registered as a secondary shortcut.
+  const primaryShortcut = process.platform === 'darwin' ? 'Alt+Space' : 'Control+Shift+Space'
+  const registered = globalShortcut.register(primaryShortcut, () => toggleWindow(`shortcut ${primaryShortcut}`))
   if (!registered) {
-    log('Alt+Space shortcut registration failed — macOS input sources may claim it')
+    log(`${primaryShortcut} shortcut registration failed — another app may have claimed it`)
   }
   globalShortcut.register('CommandOrControl+Shift+K', () => toggleWindow('shortcut Cmd/Ctrl+Shift+K'))
 
-  const trayIconPath = join(__dirname, '../../resources/trayTemplate.png')
-  const trayIcon = nativeImage.createFromPath(trayIconPath)
-  trayIcon.setTemplateImage(true)
+  // Tray icon. macOS uses a monochrome template image; Windows/Linux need a
+  // regular colored icon (a template image renders as solid black there).
+  const isWin = process.platform === 'win32'
+  const trayIconPath = join(__dirname, '../../resources', isWin ? 'icon.png' : 'trayTemplate.png')
+  let trayIcon = nativeImage.createFromPath(trayIconPath)
+  if (process.platform === 'darwin') {
+    trayIcon.setTemplateImage(true)
+  } else if (!trayIcon.isEmpty()) {
+    // Scale the app icon down to a crisp tray size on Windows/Linux.
+    trayIcon = trayIcon.resize({ width: 16, height: 16 })
+  }
   tray = new Tray(trayIcon)
   tray.setToolTip('Clui CC — Claude Code UI')
   tray.on('click', () => toggleWindow('tray click'))

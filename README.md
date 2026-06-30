@@ -56,6 +56,44 @@ Open the `clui-cc` folder in Finder and double-click `install-app.command`.
 
 After the initial install, just open **Clui CC** from your Applications folder or Spotlight.
 
+## Install on Windows
+
+A Windows port of the core overlay (floating window, multi-tab sessions, permission
+approval UI, conversation history, skills marketplace). Voice input is **not**
+available on Windows yet — the mic button is hidden.
+
+**Requirements**
+
+- **Windows 10/11**
+- **Node.js 18+** (LTS 20 or 22 recommended) — <https://nodejs.org>
+- **Claude Code CLI** installed and signed in — run `claude` once in a terminal to authenticate.
+
+**Setup (PowerShell, from the repo root)**
+
+```powershell
+git clone https://github.com/lcoutodemos/clui-cc.git
+cd clui-cc
+powershell -ExecutionPolicy Bypass -File commands\setup.ps1
+```
+
+`setup.ps1` installs dependencies, builds the bundles, and packages an unpacked app
+into `release\win-unpacked\`.
+
+**Launch**
+
+Double-click `commands\start.cmd` (it runs the packaged app, or falls back to
+`npm run preview` from source).
+
+> Press **Ctrl + Shift + Space** to show/hide the overlay (or **Ctrl + Shift + K**).
+> `Alt + Space` is reserved by Windows for the window menu, so it can't be used.
+
+**Health check:** `npm run doctor:win`
+
+> **Notes on the port:** `node-pty` is shipped but unused (the app talks to Claude via
+> a normal child process), so no Visual Studio build tools are required. Packaging is
+> configured with `npmRebuild: false` for the same reason. The overlay is transparent
+> but without macOS-style vibrancy.
+
 <details>
 <summary><strong>Terminal / Developer Commands</strong></summary>
 
@@ -232,7 +270,7 @@ npm run doctor
 
 ## Known Limitations
 
-- **macOS only** — transparent overlay, tray icon, and node-pty are macOS-specific. Windows/Linux support is not currently implemented.
+- **macOS** is the primary target. A **Windows** port of the core overlay is available (see *Install on Windows* above); voice input is macOS-only. Linux is not currently supported.
 - **Requires Claude Code CLI** — Clui CC is a UI layer, not a standalone AI client. You need an authenticated `claude` CLI.
 - **Permission mode** — uses `--permission-mode default`. The PTY interactive transport is legacy and disabled by default.
 
