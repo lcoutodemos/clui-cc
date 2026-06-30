@@ -17,11 +17,10 @@
 
 import { EventEmitter } from 'events'
 import { homedir } from 'os'
-import { join } from 'path'
-import { execSync } from 'child_process'
+import { join, dirname, delimiter } from 'path'
 import { appendFileSync, chmodSync, existsSync, statSync } from 'fs'
 import type { NormalizedEvent, RunOptions, EnrichedError } from '../../shared/types'
-import { getCliEnv } from '../cli-env'
+import { getCliEnv, findClaudeBinary } from '../cli-env'
 
 // node-pty is a native module — require at runtime to avoid Vite bundling issues
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -311,35 +310,16 @@ export class PtyRunManager extends EventEmitter {
   }
 
   private _findClaudeBinary(): string {
-    const candidates = [
-      '/usr/local/bin/claude',
-      '/opt/homebrew/bin/claude',
-      join(homedir(), '.npm-global/bin/claude'),
-    ]
-
-    for (const c of candidates) {
-      try {
-        execSync(`test -x "${c}"`, { stdio: 'ignore' })
-        return c
-      } catch {}
-    }
-
-    try {
-      return execSync('/bin/zsh -ilc "whence -p claude"', { encoding: 'utf-8', env: getCliEnv() }).trim()
-    } catch {}
-
-    try {
-      return execSync('/bin/bash -lc "which claude"', { encoding: 'utf-8', env: getCliEnv() }).trim()
-    } catch {}
-
-    return 'claude'
+    return findClaudeBinary()
   }
 
   private _getEnv(): NodeJS.ProcessEnv {
     const env = getCliEnv()
-    const binDir = this.claudeBinary.substring(0, this.claudeBinary.lastIndexOf('/'))
-    if (env.PATH && !env.PATH.includes(binDir)) {
-      env.PATH = `${binDir}:${env.PATH}`
+    const binDir = this.claudeBinary.includes('/') || this.claudeBinary.includes('\\')
+      ? dirname(this.claudeBinary)
+      : ''
+    if (binDir && env.PATH && !env.PATH.includes(binDir)) {
+      env.PATH = `${binDir}${delimiter}${env.PATH}`
     }
 
     return env

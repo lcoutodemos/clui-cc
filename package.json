@@ -2,6 +2,7 @@
   "name": "clui",
   "version": "0.1.0",
   "description": "Clui CC — Command Line User Interface for Claude Code",
+  "author": "Clui CC contributors",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -17,8 +18,11 @@
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "dist": "electron-vite build --mode production && electron-builder --mac --dir",
+    "dist:win": "electron-vite build --mode production && electron-builder --win --dir",
+    "dist:win:installer": "electron-vite build --mode production && electron-builder --win",
     "doctor": "bash scripts/doctor.sh",
-    "postinstall": "electron-builder install-app-deps && bash scripts/patch-dev-icon.sh"
+    "doctor:win": "powershell -ExecutionPolicy Bypass -File scripts/doctor.ps1",
+    "postinstall": "node scripts/postinstall.mjs"
   },
   "dependencies": {
     "@phosphor-icons/react": "^2.1.10",
@@ -31,6 +35,7 @@
   "build": {
     "appId": "com.clui.app",
     "productName": "Clui CC",
+    "npmRebuild": false,
     "directories": {
       "output": "release"
     },
@@ -48,6 +53,17 @@
       "extendInfo": {
         "NSMicrophoneUsageDescription": "Clui CC uses your microphone to transcribe voice input locally with Whisper."
       }
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "resources/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true
     }
   },
   "devDependencies": {
@@ -56,7 +72,7 @@
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^4.3.0",
     "autoprefixer": "^10.4.0",
-    "electron": "^35.7.5",
+    "electron": "36.9.5",
     "electron-builder": "^26.8.1",
     "electron-vite": "^3.0.0",
     "postcss": "^8.4.0",

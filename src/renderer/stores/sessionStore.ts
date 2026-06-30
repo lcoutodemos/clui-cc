@@ -575,6 +575,8 @@ export const useSessionStore = create<State>((set, get) => ({
     // Optimistic update: clear attachments
     // If busy, add to queuedPrompts (shown at bottom); otherwise add to messages and set connecting
     set((s) => ({
+      // Auto-expand the conversation view so the response is visible as it streams in.
+      isExpanded: true,
       tabs: s.tabs.map((t) => {
         if (t.id !== activeTabId) return t
         const withEffectiveBase = t.hasChosenDirectory

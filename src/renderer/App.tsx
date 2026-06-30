@@ -38,6 +38,19 @@ export default function App() {
     return unsub
   }, [setSystemTheme])
 
+  // Collapse the conversation back to the pill when the overlay loses focus —
+  // e.g. the user clicks the empty/transparent "black space" (which is
+  // click-through, so the click activates whatever is behind and blurs us).
+  useEffect(() => {
+    const onBlur = () => {
+      if (useSessionStore.getState().isExpanded) {
+        useSessionStore.setState({ isExpanded: false })
+      }
+    }
+    window.addEventListener('blur', onBlur)
+    return () => window.removeEventListener('blur', onBlur)
+  }, [])
+
   useEffect(() => {
     useSessionStore.getState().initStaticInfo().then(() => {
       const homeDir = useSessionStore.getState().staticInfo?.homePath || '~'

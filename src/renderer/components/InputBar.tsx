@@ -12,6 +12,9 @@ const MULTILINE_ENTER_HEIGHT = 52
 const MULTILINE_EXIT_HEIGHT = 50
 const INLINE_CONTROLS_RESERVED_WIDTH = 104
 
+// Voice input relies on a macOS-only Whisper backend; hide the mic on Windows.
+const VOICE_SUPPORTED = !/windows/i.test(navigator.userAgent)
+
 type VoiceState = 'idle' | 'recording' | 'transcribing'
 
 /**
@@ -538,6 +541,9 @@ function VoiceButtons({ voiceState, isConnecting, colors, onToggle, onCancel, on
   onCancel: () => void
   onStop: () => void
 }) {
+  // Voice input isn't available on Windows yet — render nothing so only the
+  // send button shows.
+  if (!VOICE_SUPPORTED) return null
   return (
     <AnimatePresence mode="wait">
       {voiceState === 'recording' ? (

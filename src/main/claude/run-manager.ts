@@ -1,11 +1,11 @@
-import { spawn, execSync, ChildProcess } from 'child_process'
+import { spawn, ChildProcess } from 'child_process'
 import { EventEmitter } from 'events'
 import { homedir } from 'os'
-import { join } from 'path'
+import { delimiter, dirname } from 'path'
 import { StreamParser } from '../stream-parser'
 import { normalize } from './event-normalizer'
 import { log as _log } from '../logger'
-import { getCliEnv } from '../cli-env'
+import { getCliEnv, findClaudeBinary } from '../cli-env'
 import type { ClaudeEvent, NormalizedEvent, RunOptions, EnrichedError } from '../../shared/types'
 
 const MAX_RING_LINES = 100
@@ -101,35 +101,16 @@ export class RunManager extends EventEmitter {
   }
 
   private _findClaudeBinary(): string {
-    const candidates = [
-      '/usr/local/bin/claude',
-      '/opt/homebrew/bin/claude',
-      join(homedir(), '.npm-global/bin/claude'),
-    ]
-
-    for (const c of candidates) {
-      try {
-        execSync(`test -x "${c}"`, { stdio: 'ignore' })
-        return c
-      } catch {}
-    }
-
-    try {
-      return execSync('/bin/zsh -ilc "whence -p claude"', { encoding: 'utf-8', env: getCliEnv() }).trim()
-    } catch {}
-
-    try {
-      return execSync('/bin/bash -lc "which claude"', { encoding: 'utf-8', env: getCliEnv() }).trim()
-    } catch {}
-
-    return 'claude'
+    return findClaudeBinary()
   }
 
   private _getEnv(): NodeJS.ProcessEnv {
     const env = getCliEnv()
-    const binDir = this.claudeBinary.substring(0, this.claudeBinary.lastIndexOf('/'))
-    if (env.PATH && !env.PATH.includes(binDir)) {
-      env.PATH = `${binDir}:${env.PATH}`
+    const binDir = this.claudeBinary.includes('/') || this.claudeBinary.includes('\\')
+      ? dirname(this.claudeBinary)
+      : ''
+    if (binDir && env.PATH && !env.PATH.includes(binDir)) {
+      env.PATH = `${binDir}${delimiter}${env.PATH}`
     }
 
     return env
@@ -201,6 +182,8 @@ export class RunManager extends EventEmitter {
       stdio: ['pipe', 'pipe', 'pipe'],
       cwd,
       env: this._getEnv(),
+      // Run the native claude.exe directly without flashing a console window.
+      windowsHide: true,
     })
 
     log(`Spawned PID: ${child.pid}`)
